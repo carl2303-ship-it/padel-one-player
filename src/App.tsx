@@ -14,7 +14,6 @@ import {
   Bell,
   Search,
   Plus,
-  Users,
   Smartphone,
   Lock,
   Eye,
@@ -25,8 +24,7 @@ import {
   Camera,
   BookOpen,
   Gamepad2,
-  Menu,
-  X
+  Mail
 } from 'lucide-react'
 
 type Screen = 'home' | 'games' | 'profile'
@@ -38,7 +36,9 @@ function App() {
   const [isLoading, setIsLoading] = useState(true)
   
   // Auth states
+  const [loginMethod, setLoginMethod] = useState<'phone' | 'email'>('email')
   const [phone, setPhone] = useState('')
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [authError, setAuthError] = useState('')
@@ -54,17 +54,39 @@ function App() {
 
   const checkAuth = async () => {
     setIsLoading(true)
+    
+    // Verificar se há sessão Supabase Auth activa
+    const { data: { session } } = await supabase.auth.getSession()
+    
+    if (session?.user) {
+      // Buscar player_account pelo user_id
+      const { data: playerAccount } = await supabase
+        .from('player_accounts')
+        .select('*')
+        .eq('user_id', session.user.id)
+        .maybeSingle()
+      
+      if (playerAccount) {
+        setPlayer(playerAccount as any)
+        setIsAuthenticated(true)
+        await loadPlayerData(playerAccount.id)
+        setIsLoading(false)
+        return
+      }
+    }
+    
+    // Fallback: verificar localStorage
     const savedPhone = localStorage.getItem('padel_one_player_phone')
     
     if (savedPhone) {
-      const { data, error } = await supabase
+      const { data } = await supabase
         .from('player_accounts')
         .select('*')
-        .eq('phone', savedPhone)
-        .single()
+        .eq('phone_number', savedPhone)
+        .maybeSingle()
       
-      if (data && !error) {
-        setPlayer(data)
+      if (data) {
+        setPlayer(data as any)
         setIsAuthenticated(true)
         await loadPlayerData(data.id)
       }
@@ -105,43 +127,141 @@ function App() {
   const handleLogin = async () => {
     setAuthError('')
     setIsAuthLoading(true)
-    
-    let normalizedPhone = phone.trim().replace(/\s+/g, '')
-    if (!normalizedPhone.startsWith('+')) {
-      normalizedPhone = '+351' + normalizedPhone
-    }
 
     try {
-      const { data, error } = await supabase
-        .from('player_accounts')
-        .select('*')
-        .eq('phone', normalizedPhone)
-        .single()
-      
-      if (error || !data) {
-        setAuthError('Telefone não encontrado')
-        setIsAuthLoading(false)
-        return
+      let emailToUse: string | null = null
+      let playerAccount: any = null
+
+      if (loginMethod === 'email') {
+        // Login directo com email
+        emailToUse = email.trim().toLowerCase()
+        
+        if (!emailToUse) {
+          setAuthError('Introduz o teu email')
+          setIsAuthLoading(false)
+          return
+        }
+
+        // Fazer login com Supabase Auth
+        const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+          email: emailToUse,
+          password: password,
+        })
+
+        if (authError) {
+          if (authError.message.includes('Invalid login')) {
+            setAuthError('Email ou password incorretos')
+          } else {
+            setAuthError('Erro ao fazer login: ' + authError.message)
+          }
+          setIsAuthLoading(false)
+          return
+        }
+
+        // Buscar player_account pelo user_id
+        if (authData?.user) {
+          const { data: account } = await supabase
+            .from('player_accounts')
+            .select('*')
+            .eq('user_id', authData.user.id)
+            .maybeSingle()
+          
+          playerAccount = account
+          
+          if (playerAccount?.phone_number) {
+            localStorage.setItem('padel_one_player_phone', playerAccount.phone_number)
+          }
+        }
+
+      } else {
+        // Login via telefone - usa Edge Function como o Tour
+        let normalizedPhone = phone.trim().replace(/\s+/g, '')
+        if (!normalizedPhone.startsWith('+')) {
+          normalizedPhone = '+351' + normalizedPhone
+        }
+
+        console.log('[LOGIN] Procurando telefone via Edge Function:', normalizedPhone)
+
+        // Chamar Edge Function para obter o email (usa Service Role Key, ignora RLS)
+        const response = await fetch(
+          'https://rqiwnxcexsccguruiteq.supabase.co/functions/v1/get-player-login-email',
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJxaXdueGNleHNjY2d1cnVpdGVxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk3Njc5MzcsImV4cCI6MjA3NTM0MzkzN30.Dl05zPQDtPVpmvn_Y-JokT3wDq0Oh9uF3op5xcHZpkY',
+            },
+            body: JSON.stringify({ phone_number: normalizedPhone }),
+          }
+        )
+
+        const emailData = await response.json()
+        console.log('[LOGIN] Resposta da Edge Function:', emailData)
+
+        if (!response.ok || !emailData?.success || !emailData?.email) {
+          if (emailData?.error === 'Player account not found') {
+            setAuthError('Telefone não encontrado: ' + normalizedPhone)
+          } else if (emailData?.error === 'Player account has no email') {
+            setAuthError('Conta sem email associado. Contacta o organizador.')
+          } else {
+            setAuthError(emailData?.error || 'Erro ao verificar telefone')
+          }
+          setIsAuthLoading(false)
+          return
+        }
+
+        emailToUse = emailData.email
+        console.log('[LOGIN] Email obtido:', emailToUse)
+
+        // Fazer login com Supabase Auth
+        const { error: authError, data: authData } = await supabase.auth.signInWithPassword({
+          email: emailToUse!,
+          password: password,
+        })
+
+        if (authError) {
+          console.log('[LOGIN] Erro de auth:', authError)
+          if (authError.message.includes('Invalid login')) {
+            setAuthError('Password incorreta')
+          } else {
+            setAuthError('Erro ao fazer login: ' + authError.message)
+          }
+          setIsAuthLoading(false)
+          return
+        }
+
+        console.log('[LOGIN] Login com sucesso! User:', authData?.user?.id)
+
+        // Buscar player_account agora que estamos autenticados
+        if (authData?.user) {
+          const { data: account } = await supabase
+            .from('player_accounts')
+            .select('*')
+            .eq('user_id', authData.user.id)
+            .maybeSingle()
+          
+          playerAccount = account
+          console.log('[LOGIN] Player account:', playerAccount)
+        }
+
+        localStorage.setItem('padel_one_player_phone', normalizedPhone)
       }
 
-      if (data.password !== password) {
-        setAuthError('Password incorreta')
-        setIsAuthLoading(false)
-        return
+      if (playerAccount) {
+        setPlayer(playerAccount as any)
+        await loadPlayerData(playerAccount.id)
       }
-
-      localStorage.setItem('padel_one_player_phone', normalizedPhone)
-      setPlayer(data)
       setIsAuthenticated(true)
-      await loadPlayerData(data.id)
     } catch (err) {
+      console.error('Login error:', err)
       setAuthError('Erro ao fazer login')
     }
     
     setIsAuthLoading(false)
   }
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await supabase.auth.signOut()
     localStorage.removeItem('padel_one_player_phone')
     setPlayer(null)
     setIsAuthenticated(false)
@@ -162,8 +282,12 @@ function App() {
 
   if (!isAuthenticated) {
     return <LoginScreen 
+      loginMethod={loginMethod}
+      setLoginMethod={setLoginMethod}
       phone={phone}
       setPhone={setPhone}
+      email={email}
+      setEmail={setEmail}
       password={password}
       setPassword={setPassword}
       showPassword={showPassword}
@@ -180,9 +304,11 @@ function App() {
       <header className="sticky top-0 z-40 glass-light">
         <div className="px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-padel flex items-center justify-center shadow-sm">
-              <span className="text-white font-bold text-lg">P</span>
-            </div>
+            <img 
+              src="/icon.png" 
+              alt="Padel One" 
+              className="w-10 h-10 rounded-xl shadow-sm"
+            />
             <div>
               <p className="text-xs text-gray-500">Olá,</p>
               <p className="font-semibold text-gray-900">{player?.name?.split(' ')[0] || 'Jogador'}</p>
@@ -265,9 +391,13 @@ function NavItem({ icon: Icon, label, active, onClick }: {
   )
 }
 
-function LoginScreen({ phone, setPhone, password, setPassword, showPassword, setShowPassword, error, isLoading, onLogin }: {
+function LoginScreen({ loginMethod, setLoginMethod, phone, setPhone, email, setEmail, password, setPassword, showPassword, setShowPassword, error, isLoading, onLogin }: {
+  loginMethod: 'phone' | 'email'
+  setLoginMethod: (v: 'phone' | 'email') => void
   phone: string
   setPhone: (v: string) => void
+  email: string
+  setEmail: (v: string) => void
   password: string
   setPassword: (v: string) => void
   showPassword: boolean
@@ -276,15 +406,21 @@ function LoginScreen({ phone, setPhone, password, setPassword, showPassword, set
   isLoading: boolean
   onLogin: () => void
 }) {
+  const canSubmit = loginMethod === 'email' 
+    ? email.trim() && password 
+    : phone.trim() && password
+
   return (
     <div className="min-h-screen bg-white flex flex-col">
       {/* Hero Section */}
       <div className="flex-1 flex flex-col items-center justify-center px-6 py-12">
         {/* Logo */}
         <div className="mb-8 animate-fade-in">
-          <div className="w-24 h-24 rounded-3xl bg-gradient-padel flex items-center justify-center shadow-xl">
-            <span className="text-4xl font-black text-white">P</span>
-          </div>
+          <img 
+            src="/icon.png" 
+            alt="Padel One" 
+            className="w-24 h-24 rounded-3xl shadow-xl"
+          />
         </div>
 
         {/* Title */}
@@ -303,16 +439,55 @@ function LoginScreen({ phone, setPhone, password, setPassword, showPassword, set
             </div>
           )}
 
-          <div className="relative">
-            <Smartphone className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-            <input
-              type="tel"
-              placeholder="Número de telemóvel"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              className="w-full pl-12 pr-4 py-4 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:border-red-500 focus:ring-2 focus:ring-red-500/20 transition-all"
-            />
+          {/* Login Method Toggle */}
+          <div className="flex bg-gray-100 rounded-xl p-1">
+            <button
+              onClick={() => setLoginMethod('email')}
+              className={`flex-1 py-2 px-4 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2 ${
+                loginMethod === 'email' 
+                  ? 'bg-white text-gray-900 shadow-sm' 
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              <Mail className="w-4 h-4" />
+              Email
+            </button>
+            <button
+              onClick={() => setLoginMethod('phone')}
+              className={`flex-1 py-2 px-4 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2 ${
+                loginMethod === 'phone' 
+                  ? 'bg-white text-gray-900 shadow-sm' 
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              <Smartphone className="w-4 h-4" />
+              Telefone
+            </button>
           </div>
+
+          {loginMethod === 'email' ? (
+            <div className="relative">
+              <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <input
+                type="email"
+                placeholder="Email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full pl-12 pr-4 py-4 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:border-red-500 focus:ring-2 focus:ring-red-500/20 transition-all"
+              />
+            </div>
+          ) : (
+            <div className="relative">
+              <Smartphone className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <input
+                type="tel"
+                placeholder="Número de telemóvel"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                className="w-full pl-12 pr-4 py-4 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:border-red-500 focus:ring-2 focus:ring-red-500/20 transition-all"
+              />
+            </div>
+          )}
 
           <div className="relative">
             <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
@@ -335,7 +510,7 @@ function LoginScreen({ phone, setPhone, password, setPassword, showPassword, set
 
           <button
             onClick={onLogin}
-            disabled={isLoading || !phone || !password}
+            disabled={isLoading || !canSubmit}
             className="w-full py-4 btn-primary disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none flex items-center justify-center gap-2"
           >
             {isLoading ? (
@@ -349,8 +524,7 @@ function LoginScreen({ phone, setPhone, password, setPassword, showPassword, set
           </button>
 
           <p className="text-center text-gray-500 text-sm">
-            Ainda não tens conta?{' '}
-            <a href="#" className="text-red-600 hover:underline font-medium">Regista-te</a>
+            Usa o mesmo email e password do Padel One Tour
           </p>
         </div>
       </div>
@@ -580,7 +754,7 @@ function TournamentCard({ tournament }: { tournament: Tournament }) {
   )
 }
 
-function GamesScreen({ player, matches }: { player: PlayerAccount | null, matches: any[] }) {
+function GamesScreen({ player: _player, matches }: { player: PlayerAccount | null, matches: any[] }) {
   const [activeTab, setActiveTab] = useState<'upcoming' | 'history'>('upcoming')
 
   return (
