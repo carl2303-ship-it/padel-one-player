@@ -32,9 +32,10 @@ import {
   Phone,
   Mail,
   Globe,
-  GraduationCap
+  GraduationCap,
+  Users
 } from 'lucide-react'
-import { fetchAllClubs, fetchClubById, fetchUpcomingTournaments, type ClubDetail, type UpcomingTournamentFromTour } from './lib/clubAndTournaments'
+import { fetchAllClubs, fetchClubById, fetchUpcomingTournaments, getTournamentEnrolledUrl, type ClubDetail, type UpcomingTournamentFromTour } from './lib/clubAndTournaments'
 
 type Screen = 'home' | 'games' | 'profile' | 'club' | 'compete'
 
@@ -293,6 +294,7 @@ function App() {
             onRefresh={refreshDashboard}
             onOpenClub={() => setCurrentScreen('club')}
             onOpenCompete={() => setCurrentScreen('compete')}
+            onOpenGames={() => setCurrentScreen('games')}
           />
         )}
         {currentScreen === 'games' && (
@@ -582,7 +584,7 @@ function twoPlayersPerTeam(teamName: string): [string, string] {
 }
 
 /** Card ao estilo Playtomic: layout vertical – equipa 1 em cima, resultado no meio, equipa 2 em baixo; nomes abaixo de cada bolinha; troféu ao lado do resultado da equipa vencedora */
-function GameCardPlaytomic({ match }: { match: PlayerMatchForCard }) {
+function GameCardPlaytomic({ match, fullWidth }: { match: PlayerMatchForCard; fullWidth?: boolean }) {
   const p1 = match.player1_name ?? twoPlayersPerTeam(match.team1_name)[0]
   const p2 = match.player2_name ?? twoPlayersPerTeam(match.team1_name)[1]
   const p3 = match.player3_name ?? twoPlayersPerTeam(match.team2_name)[0]
@@ -597,7 +599,7 @@ function GameCardPlaytomic({ match }: { match: PlayerMatchForCard }) {
   const team2Won = match.status === 'completed' && match.score1 != null && match.score2 != null && match.score2 > match.score1
 
   return (
-    <div className="flex-shrink-0 w-[280px] sm:w-[300px] rounded-2xl bg-white border border-gray-100 shadow-md overflow-hidden">
+    <div className={`rounded-2xl bg-white border border-gray-100 shadow-md overflow-hidden ${fullWidth ? 'w-full' : 'flex-shrink-0 w-[280px] sm:w-[300px]'}`}>
       <div className="p-4">
         <div className="flex items-center justify-between gap-2 mb-3">
           <span className="text-xs font-medium text-gray-500">
@@ -611,22 +613,22 @@ function GameCardPlaytomic({ match }: { match: PlayerMatchForCard }) {
           )}
         </div>
 
-        {/* Layout: grid 2x2 para bolinhas alinhadas; resultados à direita; linha fina divide equipas */}
+        {/* Layout: grid 2x2 bolinhas alinhadas no topo; resultados à direita; linha fina divide equipas */}
         <div className="flex flex-col">
           {/* Equipa 1 – laranja */}
-          <div className="flex items-center justify-between gap-4">
-            <div className="grid grid-cols-2 gap-x-4 gap-y-0 w-[120px] flex-shrink-0">
-              <div className="flex flex-col items-center">
-                <div className="w-11 h-11 rounded-full bg-orange-400 flex items-center justify-center text-xl font-bold text-white shadow-sm" title={p1}>
+          <div className="flex items-start justify-between gap-4">
+            <div className="grid grid-cols-2 gap-x-4 gap-y-0 w-[120px] flex-shrink-0 items-start">
+              <div className="flex flex-col items-center min-h-[52px]">
+                <div className="w-11 h-11 rounded-full bg-orange-400 flex items-center justify-center text-xl font-bold text-white shadow-sm flex-shrink-0" title={p1}>
                   {initialFor(p1)}
                 </div>
-                <span className="text-[10px] text-gray-600 truncate max-w-[60px] mt-0.5 text-center" title={p1}>{p1}</span>
+                <span className="text-[10px] text-gray-600 truncate max-w-[60px] mt-0.5 text-center line-clamp-2 min-h-[24px]" title={p1}>{p1}</span>
               </div>
-              <div className="flex flex-col items-center">
-                <div className="w-11 h-11 rounded-full bg-orange-400 flex items-center justify-center text-xl font-bold text-white shadow-sm" title={p2}>
+              <div className="flex flex-col items-center min-h-[52px]">
+                <div className="w-11 h-11 rounded-full bg-orange-400 flex items-center justify-center text-xl font-bold text-white shadow-sm flex-shrink-0" title={p2}>
                   {initialFor(p2)}
                 </div>
-                <span className="text-[10px] text-gray-600 truncate max-w-[60px] mt-0.5 text-center" title={p2}>{p2}</span>
+                <span className="text-[10px] text-gray-600 truncate max-w-[60px] mt-0.5 text-center line-clamp-2 min-h-[24px]" title={p2}>{p2}</span>
               </div>
             </div>
             {match.status === 'completed' && (hasSets || match.score1 != null) && (
@@ -642,22 +644,22 @@ function GameCardPlaytomic({ match }: { match: PlayerMatchForCard }) {
           </div>
 
           {/* Linha fina a dividir equipa 1 da equipa 2 */}
-          <div className="border-t border-gray-200 my-2" />
+          <div className="border-t border-gray-200/60 my-2" />
 
           {/* Equipa 2 – azul claro (grid igual para alinhar com equipa 1) */}
-          <div className="flex items-center justify-between gap-4">
-            <div className="grid grid-cols-2 gap-x-4 gap-y-0 w-[120px] flex-shrink-0">
-              <div className="flex flex-col items-center">
-                <div className="w-11 h-11 rounded-full bg-sky-200 flex items-center justify-center text-xl font-bold text-sky-800 shadow-sm" title={p3}>
+          <div className="flex items-start justify-between gap-4">
+            <div className="grid grid-cols-2 gap-x-4 gap-y-0 w-[120px] flex-shrink-0 items-start">
+              <div className="flex flex-col items-center min-h-[52px]">
+                <div className="w-11 h-11 rounded-full bg-sky-200 flex items-center justify-center text-xl font-bold text-sky-800 shadow-sm flex-shrink-0" title={p3}>
                   {initialFor(p3)}
                 </div>
-                <span className="text-[10px] text-gray-600 truncate max-w-[60px] mt-0.5 text-center" title={p3}>{p3}</span>
+                <span className="text-[10px] text-gray-600 truncate max-w-[60px] mt-0.5 text-center line-clamp-2 min-h-[24px]" title={p3}>{p3}</span>
               </div>
-              <div className="flex flex-col items-center">
-                <div className="w-11 h-11 rounded-full bg-sky-200 flex items-center justify-center text-xl font-bold text-sky-800 shadow-sm" title={p4}>
+              <div className="flex flex-col items-center min-h-[52px]">
+                <div className="w-11 h-11 rounded-full bg-sky-200 flex items-center justify-center text-xl font-bold text-sky-800 shadow-sm flex-shrink-0" title={p4}>
                   {initialFor(p4)}
                 </div>
-                <span className="text-[10px] text-gray-600 truncate max-w-[60px] mt-0.5 text-center" title={p4}>{p4}</span>
+                <span className="text-[10px] text-gray-600 truncate max-w-[60px] mt-0.5 text-center line-clamp-2 min-h-[24px]" title={p4}>{p4}</span>
               </div>
             </div>
             {match.status === 'completed' && (hasSets || match.score1 != null) && (
@@ -732,12 +734,14 @@ function HomeScreen({
   onRefresh,
   onOpenClub,
   onOpenCompete,
+  onOpenGames,
 }: {
   player: PlayerAccount | null
   dashboardData: PlayerDashboardData | null
   onRefresh: () => Promise<void>
   onOpenClub: () => void
   onOpenCompete: () => void
+  onOpenGames: () => void
 }) {
   void onRefresh
   const [viewingTournament, setViewingTournament] = useState<{ id: string; name: string } | null>(null)
@@ -807,31 +811,31 @@ function HomeScreen({
           </div>
           <div className="flex-1 min-w-0">
             <p className="font-bold text-lg sm:text-xl text-gray-900">{player?.name || name || 'Jogador'}</p>
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mt-4">
-              <div className="stat-tile p-3 flex flex-col items-center text-center">
-                <span className="stat-emoji mb-1">🎾</span>
-                <span className="text-lg sm:text-xl font-bold text-gray-900">{totalMatches}</span>
-                <span className="text-xs text-gray-500 font-medium">Jogos</span>
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mt-4 items-start">
+              <div className="stat-tile p-3 flex flex-col items-center">
+                <span className="stat-emoji h-8 flex items-center justify-center mb-1">🎾</span>
+                <span className="text-lg sm:text-xl font-bold text-gray-900 text-center">{totalMatches}</span>
+                <span className="text-xs text-gray-500 font-medium text-center leading-tight">Jogos</span>
               </div>
-              <div className="stat-tile p-3 flex flex-col items-center text-center">
-                <span className="stat-emoji mb-1">🏆</span>
-                <span className="text-lg sm:text-xl font-bold text-gray-900">{wins}</span>
-                <span className="text-xs text-gray-500 font-medium">Vitórias</span>
+              <div className="stat-tile p-3 flex flex-col items-center">
+                <span className="stat-emoji h-8 flex items-center justify-center mb-1">🏆</span>
+                <span className="text-lg sm:text-xl font-bold text-gray-900 text-center">{wins}</span>
+                <span className="text-xs text-gray-500 font-medium text-center leading-tight">Vitórias</span>
               </div>
-              <div className="stat-tile p-3 flex flex-col items-center text-center">
-                <span className="stat-emoji mb-1">📈</span>
-                <span className="text-lg sm:text-xl font-bold text-gray-900">{winRate}%</span>
-                <span className="text-xs text-gray-500 font-medium">Taxa vitória</span>
+              <div className="stat-tile p-3 flex flex-col items-center">
+                <span className="stat-emoji h-8 flex items-center justify-center mb-1">📈</span>
+                <span className="text-lg sm:text-xl font-bold text-gray-900 text-center">{winRate}%</span>
+                <span className="text-xs text-gray-500 font-medium text-center leading-tight">Taxa vitória</span>
               </div>
-              <div className="stat-tile p-3 flex flex-col items-center text-center">
-                <span className="stat-emoji mb-1">⭐</span>
-                <span className="text-lg sm:text-xl font-bold text-gray-900">{player?.level?.toFixed(1) || '3.0'}</span>
-                <span className="text-xs text-gray-500 font-medium">Nível</span>
+              <div className="stat-tile p-3 flex flex-col items-center">
+                <span className="stat-emoji h-8 flex items-center justify-center mb-1">⭐</span>
+                <span className="text-lg sm:text-xl font-bold text-gray-900 text-center">{player?.level?.toFixed(1) || '3.0'}</span>
+                <span className="text-xs text-gray-500 font-medium text-center leading-tight">Nível</span>
               </div>
-              <div className="stat-tile p-3 flex flex-col items-center text-center col-span-2 sm:col-span-1">
-                <span className="stat-emoji mb-1">💎</span>
-                <span className="text-lg sm:text-xl font-bold text-amber-600">{rewardPoints}</span>
-                <span className="text-xs text-gray-500 font-medium">Pontos reward</span>
+              <div className="stat-tile p-3 col-span-2 sm:col-span-1 flex flex-col items-center">
+                <span className="stat-emoji h-8 flex items-center justify-center mb-1">💎</span>
+                <span className="text-lg sm:text-xl font-bold text-amber-600 text-center">{rewardPoints}</span>
+                <span className="text-xs text-gray-500 font-medium text-center leading-tight">Pontos reward</span>
               </div>
             </div>
           </div>
@@ -844,7 +848,7 @@ function HomeScreen({
           <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
             <span>📅</span> Próximos Jogos
           </h2>
-          <button className="text-red-600 text-sm font-medium flex items-center gap-1">
+          <button onClick={onOpenGames} className="text-red-600 text-sm font-medium flex items-center gap-1">
             Ver todos <ChevronRight className="w-4 h-4" />
           </button>
         </div>
@@ -873,7 +877,7 @@ function HomeScreen({
           <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
             <span>🏆</span> Os Meus Torneios
           </h2>
-          <button className="text-red-600 text-sm font-medium flex items-center gap-1">
+          <button onClick={onOpenCompete} className="text-red-600 text-sm font-medium flex items-center gap-1">
             Ver todos <ChevronRight className="w-4 h-4" />
           </button>
         </div>
@@ -903,7 +907,7 @@ function HomeScreen({
             <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
               <span>📊</span> Resultados Recentes
             </h2>
-            <button className="text-red-600 text-sm font-medium flex items-center gap-1">
+            <button onClick={onOpenGames} className="text-red-600 text-sm font-medium flex items-center gap-1">
               Ver todos <ChevronRight className="w-4 h-4" />
             </button>
           </div>
@@ -1088,6 +1092,9 @@ function CompeteScreen({
   const [viewingTournament, setViewingTournament] = useState<{ id: string; name: string } | null>(null)
   const [tournamentDetail, setTournamentDetail] = useState<{ standings: any[]; myMatches: any[]; name: string } | null>(null)
   const [detailTab, setDetailTab] = useState<'standings' | 'matches'>('standings')
+  const [viewingEnrolled, setViewingEnrolled] = useState<{ id: string; name: string } | null>(null)
+  const [enrolledData, setEnrolledData] = useState<EnrolledByCategory[]>([])
+  const [enrolledLoading, setEnrolledLoading] = useState(false)
 
   const d = dashboardData
   const name = d?.playerName ?? ''
@@ -1146,31 +1153,81 @@ function CompeteScreen({
       </div>
 
       {activeTab === 'upcoming' && (
-        <div className="space-y-3">
+        <div className="space-y-4">
           {loadingUpcoming ? (
             <div className="flex justify-center py-8">
               <div className="w-8 h-8 border-2 border-red-600 border-t-transparent rounded-full animate-spin" />
             </div>
-          ) : upcomingFromTour.length > 0 ? (
-            upcomingFromTour.map((t) => (
-              <div key={t.id} className="card p-4">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <h3 className="font-semibold text-gray-900">{t.name}</h3>
-                    <p className="text-sm text-gray-500 mt-1">{formatDate(t.start_date)}</p>
+          ) : (() => {
+            const enrolledIds = new Set((d?.upcomingTournaments ?? []).map((t) => t.id))
+            const tourById = new Map(upcomingFromTour.map((t) => [t.id, t]))
+            const enrolledNotInList = (d?.upcomingTournaments ?? []).filter((t) => !tourById.has(t.id))
+            const enrolledFromTour = upcomingFromTour.filter((t) => enrolledIds.has(t.id))
+            const othersFromTour = upcomingFromTour.filter((t) => !enrolledIds.has(t.id))
+            const enrolledMinimal: UpcomingTournamentFromTour[] = enrolledNotInList.map((t) => ({
+              id: t.id,
+              name: t.name,
+              start_date: t.start_date,
+              end_date: t.end_date,
+              status: t.status || 'active',
+              image_url: null,
+              description: null,
+            }))
+            const displayList = [
+              ...enrolledMinimal.sort((a, b) => new Date(a.start_date).getTime() - new Date(b.start_date).getTime()),
+              ...enrolledFromTour,
+              ...othersFromTour,
+            ]
+            return displayList.length > 0 ? (
+              displayList.map((t) => {
+                const isEnrolled = enrolledIds.has(t.id)
+                return (
+                  <div key={t.id} className="card overflow-hidden p-0 flex">
+                    <div className="w-24 sm:w-32 flex-shrink-0">
+                      {t.image_url ? (
+                        <img src={t.image_url} alt={t.name} className="w-full h-full min-h-[140px] object-cover rounded-l-xl" />
+                      ) : (
+                        <div className="w-full h-full min-h-[140px] bg-gradient-to-br from-red-100 to-amber-100 flex items-center justify-center rounded-l-xl">
+                          <Trophy className="w-12 h-12 text-red-400/70" />
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex-1 p-4 sm:p-5 min-w-0 flex flex-col">
+                      <div className="flex items-start justify-between gap-2">
+                        <h3 className="font-bold text-gray-900 text-base sm:text-lg line-clamp-2">{t.name}</h3>
+                        <div className="flex items-center gap-1.5 flex-shrink-0">
+                          {isEnrolled && (
+                            <span className="px-2 py-1 rounded-lg text-xs font-medium bg-green-100 text-green-700">Inscrito</span>
+                          )}
+                          <span className={`px-2 py-1 rounded-lg text-xs font-medium ${t.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
+                            {t.status === 'active' ? 'Aberto' : t.status}
+                          </span>
+                        </div>
+                      </div>
+                      <p className="text-sm text-gray-500 mt-1 flex items-center gap-1">
+                        <Calendar className="w-4 h-4 flex-shrink-0" />
+                        {formatDate(t.start_date)}
+                      </p>
+                      {t.description && (
+                        <div className="text-sm text-gray-600 mt-2 line-clamp-3 flex-1 [&_p]:my-0 [&_p]:last:mb-0" dangerouslySetInnerHTML={{ __html: t.description }} />
+                      )}
+                      <button
+                        onClick={() => viewEnrolled(t.id, t.name)}
+                        className="mt-3 inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-xl transition-colors w-fit"
+                      >
+                        <Users className="w-4 h-4" />
+                        Ver inscritos por categoria
+                      </button>
+                    </div>
                   </div>
-                  <span className={`px-2 py-1 rounded-lg text-xs font-medium ${t.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
-                    {t.status === 'active' ? 'Aberto' : t.status}
-                  </span>
-                </div>
-                <p className="text-xs text-gray-400 mt-2">Inscrições na Padel One Tour</p>
+                )
+              })
+            ) : (
+              <div className="card p-8 text-center text-gray-500">
+                Nenhum torneio próximo do clube. Consulta a Padel One Tour para mais torneios.
               </div>
-            ))
-          ) : (
-            <div className="card p-6 text-center text-gray-500">
-              Nenhum torneio próximo do clube. Consulta a Padel One Tour para mais torneios.
-            </div>
-          )}
+            )
+          })()}
         </div>
       )}
 
@@ -1326,6 +1383,7 @@ function CompeteScreen({
           </div>
         </div>
       )}
+
     </div>
   )
 }
@@ -1348,12 +1406,7 @@ function GamesScreen({
 
   return (
     <div className="space-y-4 animate-fade-in">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-gray-900">Jogos</h1>
-        <button className="text-red-600 text-sm font-medium flex items-center gap-1">
-          Ver tudo <ChevronRight className="w-4 h-4" />
-        </button>
-      </div>
+      <h1 className="text-2xl font-bold text-gray-900">Jogos</h1>
 
       <div className="flex gap-2 bg-gray-100 p-1 rounded-xl">
         <button
@@ -1375,14 +1428,12 @@ function GamesScreen({
       </div>
 
       {list.length > 0 ? (
-        <div className="overflow-x-auto pb-2 -mx-4 px-4 sm:mx-0 sm:px-0 snap-x snap-mandatory scroll-smooth games-horizontal-scroll">
-          <div className="flex gap-4" style={{ width: 'max-content' }}>
-            {list.map((match) => (
-              <div key={match.id} className="snap-center">
-                <GameCardPlaytomic match={match} />
-              </div>
-            ))}
-          </div>
+        <div className="space-y-3">
+          {list.map((match) => (
+            <div key={match.id} className="w-full">
+              <GameCardPlaytomic match={match} fullWidth />
+            </div>
+          ))}
         </div>
       ) : (
         <div className="card p-8 text-center">

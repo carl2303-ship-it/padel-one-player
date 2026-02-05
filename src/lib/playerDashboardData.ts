@@ -310,7 +310,7 @@ export async function fetchPlayerDashboardData(userId: string): Promise<PlayerDa
       }
     })
     const upcomingMatches = matches.filter((m) => new Date(m.start_time) >= now && m.status === 'scheduled')
-    const recentMatches = matches.filter((m) => m.status === 'completed').reverse().slice(0, 10)
+    const recentMatches = matches.filter((m) => m.status === 'completed').reverse()
     result.upcomingMatches = upcomingMatches
     result.recentMatches = recentMatches
     const totalMatches = wins + losses

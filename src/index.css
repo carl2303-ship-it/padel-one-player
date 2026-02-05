@@ -182,16 +182,15 @@ input:focus, select:focus {
   color: white;
 }
 
-/* Action button grid */
+/* Action button grid – fundo transparente, bolinhas alinhadas em cima */
 .action-btn {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   padding: 16px;
-  background: white;
+  background: transparent;
   border-radius: 16px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
   transition: all 0.2s ease;
 }
 
@@ -235,7 +234,7 @@ input:focus, select:focus {
   animation: hero-shine 3s ease-in-out infinite;
 }
 
-/* Premium stats card – best app feel */
+/* Premium stats card – fundo branco */
 .card-stats-premium {
   background: linear-gradient(145deg, #ffffff 0%, #fef7f5 100%);
   border-radius: 20px;
@@ -244,19 +243,16 @@ input:focus, select:focus {
   position: relative;
   overflow: hidden;
 }
-.card-stats-premium::after {
-  content: '';
-  position: absolute;
-  top: -50%; right: -50%;
-  width: 100%; height: 100%;
-  background: radial-gradient(circle, rgba(220, 38, 38, 0.06) 0%, transparent 70%);
-  pointer-events: none;
-}
 .stat-tile {
   background: rgba(255,255,255,0.8);
   border-radius: 14px;
   border: 1px solid rgba(0,0,0,0.06);
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  transition: transform 0.2s ease;
+  min-height: 72px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
 }
 .stat-tile:active {
   transform: scale(0.98);
