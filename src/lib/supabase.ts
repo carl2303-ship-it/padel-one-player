@@ -8,7 +8,9 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey)
 export interface PlayerAccount {
   id: string
   phone: string
+  phone_number?: string // same as phone, DB column name
   name: string
+  user_id?: string
   email?: string
   avatar_url?: string
   location?: string
@@ -24,6 +26,8 @@ export interface PlayerAccount {
   points?: number
   wins?: number
   losses?: number
+  favorite_club_id?: string | null
+  level_reliability_percent?: number | null
   created_at: string
 }
 
