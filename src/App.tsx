@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { supabase, PlayerAccount } from './lib/supabase'
+import { supabase, PlayerAccount, PLAYER_CATEGORIES } from './lib/supabase'
 import {
   fetchPlayerDashboardData,
   type PlayerDashboardData,
@@ -33,9 +33,13 @@ import {
   Mail,
   Globe,
   GraduationCap,
-  Users
+  Users,
+  ExternalLink,
+  Save,
+  X,
+  ChevronDown
 } from 'lucide-react'
-import { fetchAllClubs, fetchClubById, fetchUpcomingTournaments, getTournamentEnrolledUrl, type ClubDetail, type UpcomingTournamentFromTour } from './lib/clubAndTournaments'
+import { fetchAllClubs, fetchClubById, fetchUpcomingTournaments, fetchEnrolledByCategory, getTournamentRegistrationUrl, type ClubDetail, type UpcomingTournamentFromTour, type EnrolledByCategory } from './lib/clubAndTournaments'
 
 type Screen = 'home' | 'games' | 'profile' | 'club' | 'compete'
 
@@ -123,6 +127,23 @@ function App() {
       localStorage.setItem('padel_one_player_favorite_club_id', clubId)
     } else {
       localStorage.removeItem('padel_one_player_favorite_club_id')
+    }
+  }
+
+  const handleSaveProfile = async (updates: Partial<PlayerAccount>) => {
+    if (!player?.id) return
+    const { data: updated, error } = await supabase
+      .from('player_accounts')
+      .update(updates)
+      .eq('id', player.id)
+      .select()
+      .single()
+    if (error) {
+      console.error('[PROFILE] Erro ao guardar perfil:', error)
+      throw error
+    }
+    if (updated) {
+      setPlayer({ ...player, ...updated } as any)
     }
   }
 
@@ -314,6 +335,8 @@ function App() {
           <CompeteScreen
             dashboardData={dashboardData}
             favoriteClubId={player?.favorite_club_id ?? null}
+            userId={player?.user_id ?? null}
+            playerAccountId={player?.id ?? null}
             onBack={() => setCurrentScreen('home')}
           />
         )}
@@ -322,6 +345,7 @@ function App() {
             player={player}
             onLogout={handleLogout}
             onSaveFavoriteClub={handleSaveFavoriteClub}
+            onSaveProfile={handleSaveProfile}
           />
         )}
       </main>
@@ -1078,57 +1102,182 @@ function ClubScreen({ favoriteClubId, onBack }: { favoriteClubId: string | null;
 function CompeteScreen({
   dashboardData,
   favoriteClubId,
+  userId,
+  playerAccountId,
   onBack,
 }: {
   dashboardData: PlayerDashboardData | null
   favoriteClubId: string | null
+  userId: string | null
+  playerAccountId: string | null
   onBack: () => void
 }) {
-  const [activeTab, setActiveTab] = useState<'upcoming' | 'mine'>('upcoming')
+  const [activeTab, setActiveTab] = useState<'upcoming' | 'leagues' | 'history'>('upcoming')
   const [upcomingFromTour, setUpcomingFromTour] = useState<UpcomingTournamentFromTour[]>([])
   const [loadingUpcoming, setLoadingUpcoming] = useState(true)
   const [viewingLeague, setViewingLeague] = useState<{ id: string; name: string } | null>(null)
   const [leagueFull, setLeagueFull] = useState<any[]>([])
+  const [leagueCategories, setLeagueCategories] = useState<{ category_name: string; standings: any[] }[]>([])
+  const [leagueCategoryTab, setLeagueCategoryTab] = useState('')
+  const [leagueLoading, setLeagueLoading] = useState(false)
   const [viewingTournament, setViewingTournament] = useState<{ id: string; name: string } | null>(null)
   const [tournamentDetail, setTournamentDetail] = useState<{ standings: any[]; myMatches: any[]; name: string } | null>(null)
   const [detailTab, setDetailTab] = useState<'standings' | 'matches'>('standings')
   const [viewingEnrolled, setViewingEnrolled] = useState<{ id: string; name: string } | null>(null)
   const [enrolledData, setEnrolledData] = useState<EnrolledByCategory[]>([])
   const [enrolledLoading, setEnrolledLoading] = useState(false)
+  const [pastTournamentDetails, setPastTournamentDetails] = useState<Record<string, { standings: any[]; myMatches: any[]; playerPosition?: number; tournamentName: string }>>({})
+  const [pastTournamentLoading, setPastTournamentLoading] = useState(false)
+  const [leaguesDirect, setLeaguesDirect] = useState<PlayerDashboardData['leagueStandings']>([])
+  const [leaguesLoading, setLeaguesLoading] = useState(false)
+  const [leaguesFetched, setLeaguesFetched] = useState(false)
+  const [historyFetched, setHistoryFetched] = useState(false)
 
   const d = dashboardData
   const name = d?.playerName ?? ''
 
+  // Use ligas do dashboardData se existirem, senão usa as buscadas diretamente
+  const leagueStandings = (d?.leagueStandings?.length ?? 0) > 0 ? d!.leagueStandings : leaguesDirect
+
   useEffect(() => {
-    let cancelled = false
+    let active = true
     const clubId = favoriteClubId || localStorage.getItem('padel_one_player_favorite_club_id')
     fetchUpcomingTournaments(clubId || undefined).then((list) => {
-      if (!cancelled) {
-        setUpcomingFromTour(list)
-        setLoadingUpcoming(false)
-      }
+      if (active) { setUpcomingFromTour(list); setLoadingUpcoming(false) }
     }).catch(() => {
-      if (!cancelled) setLoadingUpcoming(false)
+      if (active) setLoadingUpcoming(false)
     })
-    return () => { cancelled = true }
+    return () => { active = false }
   }, [favoriteClubId])
 
+  // Buscar ligas quando abre o tab Ligas (via Edge Function - bypass RLS)
+  useEffect(() => {
+    if (activeTab !== 'leagues') return
+    if ((d?.leagueStandings?.length ?? 0) > 0 || leaguesFetched) return
+    if (!playerAccountId) return
+    let active = true
+    setLeaguesLoading(true)
+    ;(async () => {
+      try {
+        // Usar Edge Function porque o user pode não ter Supabase Auth session (login por telefone)
+        const resp = await fetch(
+          `https://rqiwnxcexsccguruiteq.supabase.co/functions/v1/get-player-leagues`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ player_account_id: playerAccountId }),
+          }
+        )
+        if (active && resp.ok) {
+          const data = await resp.json()
+          console.log('[Leagues] Got', data?.leagues?.length ?? 0, 'leagues')
+          if (data?.leagues?.length && active) {
+            setLeaguesDirect(data.leagues)
+          }
+        } else {
+          console.error('[Leagues] Edge Function error:', resp.status)
+        }
+      } catch (err) {
+        console.error('[Leagues] ERROR:', err)
+      }
+      if (active) { setLeaguesLoading(false); setLeaguesFetched(true) }
+    })()
+    return () => { active = false }
+  }, [activeTab, d?.leagueStandings?.length, leaguesFetched, playerAccountId])
+
+  // Usar pastTournamentDetails do dashboardData se disponíveis
+  useEffect(() => {
+    if (d?.pastTournamentDetails && Object.keys(d.pastTournamentDetails).length > 0 && Object.keys(pastTournamentDetails).length === 0) {
+      setPastTournamentDetails(d.pastTournamentDetails)
+      setHistoryFetched(true)
+    }
+  }, [d?.pastTournamentDetails])
+
+  // Carregar detalhes dos torneios passados quando abre o tab history
+  useEffect(() => {
+    if (activeTab !== 'history') return
+    if (!d?.pastTournaments?.length) return
+    if (!userId) return
+    if (historyFetched || Object.keys(pastTournamentDetails).length > 0) return
+    let active = true
+    console.log('[History] Fetching', d.pastTournaments.length, 'tournaments, userId:', userId)
+    setPastTournamentLoading(true)
+    ;(async () => {
+      try {
+        const { fetchTournamentStandingsAndMatches } = await import('./lib/playerDashboardData')
+        const results: Record<string, { standings: any[]; myMatches: any[]; playerPosition?: number; tournamentName: string }> = {}
+        for (const t of (d.pastTournaments ?? [])) {
+          if (!active) break
+          try {
+            const data = await fetchTournamentStandingsAndMatches(t.id, userId!)
+            results[t.id] = { standings: data.standings, myMatches: data.myMatches, playerPosition: data.playerPosition, tournamentName: data.tournamentName }
+            console.log(`[History] ${t.name}: ${data.standings.length} standings, ${data.myMatches.length} matches`)
+            if (active) setPastTournamentDetails({ ...results })
+          } catch (err) {
+            console.error(`[History] Error ${t.name}:`, err)
+            results[t.id] = { standings: [], myMatches: [], tournamentName: t.name }
+          }
+        }
+      } catch (err) {
+        console.error('[History] ERROR:', err)
+      }
+      if (active) { setPastTournamentLoading(false); setHistoryFetched(true) }
+    })()
+    return () => { active = false }
+  }, [activeTab, d?.pastTournaments?.length, historyFetched, userId])
+
   const viewLeague = async (id: string, leagueName: string) => {
-    const { fetchLeagueFullStandings } = await import('./lib/playerDashboardData')
-    const list = await fetchLeagueFullStandings(id, name)
     setViewingLeague({ id, name: leagueName })
-    setLeagueFull(list)
+    setLeagueFull([])
+    setLeagueCategories([])
+    setLeagueLoading(true)
+    try {
+      const resp = await fetch(
+        `https://rqiwnxcexsccguruiteq.supabase.co/functions/v1/get-league-standings`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ league_id: id, player_name: name }),
+        }
+      )
+      if (resp.ok) {
+        const data = await resp.json()
+        setLeagueFull(data.standings || [])
+        setLeagueCategories(data.categories || [])
+      }
+    } catch (err) {
+      console.error('[League] Error:', err)
+    }
+    setLeagueLoading(false)
   }
 
   const viewTournament = async (tournamentId: string, tournamentName: string) => {
+    const cached = pastTournamentDetails[tournamentId]
+    if (cached) {
+      setViewingTournament({ id: tournamentId, name: tournamentName })
+      setTournamentDetail({ standings: cached.standings, myMatches: cached.myMatches, name: cached.tournamentName })
+      setDetailTab('standings')
+      return
+    }
+    if (!userId) return
     const { fetchTournamentStandingsAndMatches } = await import('./lib/playerDashboardData')
-    const { supabase } = await import('./lib/supabase')
-    const { data: { session } } = await supabase.auth.getSession()
-    if (!session?.user) return
-    const { standings, myMatches, tournamentName: tn } = await fetchTournamentStandingsAndMatches(tournamentId, session.user.id)
+    const { standings, myMatches, tournamentName: tn } = await fetchTournamentStandingsAndMatches(tournamentId, userId)
     setViewingTournament({ id: tournamentId, name: tournamentName })
     setTournamentDetail({ standings, myMatches, name: tn || tournamentName })
     setDetailTab('standings')
+  }
+
+  const viewEnrolled = async (tournamentId: string, tournamentName: string) => {
+    setViewingEnrolled({ id: tournamentId, name: tournamentName })
+    setEnrolledLoading(true)
+    setEnrolledData([])
+    try {
+      const data = await fetchEnrolledByCategory(tournamentId)
+      setEnrolledData(data)
+    } catch {
+      setEnrolledData([])
+    }
+    setEnrolledLoading(false)
   }
 
   return (
@@ -1137,18 +1286,24 @@ function CompeteScreen({
         <ArrowLeft className="w-5 h-5" /> Voltar
       </button>
       <h1 className="text-xl font-bold text-gray-900">Competir</h1>
-      <div className="flex gap-2 bg-gray-100 p-1 rounded-xl">
+      <div className="flex gap-1 bg-gray-100 p-1 rounded-xl overflow-x-auto">
         <button
           onClick={() => setActiveTab('upcoming')}
-          className={`flex-1 py-2 rounded-lg text-sm font-medium ${activeTab === 'upcoming' ? 'bg-red-600 text-white' : 'text-gray-600'}`}
+          className={`flex-1 min-w-0 py-2 px-3 rounded-lg text-sm font-medium whitespace-nowrap ${activeTab === 'upcoming' ? 'bg-red-600 text-white' : 'text-gray-600'}`}
         >
-          Próximos torneios
+          Próximos
         </button>
         <button
-          onClick={() => setActiveTab('mine')}
-          className={`flex-1 py-2 rounded-lg text-sm font-medium ${activeTab === 'mine' ? 'bg-red-600 text-white' : 'text-gray-600'}`}
+          onClick={() => setActiveTab('leagues')}
+          className={`flex-1 min-w-0 py-2 px-3 rounded-lg text-sm font-medium whitespace-nowrap ${activeTab === 'leagues' ? 'bg-red-600 text-white' : 'text-gray-600'}`}
         >
-          Os seus Torneios/Ligas
+          Ligas
+        </button>
+        <button
+          onClick={() => setActiveTab('history')}
+          className={`flex-1 min-w-0 py-2 px-3 rounded-lg text-sm font-medium whitespace-nowrap ${activeTab === 'history' ? 'bg-red-600 text-white' : 'text-gray-600'}`}
+        >
+          Histórico
         </button>
       </div>
 
@@ -1173,55 +1328,93 @@ function CompeteScreen({
               image_url: null,
               description: null,
             }))
-            const displayList = [
+            const enrolledList = [
               ...enrolledMinimal.sort((a, b) => new Date(a.start_date).getTime() - new Date(b.start_date).getTime()),
               ...enrolledFromTour,
-              ...othersFromTour,
             ]
-            return displayList.length > 0 ? (
-              displayList.map((t) => {
-                const isEnrolled = enrolledIds.has(t.id)
-                return (
-                  <div key={t.id} className="card overflow-hidden p-0 flex">
-                    <div className="w-24 sm:w-32 flex-shrink-0">
-                      {t.image_url ? (
-                        <img src={t.image_url} alt={t.name} className="w-full h-full min-h-[140px] object-cover rounded-l-xl" />
-                      ) : (
-                        <div className="w-full h-full min-h-[140px] bg-gradient-to-br from-red-100 to-amber-100 flex items-center justify-center rounded-l-xl">
-                          <Trophy className="w-12 h-12 text-red-400/70" />
-                        </div>
-                      )}
+            const openList = othersFromTour
+            const TournamentCard = ({ t, isEnrolled }: { t: UpcomingTournamentFromTour; isEnrolled: boolean }) => (
+              <div key={t.id} className="card overflow-hidden p-0 flex">
+                <div className="w-24 sm:w-32 flex-shrink-0">
+                  {t.image_url ? (
+                    <img src={t.image_url} alt={t.name} className="w-full h-full min-h-[140px] object-cover rounded-l-xl" />
+                  ) : (
+                    <div className="w-full h-full min-h-[140px] bg-gradient-to-br from-red-100 to-amber-100 flex items-center justify-center rounded-l-xl">
+                      <Trophy className="w-12 h-12 text-red-400/70" />
                     </div>
-                    <div className="flex-1 p-4 sm:p-5 min-w-0 flex flex-col">
-                      <div className="flex items-start justify-between gap-2">
-                        <h3 className="font-bold text-gray-900 text-base sm:text-lg line-clamp-2">{t.name}</h3>
-                        <div className="flex items-center gap-1.5 flex-shrink-0">
-                          {isEnrolled && (
-                            <span className="px-2 py-1 rounded-lg text-xs font-medium bg-green-100 text-green-700">Inscrito</span>
-                          )}
-                          <span className={`px-2 py-1 rounded-lg text-xs font-medium ${t.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
-                            {t.status === 'active' ? 'Aberto' : t.status}
-                          </span>
-                        </div>
-                      </div>
-                      <p className="text-sm text-gray-500 mt-1 flex items-center gap-1">
-                        <Calendar className="w-4 h-4 flex-shrink-0" />
-                        {formatDate(t.start_date)}
-                      </p>
-                      {t.description && (
-                        <div className="text-sm text-gray-600 mt-2 line-clamp-3 flex-1 [&_p]:my-0 [&_p]:last:mb-0" dangerouslySetInnerHTML={{ __html: t.description }} />
+                  )}
+                </div>
+                <div className="flex-1 p-4 sm:p-5 min-w-0 flex flex-col">
+                  <div className="flex items-start justify-between gap-2">
+                    <h3 className="font-bold text-gray-900 text-base sm:text-lg line-clamp-2">{t.name}</h3>
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                      {isEnrolled && (
+                        <span className="px-2 py-1 rounded-lg text-xs font-medium bg-green-100 text-green-700">Inscrito</span>
                       )}
-                      <button
-                        onClick={() => viewEnrolled(t.id, t.name)}
-                        className="mt-3 inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-xl transition-colors w-fit"
-                      >
-                        <Users className="w-4 h-4" />
-                        Ver inscritos por categoria
-                      </button>
+                      <span className={`px-2 py-1 rounded-lg text-xs font-medium ${t.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
+                        {t.status === 'active' ? 'Aberto' : t.status}
+                      </span>
                     </div>
                   </div>
-                )
-              })
+                  <p className="text-sm text-gray-500 mt-1 flex items-center gap-1">
+                    <Calendar className="w-4 h-4 flex-shrink-0" />
+                    {formatDate(t.start_date)}
+                  </p>
+                  {t.description && (
+                    <div className="text-sm text-gray-600 mt-2 line-clamp-3 flex-1 [&_p]:my-0 [&_p]:last:mb-0" dangerouslySetInnerHTML={{ __html: t.description }} />
+                  )}
+                  {isEnrolled ? (
+                    <button
+                      type="button"
+                      onClick={() => viewEnrolled(t.id, t.name)}
+                      className="mt-3 inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-xl transition-colors w-fit"
+                    >
+                      <Users className="w-4 h-4" />
+                      Ver inscritos por categoria
+                    </button>
+                  ) : (
+                    <a
+                      href={getTournamentRegistrationUrl(t.id)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-3 inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-xl transition-colors w-fit"
+                    >
+                      Link de inscrição
+                      <ExternalLink className="w-4 h-4" />
+                    </a>
+                  )}
+                </div>
+              </div>
+            )
+            return (enrolledList.length > 0 || openList.length > 0) ? (
+              <div className="space-y-6">
+                {enrolledList.length > 0 && (
+                  <div>
+                    <h2 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-green-500" />
+                      Torneios onde já estás inscrito
+                    </h2>
+                    <div className="space-y-4">
+                      {enrolledList.map((t) => (
+                        <TournamentCard key={t.id} t={t} isEnrolled={true} />
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {openList.length > 0 && (
+                  <div>
+                    <h2 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-blue-500" />
+                      Torneios abertos à inscrição
+                    </h2>
+                    <div className="space-y-4">
+                      {openList.map((t) => (
+                        <TournamentCard key={t.id} t={t} isEnrolled={false} />
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
             ) : (
               <div className="card p-8 text-center text-gray-500">
                 Nenhum torneio próximo do clube. Consulta a Padel One Tour para mais torneios.
@@ -1231,102 +1424,268 @@ function CompeteScreen({
         </div>
       )}
 
-      {activeTab === 'mine' && (
+      {activeTab === 'leagues' && (
         <div className="space-y-4">
-          {d?.upcomingTournaments && d.upcomingTournaments.length > 0 && (
-            <div>
-              <h2 className="text-sm font-semibold text-gray-700 mb-2">Os seus torneios (próximos)</h2>
-              <div className="space-y-2">
-                {d.upcomingTournaments.map((t) => (
-                  <div key={t.id} className="card p-4 flex items-center justify-between">
-                    <div>
-                      <h3 className="font-semibold text-gray-900">{t.name}</h3>
-                      <p className="text-sm text-gray-500">{formatDate(t.start_date)}</p>
-                    </div>
-                    <button onClick={() => viewTournament(t.id, t.name)} className="text-red-600 text-sm font-medium">Ver classificação</button>
-                  </div>
-                ))}
-              </div>
+          {leaguesLoading ? (
+            <div className="flex justify-center py-12">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-600" />
             </div>
-          )}
-          {d?.pastTournaments && d.pastTournaments.length > 0 && (
-            <div>
-              <h2 className="text-sm font-semibold text-gray-700 mb-2">Os seus torneios (histórico)</h2>
-              <div className="space-y-2">
-                {d.pastTournaments.map((t) => (
-                  <div key={t.id} className="card p-4 flex items-center justify-between">
-                    <div>
-                      <h3 className="font-semibold text-gray-900">{t.name}</h3>
-                      <p className="text-sm text-gray-500">{formatDate(t.start_date)}</p>
-                    </div>
-                    <button onClick={() => viewTournament(t.id, t.name)} className="text-red-600 text-sm font-medium flex items-center gap-1">
-                      <Trophy className="w-4 h-4" /> Ver classificação
-                    </button>
+          ) : leagueStandings.length > 0 ? (
+            <div className="space-y-3">
+              <p className="text-sm text-gray-600">Ligas onde participas</p>
+              {leagueStandings.map((s, idx) => (
+                <div key={idx} className="card p-4 flex items-center justify-between">
+                  <div>
+                    <h3 className="font-semibold text-gray-900">{s.league_name}</h3>
+                    <p className="text-sm text-gray-500 mt-0.5">{s.position}º de {s.total_participants} · {s.points} pts</p>
                   </div>
-                ))}
-              </div>
+                  <button onClick={() => viewLeague(s.league_id, s.league_name)} className="text-red-600 text-sm font-medium flex items-center gap-1">
+                    Ver classificação <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
             </div>
-          )}
-          {d?.leagueStandings && d.leagueStandings.length > 0 && (
-            <div>
-              <h2 className="text-sm font-semibold text-gray-700 mb-2">Classificação nas Ligas</h2>
-              <div className="space-y-2">
-                {d.leagueStandings.map((s, idx) => (
-                  <div key={idx} className="card p-4 flex items-center justify-between">
-                    <div>
-                      <h3 className="font-semibold text-gray-900">{s.league_name}</h3>
-                      <p className="text-sm text-gray-500">{s.position}º de {s.total_participants} · {s.points} pts</p>
-                    </div>
-                    <button onClick={() => viewLeague(s.league_id, s.league_name)} className="text-red-600 text-sm font-medium flex items-center gap-1">
-                      Ver todos <ChevronRight className="w-4 h-4" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-          {(!d?.upcomingTournaments?.length && !d?.pastTournaments?.length && !d?.leagueStandings?.length) && (
+          ) : (
             <div className="card p-8 text-center">
               <Trophy className="w-16 h-16 text-gray-200 mx-auto mb-3" />
-              <p className="text-gray-500">Ainda não tens torneios nem ligas.</p>
-              <p className="text-sm text-gray-400 mt-1">Inscreve-te em torneios na Padel One Tour.</p>
+              <p className="text-gray-500">Ainda não participas em nenhuma liga.</p>
+              <p className="text-sm text-gray-400 mt-1">Inscreve-te em torneios associados a ligas na Padel One Tour.</p>
             </div>
           )}
         </div>
       )}
 
-      {/* Modais Liga e Torneio (mesmo que no Home) */}
-      {viewingLeague && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl max-w-lg w-full max-h-[80vh] overflow-hidden">
-            <div className="p-4 border-b flex items-center justify-between">
-              <h2 className="text-lg font-bold">{viewingLeague.name}</h2>
-              <button onClick={() => setViewingLeague(null)} className="text-gray-400 hover:text-gray-600">✕</button>
+      {activeTab === 'history' && (
+        <div className="space-y-4">
+          {pastTournamentLoading ? (
+            <div className="flex justify-center py-12">
+              <div className="w-8 h-8 border-2 border-red-600 border-t-transparent rounded-full animate-spin" />
             </div>
-            <div className="overflow-y-auto max-h-[70vh]">
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50 sticky top-0">
-                  <tr>
-                    <th className="px-3 py-2 text-left">#</th>
-                    <th className="px-3 py-2 text-left">Nome</th>
-                    <th className="px-3 py-2 text-center">Pts</th>
-                    <th className="px-3 py-2 text-center">Torneios</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {leagueFull.map((row) => (
-                    <tr key={row.position} className={`border-t ${row.is_current_player ? 'bg-red-50' : ''}`}>
-                      <td className="px-3 py-2">{row.position}</td>
-                      <td className="px-3 py-2 font-medium">
-                        {row.entity_name}
-                        {row.is_current_player && <span className="ml-1 text-xs bg-red-100 text-red-600 px-1.5 rounded">Tu</span>}
-                      </td>
-                      <td className="px-3 py-2 text-center">{row.total_points}</td>
-                      <td className="px-3 py-2 text-center">{row.tournaments_played}</td>
-                    </tr>
+          ) : d?.pastTournaments && d.pastTournaments.length > 0 ? (
+            <div className="space-y-4">
+              <p className="text-sm text-gray-600">Torneios concluídos</p>
+              {d.pastTournaments.map((t) => {
+                const details = pastTournamentDetails[t.id]
+                const wins = details?.myMatches?.filter((m) => m.is_winner).length ?? 0
+                const losses = details?.myMatches?.filter((m) => m.is_winner === false).length ?? 0
+                return (
+                  <div key={t.id} className="card overflow-hidden p-0">
+                    <div className="p-4">
+                      {/* Cabeçalho do torneio */}
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <h3 className="font-semibold text-gray-900">{t.name}</h3>
+                          <p className="text-sm text-gray-500 mt-0.5">{formatDate(t.start_date)}</p>
+                          {details && (
+                            <div className="flex flex-wrap gap-2 mt-2">
+                              {details.playerPosition != null && (
+                                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-100 text-amber-800 text-xs font-medium">
+                                  <Trophy className="w-3.5 h-3.5" /> {details.playerPosition}º lugar
+                                </span>
+                              )}
+                              {(wins > 0 || losses > 0) && (
+                                <span className="inline-flex items-center px-2 py-1 rounded-lg bg-gray-100 text-gray-700 text-xs font-medium">
+                                  {wins}V {losses}D
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                        {!details && !pastTournamentLoading && (
+                          <span className="text-xs text-gray-400 animate-pulse flex-shrink-0">A carregar...</span>
+                        )}
+                      </div>
+
+                      {/* Todos os resultados do jogador */}
+                      {details?.myMatches && details.myMatches.length > 0 && (
+                        <div className="mt-4 pt-4 border-t border-gray-100">
+                          <p className="text-xs font-medium text-gray-500 mb-2">Os teus resultados</p>
+                          <div className="space-y-2">
+                            {details.myMatches.map((m) => (
+                              <div key={m.id} className="flex justify-between items-center text-sm py-2 px-3 bg-gray-50 rounded-lg">
+                                <span className="text-gray-700 truncate flex-1 mr-2">
+                                  {m.team1_name} vs {m.team2_name}
+                                </span>
+                                <span className="font-semibold text-gray-900 flex-shrink-0">
+                                  {m.team1_score}-{m.team2_score}
+                                </span>
+                                {m.is_winner !== undefined && (
+                                  <span className={`ml-2 text-xs font-medium flex-shrink-0 ${m.is_winner ? 'text-green-600' : 'text-red-600'}`}>
+                                    {m.is_winner ? 'V' : 'D'}
+                                  </span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Classificação completa */}
+                      {details?.standings && details.standings.length > 0 && (
+                        <div className="mt-4 pt-4 border-t border-gray-100">
+                          <p className="text-xs font-medium text-gray-500 mb-2">Classificação final</p>
+                          <div className="overflow-x-auto -mx-1">
+                            <table className="w-full text-sm min-w-[200px]">
+                              <thead>
+                                <tr className="text-left text-gray-500 border-b">
+                                  <th className="py-1.5 px-2 font-medium">#</th>
+                                  <th className="py-1.5 px-2 font-medium">Nome</th>
+                                  <th className="py-1.5 px-2 text-center font-medium">V</th>
+                                  <th className="py-1.5 px-2 text-center font-medium">D</th>
+                                  <th className="py-1.5 px-2 text-center font-medium">Pts</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {details.standings.map((row, i) => (
+                                  <tr key={row.id} className={`border-b border-gray-50 ${details.playerPosition === i + 1 ? 'bg-red-50 font-semibold' : ''}`}>
+                                    <td className="py-1.5 px-2">{i + 1}</td>
+                                    <td className="py-1.5 px-2 font-medium truncate max-w-[140px]">{row.name}</td>
+                                    <td className="py-1.5 px-2 text-center text-green-600">{row.wins}</td>
+                                    <td className="py-1.5 px-2 text-center text-red-500">{row.losses}</td>
+                                    <td className="py-1.5 px-2 text-center font-bold">{row.points}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          ) : (
+            <div className="card p-8 text-center">
+              <Trophy className="w-16 h-16 text-gray-200 mx-auto mb-3" />
+              <p className="text-gray-500">Ainda não tens torneios concluídos.</p>
+              <p className="text-sm text-gray-400 mt-1">Os torneios em que participares aparecerão aqui.</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Modal classificação da Liga */}
+      {viewingLeague && (() => {
+        const allTabs = [
+          { key: 'geral', label: 'Geral' },
+          ...(leagueCategories || []).map((c) => ({ key: c.category_name, label: c.category_name })),
+        ]
+        const hasTabs = leagueCategories.length > 0
+        const activeLeagueTab = leagueCategoryTab || 'geral'
+        const displayStandings = activeLeagueTab === 'geral'
+          ? leagueFull
+          : leagueCategories.find((c) => c.category_name === activeLeagueTab)?.standings || []
+
+        return (
+          <div className="fixed inset-0 bg-black/50 z-50 flex flex-col" onClick={() => { setViewingLeague(null); setLeagueCategories([]); setLeagueCategoryTab('') }}>
+            <div
+              className="bg-white mt-auto sm:mt-12 sm:mx-auto sm:max-w-lg w-full rounded-t-2xl sm:rounded-xl max-h-[90vh] flex flex-col overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="p-4 border-b flex items-center justify-between flex-shrink-0">
+                <h2 className="text-base font-bold truncate mr-2">{viewingLeague.name}</h2>
+                <button onClick={() => { setViewingLeague(null); setLeagueCategories([]); setLeagueCategoryTab('') }} className="text-gray-400 hover:text-gray-600 text-xl leading-none flex-shrink-0">✕</button>
+              </div>
+
+              {/* Tabs de categorias */}
+              {hasTabs && (
+                <div className="flex gap-1 p-2 bg-gray-50 border-b overflow-x-auto flex-shrink-0">
+                  {allTabs.map((tab) => (
+                    <button
+                      key={tab.key}
+                      onClick={() => setLeagueCategoryTab(tab.key)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
+                        activeLeagueTab === tab.key ? 'bg-red-600 text-white' : 'text-gray-600 hover:bg-gray-200'
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
                   ))}
-                </tbody>
-              </table>
+                </div>
+              )}
+
+              {/* Conteúdo */}
+              <div className="overflow-y-auto flex-1">
+                {leagueLoading ? (
+                  <div className="flex justify-center py-12">
+                    <div className="w-8 h-8 border-2 border-red-600 border-t-transparent rounded-full animate-spin" />
+                  </div>
+                ) : displayStandings.length > 0 ? (
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50 sticky top-0">
+                      <tr>
+                        <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 w-8">#</th>
+                        <th className="px-2 py-2 text-left text-xs font-medium text-gray-500">Nome</th>
+                        <th className="px-2 py-2 text-center text-xs font-medium text-gray-500 w-12">Pts</th>
+                        <th className="px-2 py-2 text-center text-xs font-medium text-gray-500 w-8">T</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {displayStandings.map((row) => (
+                        <tr key={row.position} className={`border-t border-gray-100 ${row.is_current_player ? 'bg-red-50' : ''}`}>
+                          <td className="px-2 py-1.5 text-gray-500 text-xs">{row.position}</td>
+                          <td className="px-2 py-1.5 truncate max-w-[180px]">
+                            <span className={row.is_current_player ? 'font-semibold' : 'font-medium'}>{row.entity_name}</span>
+                            {row.is_current_player && <span className="ml-1 text-xs bg-red-100 text-red-600 px-1 rounded">Tu</span>}
+                          </td>
+                          <td className="px-2 py-1.5 text-center font-bold">{row.total_points}</td>
+                          <td className="px-2 py-1.5 text-center text-gray-500 text-xs">{row.tournaments_played}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                ) : (
+                  <p className="text-gray-500 text-center py-8">Sem dados de classificação.</p>
+                )}
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* Modal Inscritos por categoria */}
+      {viewingEnrolled && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl max-w-lg w-full max-h-[85vh] overflow-hidden">
+            <div className="p-4 border-b flex items-center justify-between">
+              <h2 className="text-lg font-bold">{viewingEnrolled.name}</h2>
+              <button onClick={() => { setViewingEnrolled(null); setEnrolledData([]) }} className="text-gray-400 hover:text-gray-600">✕</button>
+            </div>
+            <div className="overflow-y-auto max-h-[70vh] p-4">
+              {enrolledLoading ? (
+                <div className="flex justify-center py-8">
+                  <div className="w-8 h-8 border-2 border-red-600 border-t-transparent rounded-full animate-spin" />
+                </div>
+              ) : enrolledData.length === 0 ? (
+                <p className="text-gray-500 text-center py-6">Sem inscritos ou categorias.</p>
+              ) : (
+                <div className="space-y-6">
+                  {enrolledData.map((cat) => (
+                    <div key={cat.category_id}>
+                      <h3 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-red-500" />
+                        {cat.category_name}
+                      </h3>
+                      <ul className="space-y-1.5">
+                        {cat.items.map((item, idx) => (
+                          <li key={item.id} className="text-sm text-gray-900 py-1.5 px-3 bg-gray-50 rounded-lg">
+                            <span className="font-medium text-gray-600">{idx + 1}.</span>{' '}
+                            {item.player_names?.length ? (
+                              <span>{item.player_names.join(' · ')}</span>
+                            ) : item.player1_name != null || item.player2_name != null ? (
+                              <span>{[item.player1_name, item.player2_name].filter(Boolean).join(' / ')}</span>
+                            ) : (
+                              <span>{item.name}</span>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -1451,14 +1810,50 @@ function ProfileScreen({
   player,
   onLogout,
   onSaveFavoriteClub,
+  onSaveProfile,
 }: {
   player: PlayerAccount | null
   onLogout: () => void
   onSaveFavoriteClub: (clubId: string | null) => Promise<void>
+  onSaveProfile: (updates: Partial<PlayerAccount>) => Promise<void>
 }) {
   const [clubs, setClubs] = useState<ClubDetail[]>([])
   const [loadingClubs, setLoadingClubs] = useState(true)
+  const [editing, setEditing] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [saveMsg, setSaveMsg] = useState('')
+  const [uploadingAvatar, setUploadingAvatar] = useState(false)
   const favoriteClubId = player?.favorite_club_id ?? localStorage.getItem('padel_one_player_favorite_club_id')
+
+  // Editable fields
+  const [editName, setEditName] = useState(player?.name || '')
+  const [editEmail, setEditEmail] = useState(player?.email || '')
+  const [editCategory, setEditCategory] = useState<string>(player?.player_category || '')
+  const [editGender, setEditGender] = useState<string>(player?.gender || '')
+  const [editBirthDate, setEditBirthDate] = useState(player?.birth_date || '')
+  const [editLocation, setEditLocation] = useState(player?.location || '')
+  const [editHand, setEditHand] = useState<string>(player?.preferred_hand || '')
+  const [editPosition, setEditPosition] = useState<string>(player?.court_position || '')
+  const [editBio, setEditBio] = useState(player?.bio || '')
+  const [editGameType, setEditGameType] = useState<string>(player?.game_type || '')
+  const [editPreferredTime, setEditPreferredTime] = useState<string>(player?.preferred_time || '')
+
+  // Sync fields when player changes
+  useEffect(() => {
+    if (player) {
+      setEditName(player.name || '')
+      setEditEmail(player.email || '')
+      setEditCategory(player.player_category || '')
+      setEditGender(player.gender || '')
+      setEditBirthDate(player.birth_date || '')
+      setEditLocation(player.location || '')
+      setEditHand(player.preferred_hand || '')
+      setEditPosition(player.court_position || '')
+      setEditBio(player.bio || '')
+      setEditGameType(player.game_type || '')
+      setEditPreferredTime(player.preferred_time || '')
+    }
+  }, [player])
 
   useEffect(() => {
     fetchAllClubs().then((list) => {
@@ -1466,6 +1861,95 @@ function ProfileScreen({
       setLoadingClubs(false)
     }).catch(() => setLoadingClubs(false))
   }, [])
+
+  // Filter categories by gender prefix
+  const genderPrefix = editGender === 'male' ? 'M' : editGender === 'female' ? 'F' : null
+  const filteredCategories = genderPrefix
+    ? PLAYER_CATEGORIES.filter((c) => c.gender === genderPrefix)
+    : PLAYER_CATEGORIES
+
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !player?.id) return
+
+    // Validar tamanho (max 1MB)
+    if (file.size > 1 * 1024 * 1024) {
+      setSaveMsg('A imagem deve ter no máximo 1MB')
+      setTimeout(() => setSaveMsg(''), 3000)
+      return
+    }
+
+    // Validar tipo
+    if (!file.type.startsWith('image/')) {
+      setSaveMsg('O ficheiro deve ser uma imagem')
+      setTimeout(() => setSaveMsg(''), 3000)
+      return
+    }
+
+    setUploadingAvatar(true)
+    setSaveMsg('')
+    try {
+      const ext = file.name.split('.').pop() || 'jpg'
+      const filePath = `${player.id}.${ext}`
+
+      // Apagar avatar anterior se existir
+      await supabase.storage.from('player-avatars').remove([filePath])
+
+      // Upload novo avatar
+      const { error: uploadError } = await supabase.storage
+        .from('player-avatars')
+        .upload(filePath, file, { cacheControl: '3600', upsert: true })
+
+      if (uploadError) throw uploadError
+
+      // Gerar URL pública
+      const { data: urlData } = supabase.storage
+        .from('player-avatars')
+        .getPublicUrl(filePath)
+
+      const avatar_url = urlData.publicUrl + '?t=' + Date.now()
+
+      // Guardar URL no perfil
+      await onSaveProfile({ avatar_url })
+      setSaveMsg('Foto atualizada!')
+      setTimeout(() => setSaveMsg(''), 3000)
+    } catch (err) {
+      console.error('[AVATAR] Upload error:', err)
+      setSaveMsg('Erro ao carregar foto')
+      setTimeout(() => setSaveMsg(''), 3000)
+    } finally {
+      setUploadingAvatar(false)
+      // Reset input para permitir re-upload do mesmo ficheiro
+      e.target.value = ''
+    }
+  }
+
+  const handleSave = async () => {
+    setSaving(true)
+    setSaveMsg('')
+    try {
+      await onSaveProfile({
+        name: editName.trim() || undefined,
+        email: editEmail.trim() || undefined,
+        player_category: (editCategory || null) as any,
+        gender: (editGender || undefined) as any,
+        birth_date: editBirthDate || undefined,
+        location: editLocation.trim() || undefined,
+        preferred_hand: (editHand || undefined) as any,
+        court_position: (editPosition || undefined) as any,
+        bio: editBio.trim() || undefined,
+        game_type: (editGameType || undefined) as any,
+        preferred_time: (editPreferredTime || undefined) as any,
+      })
+      setSaveMsg('Perfil guardado!')
+      setEditing(false)
+      setTimeout(() => setSaveMsg(''), 3000)
+    } catch {
+      setSaveMsg('Erro ao guardar')
+    } finally {
+      setSaving(false)
+    }
+  }
 
   return (
     <div className="space-y-4 animate-fade-in">
@@ -1485,17 +1969,35 @@ function ProfileScreen({
               </span>
             </div>
           )}
-          <button className="absolute bottom-0 right-0 w-8 h-8 bg-red-600 rounded-full flex items-center justify-center shadow-lg">
-            <Camera className="w-4 h-4 text-white" />
-          </button>
+          <label className="absolute bottom-0 right-0 w-8 h-8 bg-red-600 rounded-full flex items-center justify-center shadow-lg cursor-pointer hover:bg-red-700 transition-colors">
+            {uploadingAvatar ? (
+              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <Camera className="w-4 h-4 text-white" />
+            )}
+            <input
+              type="file"
+              accept="image/*"
+              onChange={handleAvatarUpload}
+              disabled={uploadingAvatar}
+              className="hidden"
+            />
+          </label>
         </div>
         <h2 className="text-xl font-bold text-gray-900 mt-3">{player?.name || 'Jogador'}</h2>
-        <p className="text-gray-500 text-sm">{player?.phone}</p>
+        <p className="text-gray-500 text-sm">{player?.phone_number || player?.phone}</p>
         
-        {/* Level Badge */}
-        <div className="inline-flex items-center gap-2 mt-3 px-4 py-2 bg-red-50 rounded-full">
-          <Target className="w-4 h-4 text-red-600" />
-          <span className="font-semibold text-red-600">Nível {player?.level?.toFixed(1) || '3.0'}</span>
+        {/* Category + Level Badge */}
+        <div className="flex items-center justify-center gap-2 mt-3">
+          {player?.player_category && (
+            <span className="px-3 py-1.5 bg-blue-50 text-blue-700 rounded-full text-sm font-bold">
+              {player.player_category}
+            </span>
+          )}
+          <div className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-red-50 rounded-full">
+            <Target className="w-3.5 h-3.5 text-red-600" />
+            <span className="font-semibold text-red-600 text-sm">Nível {player?.level?.toFixed(1) || '3.0'}</span>
+          </div>
         </div>
         
         {/* Stats Row */}
@@ -1513,6 +2015,257 @@ function ProfileScreen({
             <p className="text-xs text-gray-500">Pontos</p>
           </div>
         </div>
+      </div>
+
+      {/* Success/Error Message */}
+      {saveMsg && (
+        <div className={`text-center text-sm font-medium py-2 px-4 rounded-lg ${saveMsg.includes('Erro') ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}>
+          {saveMsg}
+        </div>
+      )}
+
+      {/* Profile Edit Section */}
+      <div className="card overflow-hidden">
+        <button
+          onClick={() => setEditing(!editing)}
+          className="w-full p-4 flex items-center justify-between border-b border-gray-100"
+        >
+          <div className="flex items-center gap-2">
+            <Edit2 className="w-5 h-5 text-red-600" />
+            <h3 className="font-semibold text-gray-900">Editar Perfil</h3>
+          </div>
+          <ChevronDown className={`w-5 h-5 text-gray-400 transition-transform ${editing ? 'rotate-180' : ''}`} />
+        </button>
+
+        {editing && (
+          <div className="p-4 space-y-4">
+            {/* Nome */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Nome</label>
+              <input
+                type="text"
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none"
+                placeholder="O teu nome"
+              />
+            </div>
+
+            {/* Email */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+              <input
+                type="email"
+                value={editEmail}
+                onChange={(e) => setEditEmail(e.target.value)}
+                className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none"
+                placeholder="email@exemplo.com"
+              />
+            </div>
+
+            {/* Género */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Género</label>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { value: 'male', label: 'Masculino' },
+                  { value: 'female', label: 'Feminino' },
+                  { value: 'other', label: 'Outro' },
+                ].map((opt) => (
+                  <button
+                    key={opt.value}
+                    onClick={() => {
+                      setEditGender(opt.value)
+                      // Reset category if gender prefix changes
+                      const newPrefix = opt.value === 'male' ? 'M' : opt.value === 'female' ? 'F' : null
+                      if (editCategory && newPrefix && !editCategory.startsWith(newPrefix)) {
+                        setEditCategory('')
+                      }
+                    }}
+                    className={`py-2 px-2 rounded-lg text-sm font-medium border transition-colors ${
+                      editGender === opt.value
+                        ? 'bg-red-600 text-white border-red-600'
+                        : 'bg-white text-gray-700 border-gray-300 hover:border-red-300'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Categoria */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Categoria</label>
+              <div className="grid grid-cols-6 gap-1.5">
+                {filteredCategories.map((cat) => (
+                  <button
+                    key={cat.value}
+                    onClick={() => setEditCategory(editCategory === cat.value ? '' : cat.value)}
+                    className={`py-2 rounded-lg text-sm font-bold transition-colors ${
+                      editCategory === cat.value
+                        ? 'bg-red-600 text-white'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                  >
+                    {cat.label}
+                  </button>
+                ))}
+              </div>
+              {!editGender && (
+                <p className="text-xs text-gray-400 mt-1">Seleciona o género para filtrar as categorias</p>
+              )}
+            </div>
+
+            {/* Data de Nascimento */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Data de Nascimento</label>
+              <input
+                type="date"
+                value={editBirthDate}
+                onChange={(e) => setEditBirthDate(e.target.value)}
+                className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none"
+              />
+            </div>
+
+            {/* Localização */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Localização</label>
+              <input
+                type="text"
+                value={editLocation}
+                onChange={(e) => setEditLocation(e.target.value)}
+                className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none"
+                placeholder="Cidade ou região"
+              />
+            </div>
+
+            {/* Mão Preferida */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Mão Preferida</label>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { value: 'right', label: 'Direita' },
+                  { value: 'left', label: 'Esquerda' },
+                  { value: 'ambidextrous', label: 'Ambidestro' },
+                ].map((opt) => (
+                  <button
+                    key={opt.value}
+                    onClick={() => setEditHand(editHand === opt.value ? '' : opt.value)}
+                    className={`py-2 px-2 rounded-lg text-sm font-medium border transition-colors ${
+                      editHand === opt.value
+                        ? 'bg-red-600 text-white border-red-600'
+                        : 'bg-white text-gray-700 border-gray-300 hover:border-red-300'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Posição em Campo */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Posição em Campo</label>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { value: 'right', label: 'Direita' },
+                  { value: 'left', label: 'Esquerda' },
+                  { value: 'both', label: 'Ambas' },
+                ].map((opt) => (
+                  <button
+                    key={opt.value}
+                    onClick={() => setEditPosition(editPosition === opt.value ? '' : opt.value)}
+                    className={`py-2 px-2 rounded-lg text-sm font-medium border transition-colors ${
+                      editPosition === opt.value
+                        ? 'bg-red-600 text-white border-red-600'
+                        : 'bg-white text-gray-700 border-gray-300 hover:border-red-300'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Tipo de Jogo Preferido */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Tipo de Jogo Preferido</label>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { value: 'competitive', label: 'Competitivo' },
+                  { value: 'friendly', label: 'Amigável' },
+                  { value: 'both', label: 'Ambos' },
+                ].map((opt) => (
+                  <button
+                    key={opt.value}
+                    onClick={() => setEditGameType(editGameType === opt.value ? '' : opt.value)}
+                    className={`py-2 px-2 rounded-lg text-sm font-medium border transition-colors ${
+                      editGameType === opt.value
+                        ? 'bg-red-600 text-white border-red-600'
+                        : 'bg-white text-gray-700 border-gray-300 hover:border-red-300'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Horário Preferido */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Horário de Jogo Preferido</label>
+              <div className="grid grid-cols-4 gap-2">
+                {[
+                  { value: 'morning', label: 'Manhã' },
+                  { value: 'afternoon', label: 'Tarde' },
+                  { value: 'evening', label: 'Noite' },
+                  { value: 'all_day', label: 'Dia todo' },
+                ].map((opt) => (
+                  <button
+                    key={opt.value}
+                    onClick={() => setEditPreferredTime(editPreferredTime === opt.value ? '' : opt.value)}
+                    className={`py-2 px-1 rounded-lg text-xs font-medium border transition-colors ${
+                      editPreferredTime === opt.value
+                        ? 'bg-red-600 text-white border-red-600'
+                        : 'bg-white text-gray-700 border-gray-300 hover:border-red-300'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Bio */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Sobre mim</label>
+              <textarea
+                value={editBio}
+                onChange={(e) => setEditBio(e.target.value)}
+                rows={3}
+                className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none resize-none"
+                placeholder="Uma breve descrição sobre ti..."
+              />
+            </div>
+
+            {/* Save Button */}
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="w-full py-3 bg-red-600 text-white rounded-lg font-semibold text-sm hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {saving ? (
+                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <>
+                  <Save className="w-4 h-4" />
+                  Guardar Perfil
+                </>
+              )}
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Clube Favorito – lista de clubes Padel One */}
@@ -1558,14 +2311,6 @@ function ProfileScreen({
             </>
           )}
         </div>
-      </div>
-
-      {/* Menu Items */}
-      <div className="card divide-y divide-gray-100">
-        <MenuItem icon={Edit2} label="Editar Perfil" />
-        <MenuItem icon={Target} label="Preferências de Jogo" />
-        <MenuItem icon={Bell} label="Notificações" />
-        <MenuItem icon={Settings} label="Definições" />
       </div>
 
       {/* Logout */}

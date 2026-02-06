@@ -63,6 +63,13 @@ export interface PlayerStats {
   bestFinish: string
 }
 
+export interface PastTournamentDetail {
+  standings: any[]
+  myMatches: any[]
+  playerPosition?: number
+  tournamentName: string
+}
+
 export interface PlayerDashboardData {
   playerName: string
   playerAccountId: string | null
@@ -71,6 +78,7 @@ export interface PlayerDashboardData {
   upcomingMatches: PlayerMatch[]
   recentMatches: PlayerMatch[]
   leagueStandings: LeagueStanding[]
+  pastTournamentDetails?: Record<string, PastTournamentDetail>
   stats: PlayerStats
 }
 
@@ -217,7 +225,7 @@ export async function fetchPlayerDashboardData(userId: string): Promise<PlayerDa
   const allConditions = [teamMatchConditions, individualMatchConditions].filter((c) => c.length > 0).join(',')
 
   if (!allConditions) {
-    await fetchLeagueStandingsOnly(playerAccount.id, name || '', result)
+    await fetchLeagueStandingsOnly(playerAccount.id, name || '', result, playerIds, teamIds)
     return result
   }
 
@@ -320,16 +328,50 @@ export async function fetchPlayerDashboardData(userId: string): Promise<PlayerDa
     result.stats.winRate = totalMatches > 0 ? Math.round((wins / totalMatches) * 100) : 0
   }
 
-  await fetchLeagueStandingsOnly(playerAccount.id, name || '', result)
+  await fetchLeagueStandingsOnly(playerAccount.id, name || '', result, playerIds, teamIds)
+
+  // Enriquecer com Edge Function (usa service role, ignora RLS) – ligas e histórico
+  try {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (session?.access_token) {
+      const { data: edgeData, error: edgeError } = await supabase.functions.invoke('get-player-dashboard', {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      })
+      if (edgeError) console.warn('[Dashboard] Edge Function error:', edgeError)
+      if (edgeData && !edgeData.error) {
+        if (edgeData.leagueStandings?.length) result.leagueStandings = edgeData.leagueStandings
+        if (edgeData.pastTournaments?.length) result.pastTournaments = edgeData.pastTournaments
+        if (edgeData.pastTournamentDetails && Object.keys(edgeData.pastTournamentDetails).length > 0) {
+          result.pastTournamentDetails = edgeData.pastTournamentDetails
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[Dashboard] Edge Function error:', err)
+    // Fallback: manter dados das queries diretas
+  }
+
   return result
 }
 
 async function fetchLeagueStandingsOnly(
   playerAccountId: string,
   playerName: string,
-  result: PlayerDashboardData
+  result: PlayerDashboardData,
+  playerIds: string[] = [],
+  teamIds: string[] = []
 ): Promise<void> {
-  let query = supabase
+  const conditions: string[] = [`player_account_id.eq.${playerAccountId}`]
+  if (playerName) {
+    conditions.push(`entity_name.ilike.%${(playerName || '').trim()}%`)
+  }
+  if (playerIds.length > 0) {
+    conditions.push(`entity_id.in.(${playerIds.join(',')})`)
+  }
+  if (teamIds.length > 0) {
+    conditions.push(`entity_id.in.(${teamIds.join(',')})`)
+  }
+  const { data: standings, error: standingsError } = await supabase
     .from('league_standings')
     .select(
       `
@@ -337,13 +379,9 @@ async function fetchLeagueStandingsOnly(
       leagues!inner(id, name)
     `
     )
-  if (playerName) {
-    query = query.or(`player_account_id.eq.${playerAccountId},entity_name.ilike.${playerName}`)
-  } else {
-    query = query.eq('player_account_id', playerAccountId)
-  }
-  const { data: standings } = await query.order('total_points', { ascending: false })
-
+    .or(conditions.join(','))
+    .order('total_points', { ascending: false })
+  if (standingsError) console.warn('[LeagueStandings] Error:', standingsError)
   if (!standings || standings.length === 0) return
 
   const leagueData = await Promise.all(
@@ -417,7 +455,7 @@ export interface TournamentMyMatch {
 export async function fetchTournamentStandingsAndMatches(
   tournamentId: string,
   userId: string
-): Promise<{ standings: TournamentStandingRow[]; myMatches: TournamentMyMatch[]; tournamentName: string }> {
+): Promise<{ standings: TournamentStandingRow[]; myMatches: TournamentMyMatch[]; tournamentName: string; playerPosition?: number }> {
   let tournamentName = ''
 
   const [{ data: tournament }, { data: matches }, { data: teams }, { data: players }] = await Promise.all([
@@ -537,6 +575,7 @@ export async function fetchTournamentStandingsAndMatches(
   })
 
   let myMatches: TournamentMyMatch[] = []
+  const entityIds = new Set<string>()
   const { data: playerAccount } = await supabase
     .from('player_accounts')
     .select('phone_number, name')
@@ -553,10 +592,12 @@ export async function fetchTournamentStandingsAndMatches(
     const pids = new Set<string>()
     ;[(byPhone.data || []), (byName.data || [])].flat().forEach((p: any) => pids.add(p.id))
     const playerIds = Array.from(pids)
+    playerIds.forEach((id) => entityIds.add(id))
     if (playerIds.length > 0) {
       const cond = playerIds.map((id) => `player1_id.eq.${id},player2_id.eq.${id}`).join(',')
       const { data: myTeams } = await supabase.from('teams').select('id').or(cond)
       const teamIds = (myTeams || []).map((t: any) => t.id)
+      teamIds.forEach((id) => entityIds.add(id))
       const teamMatchCond =
         teamIds.length > 0 ? `team1_id.in.(${teamIds.join(',')}),team2_id.in.(${teamIds.join(',')})` : ''
       const indCond = playerIds
@@ -625,5 +666,9 @@ export async function fetchTournamentStandingsAndMatches(
     }
   }
 
-  return { standings: standingsArray, myMatches, tournamentName }
+  let playerPosition: number | undefined
+  const posIdx = standingsArray.findIndex((row) => entityIds.has(row.id))
+  if (posIdx >= 0) playerPosition = posIdx + 1
+
+  return { standings: standingsArray, myMatches, tournamentName, playerPosition }
 }
