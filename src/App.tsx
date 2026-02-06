@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { supabase, PlayerAccount, PLAYER_CATEGORIES } from './lib/supabase'
+import { supabase, PlayerAccount } from './lib/supabase'
 import {
   fetchPlayerDashboardData,
   type PlayerDashboardData,
@@ -37,11 +37,16 @@ import {
   ExternalLink,
   Save,
   X,
-  ChevronDown
+  ChevronDown,
+  Menu,
+  KeyRound,
+  HelpCircle,
+  Shield,
+  CreditCard
 } from 'lucide-react'
 import { fetchAllClubs, fetchClubById, fetchUpcomingTournaments, fetchEnrolledByCategory, getTournamentRegistrationUrl, type ClubDetail, type UpcomingTournamentFromTour, type EnrolledByCategory } from './lib/clubAndTournaments'
 
-type Screen = 'home' | 'games' | 'profile' | 'club' | 'compete'
+type Screen = 'home' | 'games' | 'profile-view' | 'profile-edit' | 'club' | 'compete' | 'community'
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
@@ -58,6 +63,7 @@ function App() {
 
   // Dashboard data (mesma fonte que Padel One Tour – dados nos dois lados)
   const [dashboardData, setDashboardData] = useState<PlayerDashboardData | null>(null)
+  const [menuOpen, setMenuOpen] = useState(false)
 
   useEffect(() => {
     checkAuth()
@@ -298,13 +304,72 @@ function App() {
             <button className="p-2 rounded-full bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors">
               <Search className="w-5 h-5" />
             </button>
-            <button className="p-2 rounded-full bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors relative">
-              <Bell className="w-5 h-5" />
-              <span className="absolute top-1 right-1 w-2 h-2 bg-red-600 rounded-full"></span>
+            <button 
+              onClick={() => setMenuOpen(true)}
+              className="p-2 rounded-full bg-gray-100 text-gray-600 hover:bg-gray-200 transition-colors"
+            >
+              <Menu className="w-5 h-5" />
             </button>
           </div>
         </div>
       </header>
+
+      {/* Menu Mobile - overlay */}
+      {menuOpen && (
+        <div className="fixed inset-0 bg-black/50 z-50" onClick={() => setMenuOpen(false)}>
+          <div 
+            className="absolute top-0 right-0 h-full w-[min(320px,85vw)] bg-white shadow-xl animate-fade-in"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-4 border-b flex items-center justify-between">
+              <h2 className="font-bold text-gray-900">Menu</h2>
+              <button onClick={() => setMenuOpen(false)} className="p-2 rounded-lg hover:bg-gray-100">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <nav className="p-2 overflow-y-auto max-h-[calc(100vh-60px)]">
+              <button onClick={() => { setCurrentScreen('profile-edit'); setMenuOpen(false) }} className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 text-left">
+                <Settings className="w-5 h-5 text-gray-500" />
+                <span className="font-medium text-gray-900">Definições do perfil</span>
+              </button>
+              <button onClick={() => setMenuOpen(false)} className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 text-left">
+                <Globe className="w-5 h-5 text-gray-500" />
+                <span className="font-medium text-gray-900">Escolha de idioma</span>
+              </button>
+              <button onClick={() => setMenuOpen(false)} className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 text-left">
+                <KeyRound className="w-5 h-5 text-gray-500" />
+                <span className="font-medium text-gray-900">Mudar a password</span>
+              </button>
+              <button onClick={() => setMenuOpen(false)} className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 text-left">
+                <Bell className="w-5 h-5 text-gray-500" />
+                <span className="font-medium text-gray-900">Ativar notificações</span>
+              </button>
+              <div className="border-t my-2" />
+              <button onClick={() => setMenuOpen(false)} className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 text-left">
+                <HelpCircle className="w-5 h-5 text-gray-500" />
+                <span className="font-medium text-gray-900">Ajuda</span>
+              </button>
+              <button onClick={() => setMenuOpen(false)} className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 text-left">
+                <GraduationCap className="w-5 h-5 text-gray-500" />
+                <span className="font-medium text-gray-900">Como funciona a Padel One</span>
+              </button>
+              <button onClick={() => setMenuOpen(false)} className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 text-left">
+                <Shield className="w-5 h-5 text-gray-500" />
+                <span className="font-medium text-gray-900">Privacidade</span>
+              </button>
+              <button onClick={() => setMenuOpen(false)} className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 text-left">
+                <CreditCard className="w-5 h-5 text-gray-500" />
+                <span className="font-medium text-gray-900">Os seus Pagamentos</span>
+              </button>
+              <div className="border-t my-2" />
+              <button onClick={() => { handleLogout(); setMenuOpen(false) }} className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-red-50 text-left text-red-600">
+                <LogOut className="w-5 h-5" />
+                <span className="font-medium">Terminar Sessão</span>
+              </button>
+            </nav>
+          </div>
+        </div>
+      )}
 
       {/* Main Content */}
       <main className="px-4 py-4">
@@ -340,13 +405,22 @@ function App() {
             onBack={() => setCurrentScreen('home')}
           />
         )}
-        {currentScreen === 'profile' && (
-          <ProfileScreen
+        {currentScreen === 'profile-view' && (
+          <ProfileViewScreen
             player={player}
-            onLogout={handleLogout}
+            dashboardData={dashboardData}
+            onOpenGames={() => setCurrentScreen('games')}
+          />
+        )}
+        {currentScreen === 'profile-edit' && (
+          <ProfileEditScreen
+            player={player}
             onSaveFavoriteClub={handleSaveFavoriteClub}
             onSaveProfile={handleSaveProfile}
           />
+        )}
+        {currentScreen === 'community' && (
+          <CommunityScreen onBack={() => setCurrentScreen('home')} />
         )}
       </main>
 
@@ -360,16 +434,16 @@ function App() {
             onClick={() => setCurrentScreen('home')} 
           />
           <NavItem 
-            icon={Trophy} 
-            label="Jogos" 
-            active={currentScreen === 'games'} 
-            onClick={() => setCurrentScreen('games')} 
+            icon={Users} 
+            label="Comunidade" 
+            active={currentScreen === 'community'} 
+            onClick={() => setCurrentScreen('community')} 
           />
           <NavItem 
             icon={User} 
             label="Perfil" 
-            active={currentScreen === 'profile'} 
-            onClick={() => setCurrentScreen('profile')} 
+            active={currentScreen === 'profile-view'} 
+            onClick={() => setCurrentScreen('profile-view')} 
           />
         </div>
       </nav>
@@ -607,8 +681,37 @@ function twoPlayersPerTeam(teamName: string): [string, string] {
   return [a, b]
 }
 
+function isCurrentPlayer(playerName: string, currentName?: string): boolean {
+  if (!currentName) return false
+  const p = (playerName || '').trim().toLowerCase()
+  const c = (currentName || '').trim().toLowerCase()
+  if (!p || !c) return false
+  if (p === c) return true
+  // Match parcial: "Guilherme" vs "Guilherme Silva" ou vice-versa
+  return p.startsWith(c) || c.startsWith(p)
+}
+
+function PlayerCircle({ name, bgClass, textClass, avatarUrl, currentPlayerName }: {
+  name: string
+  bgClass: string
+  textClass: string
+  avatarUrl?: string | null
+  currentPlayerName?: string
+}) {
+  const showAvatar = avatarUrl && isCurrentPlayer(name, currentPlayerName)
+  return (
+    <div className={`w-11 h-11 rounded-full flex items-center justify-center shadow-sm flex-shrink-0 overflow-hidden ${!showAvatar ? bgClass : ''}`} title={name}>
+      {showAvatar ? (
+        <img src={avatarUrl} alt={name} className="w-full h-full object-cover" />
+      ) : (
+        <span className={textClass}>{initialFor(name)}</span>
+      )}
+    </div>
+  )
+}
+
 /** Card ao estilo Playtomic: layout vertical – equipa 1 em cima, resultado no meio, equipa 2 em baixo; nomes abaixo de cada bolinha; troféu ao lado do resultado da equipa vencedora */
-function GameCardPlaytomic({ match, fullWidth }: { match: PlayerMatchForCard; fullWidth?: boolean }) {
+function GameCardPlaytomic({ match, fullWidth, currentPlayerAvatar, currentPlayerName }: { match: PlayerMatchForCard; fullWidth?: boolean; currentPlayerAvatar?: string | null; currentPlayerName?: string }) {
   const p1 = match.player1_name ?? twoPlayersPerTeam(match.team1_name)[0]
   const p2 = match.player2_name ?? twoPlayersPerTeam(match.team1_name)[1]
   const p3 = match.player3_name ?? twoPlayersPerTeam(match.team2_name)[0]
@@ -643,15 +746,11 @@ function GameCardPlaytomic({ match, fullWidth }: { match: PlayerMatchForCard; fu
           <div className="flex items-start justify-between gap-4">
             <div className="grid grid-cols-2 gap-x-4 gap-y-0 w-[120px] flex-shrink-0 items-start">
               <div className="flex flex-col items-center min-h-[52px]">
-                <div className="w-11 h-11 rounded-full bg-orange-400 flex items-center justify-center text-xl font-bold text-white shadow-sm flex-shrink-0" title={p1}>
-                  {initialFor(p1)}
-                </div>
+                <PlayerCircle name={p1} bgClass="bg-orange-400" textClass="text-xl font-bold text-white" avatarUrl={currentPlayerAvatar} currentPlayerName={currentPlayerName} />
                 <span className="text-[10px] text-gray-600 truncate max-w-[60px] mt-0.5 text-center line-clamp-2 min-h-[24px]" title={p1}>{p1}</span>
               </div>
               <div className="flex flex-col items-center min-h-[52px]">
-                <div className="w-11 h-11 rounded-full bg-orange-400 flex items-center justify-center text-xl font-bold text-white shadow-sm flex-shrink-0" title={p2}>
-                  {initialFor(p2)}
-                </div>
+                <PlayerCircle name={p2} bgClass="bg-orange-400" textClass="text-xl font-bold text-white" avatarUrl={currentPlayerAvatar} currentPlayerName={currentPlayerName} />
                 <span className="text-[10px] text-gray-600 truncate max-w-[60px] mt-0.5 text-center line-clamp-2 min-h-[24px]" title={p2}>{p2}</span>
               </div>
             </div>
@@ -674,15 +773,11 @@ function GameCardPlaytomic({ match, fullWidth }: { match: PlayerMatchForCard; fu
           <div className="flex items-start justify-between gap-4">
             <div className="grid grid-cols-2 gap-x-4 gap-y-0 w-[120px] flex-shrink-0 items-start">
               <div className="flex flex-col items-center min-h-[52px]">
-                <div className="w-11 h-11 rounded-full bg-sky-200 flex items-center justify-center text-xl font-bold text-sky-800 shadow-sm flex-shrink-0" title={p3}>
-                  {initialFor(p3)}
-                </div>
+                <PlayerCircle name={p3} bgClass="bg-sky-200" textClass="text-xl font-bold text-sky-800" avatarUrl={currentPlayerAvatar} currentPlayerName={currentPlayerName} />
                 <span className="text-[10px] text-gray-600 truncate max-w-[60px] mt-0.5 text-center line-clamp-2 min-h-[24px]" title={p3}>{p3}</span>
               </div>
               <div className="flex flex-col items-center min-h-[52px]">
-                <div className="w-11 h-11 rounded-full bg-sky-200 flex items-center justify-center text-xl font-bold text-sky-800 shadow-sm flex-shrink-0" title={p4}>
-                  {initialFor(p4)}
-                </div>
+                <PlayerCircle name={p4} bgClass="bg-sky-200" textClass="text-xl font-bold text-sky-800" avatarUrl={currentPlayerAvatar} currentPlayerName={currentPlayerName} />
                 <span className="text-[10px] text-gray-600 truncate max-w-[60px] mt-0.5 text-center line-clamp-2 min-h-[24px]" title={p4}>{p4}</span>
               </div>
             </div>
@@ -798,8 +893,20 @@ function HomeScreen({
   }
 
   const totalMatches = d?.stats?.totalMatches ?? 0
+  const losses = d?.stats?.losses ?? 0
   const winRate = d?.stats?.winRate ?? 0
   const rewardPoints = d?.leagueStandings?.[0]?.points ?? points
+  const bio = player?.bio || ''
+  const truncatedBio = bio.length > 160 ? bio.substring(0, 160) + '...' : bio
+
+  // Determinar nível de reward
+  const getRewardTier = (points: number) => {
+    if (points <= 100) return { name: 'Silver', emoji: '🥈', bgColor: 'bg-gradient-to-br from-gray-100 to-gray-200', textColor: 'text-gray-700' }
+    if (points <= 400) return { name: 'Gold', emoji: '🥇', bgColor: 'bg-gradient-to-br from-yellow-50 to-amber-100', textColor: 'text-amber-700' }
+    return { name: 'Platinum', emoji: '💎', bgColor: 'bg-gradient-to-br from-purple-50 to-purple-100', textColor: 'text-purple-700' }
+  }
+
+  const rewardTier = getRewardTier(rewardPoints)
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -812,56 +919,83 @@ function HomeScreen({
         <ActionButton icon={GraduationCap} label="Aprender" color="emerald" />
       </div>
 
-      {/* Player Stats Card – premium com emojis */}
-      <div className="card-stats-premium p-5 sm:p-6">
-        <div className="flex items-start gap-5 sm:gap-6 relative z-10">
-          <div className="relative flex-shrink-0">
+      {/* Profile Card - Foto + Nome + Bio */}
+      <div className="card p-5">
+        <div className="flex items-start gap-4">
+          <div className="flex-shrink-0">
             {player?.avatar_url ? (
               <img
                 src={player.avatar_url}
                 alt="Avatar"
-                className="w-20 h-20 sm:w-24 sm:h-24 rounded-full object-cover border-4 border-white shadow-lg ring-2 ring-red-100"
+                className="w-20 h-20 rounded-full object-cover border-4 border-red-100"
               />
             ) : (
-              <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-gradient-padel flex items-center justify-center shadow-lg ring-2 ring-red-100">
-                <span className="text-white font-bold text-2xl sm:text-3xl">
+              <div className="w-20 h-20 rounded-full bg-gradient-padel flex items-center justify-center">
+                <span className="text-white font-bold text-2xl">
                   {player?.name?.charAt(0)?.toUpperCase() || 'P'}
                 </span>
               </div>
             )}
-            <span className="level-badge absolute -bottom-0.5 left-1/2 -translate-x-1/2 text-xs sm:text-sm px-2.5 py-1 shadow">
-              ⭐ {player?.level?.toFixed(1) || '3.0'}
-            </span>
           </div>
           <div className="flex-1 min-w-0">
-            <p className="font-bold text-lg sm:text-xl text-gray-900">{player?.name || name || 'Jogador'}</p>
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mt-4 items-start">
-              <div className="stat-tile p-3 flex flex-col items-center">
-                <span className="stat-emoji h-8 flex items-center justify-center mb-1">🎾</span>
-                <span className="text-lg sm:text-xl font-bold text-gray-900 text-center">{totalMatches}</span>
-                <span className="text-xs text-gray-500 font-medium text-center leading-tight">Jogos</span>
-              </div>
-              <div className="stat-tile p-3 flex flex-col items-center">
-                <span className="stat-emoji h-8 flex items-center justify-center mb-1">🏆</span>
-                <span className="text-lg sm:text-xl font-bold text-gray-900 text-center">{wins}</span>
-                <span className="text-xs text-gray-500 font-medium text-center leading-tight">Vitórias</span>
-              </div>
-              <div className="stat-tile p-3 flex flex-col items-center">
-                <span className="stat-emoji h-8 flex items-center justify-center mb-1">📈</span>
-                <span className="text-lg sm:text-xl font-bold text-gray-900 text-center">{winRate}%</span>
-                <span className="text-xs text-gray-500 font-medium text-center leading-tight">Taxa vitória</span>
-              </div>
-              <div className="stat-tile p-3 flex flex-col items-center">
-                <span className="stat-emoji h-8 flex items-center justify-center mb-1">⭐</span>
-                <span className="text-lg sm:text-xl font-bold text-gray-900 text-center">{player?.level?.toFixed(1) || '3.0'}</span>
-                <span className="text-xs text-gray-500 font-medium text-center leading-tight">Nível</span>
-              </div>
-              <div className="stat-tile p-3 col-span-2 sm:col-span-1 flex flex-col items-center">
-                <span className="stat-emoji h-8 flex items-center justify-center mb-1">💎</span>
-                <span className="text-lg sm:text-xl font-bold text-amber-600 text-center">{rewardPoints}</span>
-                <span className="text-xs text-gray-500 font-medium text-center leading-tight">Pontos reward</span>
-              </div>
+            <h2 className="font-bold text-xl text-gray-900">{player?.name || name || 'Jogador'}</h2>
+            {truncatedBio && (
+              <p className="text-sm text-gray-600 mt-1 leading-relaxed">{truncatedBio}</p>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Nível + Fiabilidade + Categoria */}
+      <div className="rounded-xl shadow-sm overflow-hidden p-6 bg-gradient-to-br from-red-50 to-red-100">
+        <div className="flex items-center justify-between">
+          <div className="flex-1">
+            <p className="text-5xl font-bold text-red-600">Nível {player?.level?.toFixed(1) || '3.0'}</p>
+            <p className="text-sm text-gray-600 mt-2 flex items-center gap-1.5">
+              <span>📊</span> Fiabilidade {player?.level_reliability_percent?.toFixed(0) ?? '85'}%
+            </p>
+          </div>
+          {player?.player_category && (
+            <div className="px-4 py-2 bg-blue-500 rounded-lg shadow-sm self-start">
+              <span className="text-sm font-bold text-white">{player.player_category}</span>
             </div>
+          )}
+        </div>
+      </div>
+
+      {/* Estatísticas - Jogos, Vitórias, Taxa Vitória */}
+      <div className="grid grid-cols-3 gap-3">
+        <div className="card p-4 text-center">
+          <p className="text-2xl mb-1">🎾</p>
+          <p className="text-2xl font-bold text-gray-900">{totalMatches}</p>
+          <p className="text-xs text-gray-500 mt-1 font-medium">Jogos</p>
+        </div>
+        <div className="card p-4 text-center">
+          <p className="text-2xl mb-1">🏆</p>
+          <p className="text-2xl font-bold text-green-600">{wins}</p>
+          <p className="text-xs text-gray-500 mt-1 font-medium">Vitórias</p>
+        </div>
+        <div className="card p-4 text-center">
+          <p className="text-2xl mb-1">📈</p>
+          <p className="text-2xl font-bold text-gray-900">{winRate}%</p>
+          <p className="text-xs text-gray-500 mt-1 font-medium">Taxa vitória</p>
+        </div>
+      </div>
+
+      {/* Pontos Reward + Medalhas */}
+      <div className={`rounded-xl shadow-sm overflow-hidden p-5 ${rewardTier.bgColor}`}>
+        <div className="flex items-center justify-between">
+          <div>
+            <p className={`text-sm font-medium mb-1 flex items-center gap-1.5 ${rewardTier.textColor}`}>
+              <span className="text-lg">{rewardTier.emoji}</span> Pontos Reward · {rewardTier.name}
+            </p>
+            <p className={`text-4xl font-bold ${rewardTier.textColor}`}>{rewardPoints}</p>
+          </div>
+          <div className="flex items-center gap-2">
+            {wins >= 50 && <span className="text-3xl" title="50+ Vitórias">🏆</span>}
+            {wins >= 100 && <span className="text-3xl" title="100+ Vitórias">🥇</span>}
+            {totalMatches >= 100 && <span className="text-3xl" title="100+ Jogos">⭐</span>}
+            {wins < 50 && totalMatches < 100 && <span className="text-2xl opacity-30">🏅</span>}
           </div>
         </div>
       </div>
@@ -881,7 +1015,7 @@ function HomeScreen({
             <div className="flex gap-4" style={{ width: 'max-content' }}>
               {upcomingMatches.map((match) => (
                 <div key={match.id} className="snap-center">
-                  <GameCardPlaytomic match={match} />
+                  <GameCardPlaytomic match={match} currentPlayerAvatar={player?.avatar_url} currentPlayerName={player?.name} />
                 </div>
               ))}
             </div>
@@ -939,7 +1073,7 @@ function HomeScreen({
             <div className="flex gap-4" style={{ width: 'max-content' }}>
               {d.recentMatches.map((match) => (
                 <div key={match.id} className="snap-center">
-                  <GameCardPlaytomic match={match} />
+                  <GameCardPlaytomic match={match} currentPlayerAvatar={player?.avatar_url} currentPlayerName={player?.name} />
                 </div>
               ))}
             </div>
@@ -972,8 +1106,8 @@ function HomeScreen({
                       <tr key={row.id} className="border-t">
                         <td className="px-3 py-2">{i + 1}</td>
                         <td className="px-3 py-2 font-medium">{row.name}</td>
+                        <td className="px-3 py-2 text-center text-gray-500">{(row.wins ?? 0) + (row.losses ?? 0)}</td>
                         <td className="px-3 py-2 text-center text-green-600">{row.wins}</td>
-                        <td className="px-3 py-2 text-center text-red-500">{row.losses}</td>
                         <td className="px-3 py-2 text-center font-bold">{row.points}</td>
                       </tr>
                     ))}
@@ -982,23 +1116,47 @@ function HomeScreen({
               )}
               {detailTab === 'matches' && (
                 <div className="divide-y">
-                  {tournamentDetail.myMatches.length === 0 ? <div className="p-6 text-center text-gray-500">Sem jogos registados</div> : tournamentDetail.myMatches.map((m) => (
+                  {tournamentDetail.myMatches.length === 0 ? <div className="p-6 text-center text-gray-500">Sem jogos registados</div> : tournamentDetail.myMatches.map((m) => {
+                    const setScores = [m.set1, m.set2, m.set3].filter(Boolean)
+                    const scoreDisplay = setScores.length > 0 ? setScores.join(' ') : `${m.team1_score}-${m.team2_score}`
+                    return (
                     <div key={m.id} className="p-4">
                       <div className="flex justify-between items-start">
                         <div><p className="font-medium text-gray-900">{m.team1_name}</p><p className="text-sm text-gray-500">vs</p><p className="font-medium text-gray-900">{m.team2_name}</p></div>
                         <div className="text-right">
-                          {m.status === 'completed' ? <span className="text-lg font-bold">{m.team1_score} - {m.team2_score}</span> : <span className="text-sm text-gray-500">{formatDateTime(m.scheduled_time)}</span>}
+                          {m.status === 'completed' ? <span className="text-lg font-bold">{scoreDisplay}</span> : <span className="text-sm text-gray-500">{formatDateTime(m.scheduled_time)}</span>}
                           {m.is_winner !== undefined && <span className={`block text-xs mt-1 ${m.is_winner ? 'text-green-600' : 'text-red-600'}`}>{m.is_winner ? 'Vitória' : 'Derrota'}</span>}
                         </div>
                       </div>
                     </div>
-                  ))}
+                  )})}
                 </div>
               )}
             </div>
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// ---------- Comunidade ----------
+function CommunityScreen({ onBack }: { onBack: () => void }) {
+  return (
+    <div className="space-y-4 animate-fade-in">
+      <button onClick={onBack} className="flex items-center gap-2 text-gray-600 hover:text-gray-900">
+        <ArrowLeft className="w-5 h-5" />
+        <span>Voltar</span>
+      </button>
+      <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+        <Users className="w-8 h-8 text-red-600" />
+        Comunidade
+      </h1>
+      <div className="card p-8 text-center">
+        <span className="text-4xl mb-2 block">👥</span>
+        <p className="text-gray-700 font-medium">Em breve</p>
+        <p className="text-sm text-gray-500 mt-1">A comunidade Padel One está a chegar.</p>
+      </div>
     </div>
   )
 }
@@ -1138,6 +1296,16 @@ function CompeteScreen({
 
   // Use ligas do dashboardData se existirem, senão usa as buscadas diretamente
   const leagueStandings = (d?.leagueStandings?.length ?? 0) > 0 ? d!.leagueStandings : leaguesDirect
+  
+  // Log para debug - ver quais ligas estão a ser mostradas
+  useEffect(() => {
+    if (activeTab === 'leagues') {
+      console.log('[Leagues Display] Showing', leagueStandings.length, 'leagues')
+      console.log('[Leagues Display] d.leagueStandings:', d?.leagueStandings)
+      console.log('[Leagues Display] leaguesDirect:', leaguesDirect)
+      console.log('[Leagues Display] Final leagueStandings:', leagueStandings)
+    }
+  }, [activeTab, leagueStandings, d?.leagueStandings, leaguesDirect])
 
   useEffect(() => {
     let active = true
@@ -1159,23 +1327,34 @@ function CompeteScreen({
     setLeaguesLoading(true)
     ;(async () => {
       try {
-        // Usar Edge Function porque o user pode não ter Supabase Auth session (login por telefone)
+        console.log('[Leagues] Fetching leagues for player_account_id:', playerAccountId)
+        
+        const anonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJxaXdueGNleHNjY2d1cnVpdGVxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk3Njc5MzcsImV4cCI6MjA3NTM0MzkzN30.Dl05zPQDtPVpmvn_Y-JokT3wDq0Oh9uF3op5xcHZpkY'
+        
+        // Usar fetch direto com Authorization e apikey
         const resp = await fetch(
           `https://rqiwnxcexsccguruiteq.supabase.co/functions/v1/get-player-leagues`,
           {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${anonKey}`,
+              'apikey': anonKey,
+            },
             body: JSON.stringify({ player_account_id: playerAccountId }),
           }
         )
+        
         if (active && resp.ok) {
           const data = await resp.json()
           console.log('[Leagues] Got', data?.leagues?.length ?? 0, 'leagues')
-          if (data?.leagues?.length && active) {
+          console.log('[Leagues] Full data:', data?.leagues)
+          if (data?.leagues?.length) {
             setLeaguesDirect(data.leagues)
           }
         } else {
-          console.error('[Leagues] Edge Function error:', resp.status)
+          const errorText = await resp.text()
+          console.error('[Leagues] Edge Function error:', resp.status, errorText)
         }
       } catch (err) {
         console.error('[Leagues] ERROR:', err)
@@ -1232,16 +1411,13 @@ function CompeteScreen({
     setLeagueCategories([])
     setLeagueLoading(true)
     try {
-      const resp = await fetch(
-        `https://rqiwnxcexsccguruiteq.supabase.co/functions/v1/get-league-standings`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ league_id: id, player_name: name }),
-        }
-      )
-      if (resp.ok) {
-        const data = await resp.json()
+      const { data, error } = await supabase.functions.invoke('get-league-standings', {
+        body: { league_id: id, player_name: dashboardData?.playerName },
+      })
+      
+      if (error) {
+        console.error('[League] Error:', error)
+      } else if (data) {
         setLeagueFull(data.standings || [])
         setLeagueCategories(data.categories || [])
       }
@@ -1431,15 +1607,18 @@ function CompeteScreen({
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-600" />
             </div>
           ) : leagueStandings.length > 0 ? (
-            <div className="space-y-3">
-              <p className="text-sm text-gray-600">Ligas onde participas</p>
+            <div className="space-y-4">
+              <h2 className="text-lg font-bold text-gray-900">Ligas onde participas</h2>
               {leagueStandings.map((s, idx) => (
-                <div key={idx} className="card p-4 flex items-center justify-between">
-                  <div>
-                    <h3 className="font-semibold text-gray-900">{s.league_name}</h3>
-                    <p className="text-sm text-gray-500 mt-0.5">{s.position}º de {s.total_participants} · {s.points} pts</p>
-                  </div>
-                  <button onClick={() => viewLeague(s.league_id, s.league_name)} className="text-red-600 text-sm font-medium flex items-center gap-1">
+                <div key={idx} className="card p-6 flex flex-col items-center justify-center text-center">
+                  <h3 className="text-base font-bold text-gray-600">{s.league_name}</h3>
+                  <p className="text-2xl mt-3 flex items-center justify-center gap-2">
+                    <span className="text-3xl">🏆</span>
+                    <span className="font-bold text-red-600 text-3xl">{s.position}º</span>
+                    <span className="text-gray-600 text-xl"> de {s.total_participants} · </span>
+                    <span className="font-semibold text-gray-900 text-xl">{s.points} pts</span>
+                  </p>
+                  <button onClick={() => viewLeague(s.league_id, s.league_name)} className="mt-4 text-red-600 text-base font-semibold flex items-center gap-1">
                     Ver classificação <ChevronRight className="w-4 h-4" />
                   </button>
                 </div>
@@ -1501,13 +1680,16 @@ function CompeteScreen({
                         <div className="mt-4 pt-4 border-t border-gray-100">
                           <p className="text-xs font-medium text-gray-500 mb-2">Os teus resultados</p>
                           <div className="space-y-2">
-                            {details.myMatches.map((m) => (
+                            {details.myMatches.map((m) => {
+                              const setScores = [m.set1, m.set2, m.set3].filter(Boolean)
+                              const scoreDisplay = setScores.length > 0 ? setScores.join(' ') : `${m.team1_score}-${m.team2_score}`
+                              return (
                               <div key={m.id} className="flex justify-between items-center text-sm py-2 px-3 bg-gray-50 rounded-lg">
                                 <span className="text-gray-700 truncate flex-1 mr-2">
                                   {m.team1_name} vs {m.team2_name}
                                 </span>
                                 <span className="font-semibold text-gray-900 flex-shrink-0">
-                                  {m.team1_score}-{m.team2_score}
+                                  {scoreDisplay}
                                 </span>
                                 {m.is_winner !== undefined && (
                                   <span className={`ml-2 text-xs font-medium flex-shrink-0 ${m.is_winner ? 'text-green-600' : 'text-red-600'}`}>
@@ -1515,7 +1697,7 @@ function CompeteScreen({
                                   </span>
                                 )}
                               </div>
-                            ))}
+                            )})}
                           </div>
                         </div>
                       )}
@@ -1585,7 +1767,7 @@ function CompeteScreen({
             >
               {/* Header */}
               <div className="p-4 border-b flex items-center justify-between flex-shrink-0">
-                <h2 className="text-base font-bold truncate mr-2">{viewingLeague.name}</h2>
+                <h2 className="text-xl font-bold truncate mr-2">{viewingLeague.name}</h2>
                 <button onClick={() => { setViewingLeague(null); setLeagueCategories([]); setLeagueCategoryTab('') }} className="text-gray-400 hover:text-gray-600 text-xl leading-none flex-shrink-0">✕</button>
               </div>
 
@@ -1616,22 +1798,22 @@ function CompeteScreen({
                   <table className="w-full text-sm">
                     <thead className="bg-gray-50 sticky top-0">
                       <tr>
-                        <th className="px-2 py-2 text-left text-xs font-medium text-gray-500 w-8">#</th>
-                        <th className="px-2 py-2 text-left text-xs font-medium text-gray-500">Nome</th>
-                        <th className="px-2 py-2 text-center text-xs font-medium text-gray-500 w-12">Pts</th>
-                        <th className="px-2 py-2 text-center text-xs font-medium text-gray-500 w-8">T</th>
+                        <th className="px-2 py-2 text-left text-sm font-semibold text-gray-700 w-10">#</th>
+                        <th className="px-2 py-2 text-left text-sm font-semibold text-gray-700">Nome</th>
+                        <th className="px-2 py-2 text-center text-sm font-semibold text-gray-700 w-14">Pts</th>
+                        <th className="px-2 py-2 text-center text-xs font-medium text-gray-500 w-12">Jogos</th>
                       </tr>
                     </thead>
                     <tbody>
                       {displayStandings.map((row) => (
-                        <tr key={row.position} className={`border-t border-gray-100 ${row.is_current_player ? 'bg-red-50' : ''}`}>
-                          <td className="px-2 py-1.5 text-gray-500 text-xs">{row.position}</td>
-                          <td className="px-2 py-1.5 truncate max-w-[180px]">
-                            <span className={row.is_current_player ? 'font-semibold' : 'font-medium'}>{row.entity_name}</span>
-                            {row.is_current_player && <span className="ml-1 text-xs bg-red-100 text-red-600 px-1 rounded">Tu</span>}
+                        <tr key={row.position} className={`border-t border-gray-100 ${row.is_current_player ? 'bg-red-100 ring-2 ring-red-200' : ''}`}>
+                          <td className={`px-2 py-2 text-sm ${row.is_current_player ? 'font-bold text-red-600' : 'text-gray-500'}`}>{row.position}</td>
+                          <td className="px-2 py-2 truncate max-w-[180px]">
+                            <span className={row.is_current_player ? 'font-bold text-gray-900 text-base' : 'font-medium'}>{row.entity_name}</span>
+                            {row.is_current_player && <span className="ml-1 text-xs bg-red-600 text-white px-1.5 py-0.5 rounded font-semibold">Tu</span>}
                           </td>
-                          <td className="px-2 py-1.5 text-center font-bold">{row.total_points}</td>
-                          <td className="px-2 py-1.5 text-center text-gray-500 text-xs">{row.tournaments_played}</td>
+                          <td className={`px-2 py-2 text-center font-bold ${row.is_current_player ? 'text-red-600 text-base' : ''}`}>{row.total_points}</td>
+                          <td className={`px-2 py-2 text-center text-sm ${row.is_current_player ? 'font-bold text-gray-900' : 'text-gray-500'}`}>{row.tournaments_played}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -1715,8 +1897,8 @@ function CompeteScreen({
                       <tr key={row.id} className="border-t">
                         <td className="px-3 py-2">{i + 1}</td>
                         <td className="px-3 py-2 font-medium">{row.name}</td>
+                        <td className="px-3 py-2 text-center text-gray-500">{(row.wins ?? 0) + (row.losses ?? 0)}</td>
                         <td className="px-3 py-2 text-center text-green-600">{row.wins}</td>
-                        <td className="px-3 py-2 text-center text-red-500">{row.losses}</td>
                         <td className="px-3 py-2 text-center font-bold">{row.points}</td>
                       </tr>
                     ))}
@@ -1725,17 +1907,20 @@ function CompeteScreen({
               )}
               {detailTab === 'matches' && (
                 <div className="divide-y">
-                  {tournamentDetail.myMatches.length === 0 ? <div className="p-6 text-center text-gray-500">Sem jogos registados</div> : tournamentDetail.myMatches.map((m) => (
+                  {tournamentDetail.myMatches.length === 0 ? <div className="p-6 text-center text-gray-500">Sem jogos registados</div> : tournamentDetail.myMatches.map((m) => {
+                    const setScores = [m.set1, m.set2, m.set3].filter(Boolean)
+                    const scoreDisplay = setScores.length > 0 ? setScores.join(' ') : `${m.team1_score}-${m.team2_score}`
+                    return (
                     <div key={m.id} className="p-4">
                       <div className="flex justify-between items-start">
                         <div><p className="font-medium text-gray-900">{m.team1_name}</p><p className="text-sm text-gray-500">vs</p><p className="font-medium text-gray-900">{m.team2_name}</p></div>
                         <div className="text-right">
-                          {m.status === 'completed' ? <span className="text-lg font-bold">{m.team1_score} - {m.team2_score}</span> : <span className="text-sm text-gray-500">{formatDateTime(m.scheduled_time)}</span>}
+                          {m.status === 'completed' ? <span className="text-lg font-bold">{scoreDisplay}</span> : <span className="text-sm text-gray-500">{formatDateTime(m.scheduled_time)}</span>}
                           {m.is_winner !== undefined && <span className={`block text-xs mt-1 ${m.is_winner ? 'text-green-600' : 'text-red-600'}`}>{m.is_winner ? 'Vitória' : 'Derrota'}</span>}
                         </div>
                       </div>
                     </div>
-                  ))}
+                  )})}
                 </div>
               )}
             </div>
@@ -1748,7 +1933,7 @@ function CompeteScreen({
 }
 
 function GamesScreen({
-  player: _player,
+  player,
   dashboardData,
   onRefresh,
 }: {
@@ -1790,7 +1975,7 @@ function GamesScreen({
         <div className="space-y-3">
           {list.map((match) => (
             <div key={match.id} className="w-full">
-              <GameCardPlaytomic match={match} fullWidth />
+              <GameCardPlaytomic match={match} fullWidth currentPlayerAvatar={player?.avatar_url} currentPlayerName={player?.name} />
             </div>
           ))}
         </div>
@@ -1806,7 +1991,306 @@ function GamesScreen({
   )
 }
 
-function ProfileScreen({
+/** Extrai nomes de jogadores de um match (excluindo o jogador atual). */
+function getOtherPlayersFromMatch(match: { player1_name?: string; player2_name?: string; player3_name?: string; player4_name?: string; team1_name?: string; team2_name?: string }, currentName?: string): string[] {
+  const names: string[] = []
+  const add = (n: string | undefined) => {
+    if (n && n.trim() && !isCurrentPlayer(n, currentName)) names.push(n.trim())
+  }
+  if (match.player1_name || match.player2_name || match.player3_name || match.player4_name) {
+    add(match.player1_name)
+    add(match.player2_name)
+    add(match.player3_name)
+    add(match.player4_name)
+  } else {
+    const [p1, p2] = parseTeamMembers(match.team1_name || '')
+    const [p3, p4] = parseTeamMembers(match.team2_name || '')
+    ;[p1, p2, p3, p4].forEach((p) => add(p !== '?' ? p : undefined))
+  }
+  return names
+}
+
+// ---------- Perfil Público (Visualização) - Igual à Home, com 5 últimos jogos, sem Informações do Jogador ----------
+function ProfileViewScreen({
+  player,
+  dashboardData,
+  onOpenGames,
+}: {
+  player: PlayerAccount | null
+  dashboardData: PlayerDashboardData | null
+  onOpenGames: () => void
+}) {
+  const d = dashboardData
+  const totalMatches = d?.stats?.totalMatches ?? (player?.wins || 0) + (player?.losses || 0)
+  const wins = d?.stats?.wins ?? player?.wins ?? 0
+  const winRate = d?.stats?.winRate ?? (totalMatches > 0 ? Math.round(((player?.wins || 0) / totalMatches) * 100) : 0)
+  const bio = player?.bio || ''
+  const truncatedBio = bio.length > 160 ? bio.substring(0, 160) + '...' : bio
+  const recentMatches = (d?.recentMatches ?? []).slice(0, 5)
+
+  // Jogadores com quem mais joga (extrair de todos os jogos recentes)
+  const allRecentMatches = d?.recentMatches ?? []
+  const playerCountMap = new Map<string, number>()
+  allRecentMatches.forEach((match) => {
+    getOtherPlayersFromMatch(match, player?.name).forEach((name) => {
+      playerCountMap.set(name, (playerCountMap.get(name) || 0) + 1)
+    })
+  })
+  const topPlayers = Array.from(playerCountMap.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10)
+    .map(([name, count]) => ({ name, count }))
+
+  // Clubes onde joga (favorito + dos torneios)
+  const [clubsWherePlays, setClubsWherePlays] = useState<ClubDetail[]>([])
+  useEffect(() => {
+    let active = true
+    ;(async () => {
+      const list: ClubDetail[] = []
+      const seenIds = new Set<string>()
+
+      // Clube favorito
+      const favId = player?.favorite_club_id ?? localStorage.getItem('padel_one_player_favorite_club_id')
+      if (favId && typeof favId === 'string') {
+        const club = await fetchClubById(favId)
+        if (club && active && !seenIds.has(club.id)) {
+          list.push(club)
+          seenIds.add(club.id)
+        }
+      }
+
+      // Clubes dos torneios onde jogou
+      const tournamentIds = new Set<string>()
+      ;(d?.recentMatches ?? []).forEach((m) => m.tournament_id && tournamentIds.add(m.tournament_id))
+      ;(d?.pastTournaments ?? []).forEach((t) => t.id && tournamentIds.add(t.id))
+      ;(d?.upcomingTournaments ?? []).forEach((t) => t.id && tournamentIds.add(t.id))
+
+      if (tournamentIds.size > 0) {
+        const { data: tournaments } = await supabase
+          .from('tournaments')
+          .select('club_id')
+          .in('id', Array.from(tournamentIds))
+        const clubIds = [...new Set((tournaments || []).map((t: any) => t.club_id).filter(Boolean))]
+        for (const cid of clubIds) {
+          if (seenIds.has(cid)) continue
+          const club = await fetchClubById(cid)
+          if (club && active) {
+            list.push(club)
+            seenIds.add(club.id)
+          }
+        }
+      }
+
+      if (active) setClubsWherePlays(list)
+    })()
+    return () => { active = false }
+  }, [player?.favorite_club_id, d?.recentMatches, d?.pastTournaments, d?.upcomingTournaments])
+
+  // Categoria de idade (de 5 em 5 anos: +55, +60, etc.)
+  const getAgeCategory = (): string | null => {
+    const bd = player?.birth_date
+    if (!bd) return null
+    const birth = new Date(bd)
+    const today = new Date()
+    let age = today.getFullYear() - birth.getFullYear()
+    const m = today.getMonth() - birth.getMonth()
+    if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--
+    if (age < 18) return null
+    const cat = Math.floor(age / 5) * 5
+    return `+${cat}`
+  }
+  const ageCategory = getAgeCategory()
+
+  const getHandLabel = (h?: string) => ({ right: 'Direita', left: 'Esquerda', ambidextrous: 'Ambidestro' }[h || ''] || '—')
+  const getPositionLabel = (p?: string) => ({ right: 'Direita', left: 'Esquerda', both: 'Ambas' }[p || ''] || '—')
+  const getGameTypeLabel = (g?: string) => ({ competitive: 'Competitivo', friendly: 'Amigável', both: 'Ambos' }[g || ''] || '—')
+  const getTimeLabel = (t?: string) => ({ morning: 'Manhã', afternoon: 'Tarde', evening: 'Noite', all_day: 'Dia todo' }[t || ''] || '—')
+
+  return (
+    <div className="space-y-6 animate-fade-in pb-20">
+      {/* Profile Card - Foto + Nome + Bio (igual à Home) */}
+      <div className="card p-5">
+        <div className="flex items-start gap-4">
+          <div className="flex-shrink-0">
+            {player?.avatar_url ? (
+              <img src={player.avatar_url} alt="Avatar" className="w-20 h-20 rounded-full object-cover border-4 border-red-100" />
+            ) : (
+              <div className="w-20 h-20 rounded-full bg-gradient-padel flex items-center justify-center">
+                <span className="text-white font-bold text-2xl">{player?.name?.charAt(0)?.toUpperCase() || 'P'}</span>
+              </div>
+            )}
+          </div>
+          <div className="flex-1 min-w-0">
+            <h2 className="font-bold text-xl text-gray-900">{player?.name || 'Jogador'}</h2>
+            {truncatedBio && <p className="text-sm text-gray-600 mt-1 leading-relaxed">{truncatedBio}</p>}
+          </div>
+        </div>
+      </div>
+
+      {/* Nível + Fiabilidade + Categoria + Idade */}
+      <div className="rounded-xl shadow-sm overflow-hidden p-6 bg-gradient-to-br from-red-50 to-red-100">
+        <div className="flex items-center justify-between">
+          <div className="flex-1">
+            <p className="text-5xl font-bold text-red-600">Nível {player?.level?.toFixed(1) || '3.0'}</p>
+            <p className="text-sm text-gray-600 mt-2 flex items-center gap-1.5">
+              <span>📊</span> Fiabilidade {player?.level_reliability_percent?.toFixed(0) ?? '85'}%
+            </p>
+          </div>
+          <div className="flex flex-col gap-2 self-start">
+            {player?.player_category && (
+              <div className="px-4 py-2 bg-blue-500 rounded-lg shadow-sm">
+                <span className="text-sm font-bold text-white">{player.player_category}</span>
+              </div>
+            )}
+            {ageCategory && (
+              <div className="px-4 py-2 bg-amber-500 rounded-lg shadow-sm">
+                <span className="text-sm font-bold text-white">{ageCategory}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Estatísticas - Jogos, Vitórias, Taxa Vitória */}
+      <div className="grid grid-cols-3 gap-3">
+        <div className="card p-4 text-center">
+          <p className="text-2xl mb-1">🎾</p>
+          <p className="text-2xl font-bold text-gray-900">{totalMatches}</p>
+          <p className="text-xs text-gray-500 mt-1 font-medium">Jogos</p>
+        </div>
+        <div className="card p-4 text-center">
+          <p className="text-2xl mb-1">🏆</p>
+          <p className="text-2xl font-bold text-green-600">{wins}</p>
+          <p className="text-xs text-gray-500 mt-1 font-medium">Vitórias</p>
+        </div>
+        <div className="card p-4 text-center">
+          <p className="text-2xl mb-1">📈</p>
+          <p className="text-2xl font-bold text-gray-900">{winRate}%</p>
+          <p className="text-xs text-gray-500 mt-1 font-medium">Taxa vitória</p>
+        </div>
+      </div>
+
+      {/* Preferências do jogador */}
+      <div className="card p-5">
+        <h3 className="font-bold text-gray-900 mb-4 flex items-center gap-2">
+          <Target className="w-5 h-5 text-red-600" />
+          Preferências de jogador
+        </h3>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="p-3 bg-gray-50 rounded-lg">
+            <p className="text-xs text-gray-500 mb-0.5">Mão dominante</p>
+            <p className="font-medium text-gray-900">{getHandLabel(player?.preferred_hand)}</p>
+          </div>
+          <div className="p-3 bg-gray-50 rounded-lg">
+            <p className="text-xs text-gray-500 mb-0.5">Posição no campo</p>
+            <p className="font-medium text-gray-900">{getPositionLabel(player?.court_position)}</p>
+          </div>
+          <div className="p-3 bg-gray-50 rounded-lg">
+            <p className="text-xs text-gray-500 mb-0.5">Tipo de jogo</p>
+            <p className="font-medium text-gray-900">{getGameTypeLabel(player?.game_type)}</p>
+          </div>
+          <div className="p-3 bg-gray-50 rounded-lg">
+            <p className="text-xs text-gray-500 mb-0.5">Horário preferido</p>
+            <p className="font-medium text-gray-900">{getTimeLabel(player?.preferred_time)}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* 5 Últimos Jogos - Resultados Recentes (igual à Home) */}
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+            <span>📊</span> Resultados Recentes
+          </h2>
+          {recentMatches.length > 0 && (
+            <button onClick={onOpenGames} className="text-red-600 text-sm font-medium flex items-center gap-1">
+              Ver todos <ChevronRight className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+        {recentMatches.length > 0 ? (
+          <div className="overflow-x-auto pb-2 -mx-4 px-4 sm:mx-0 sm:px-0 snap-x snap-mandatory scroll-smooth games-horizontal-scroll">
+            <div className="flex gap-4" style={{ width: 'max-content' }}>
+              {recentMatches.map((match) => (
+                <div key={match.id} className="snap-center">
+                  <GameCardPlaytomic match={match} currentPlayerAvatar={player?.avatar_url} currentPlayerName={player?.name} />
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="card p-6 text-center">
+            <span className="text-4xl mb-2 block">🎾</span>
+            <p className="text-gray-700 font-medium">Sem jogos recentes</p>
+            <p className="text-sm text-gray-500 mt-1">Os resultados aparecerão aqui</p>
+          </div>
+        )}
+      </div>
+
+      {/* Jogadores com quem mais joga */}
+      <div>
+        <h2 className="text-lg font-bold text-gray-900 mb-3 flex items-center gap-2">
+          <Users className="w-5 h-5 text-red-600" />
+          Jogadores com quem mais joga
+        </h2>
+        {topPlayers.length > 0 ? (
+          <div className="overflow-x-auto pb-2 -mx-4 px-4 sm:mx-0 sm:px-0 snap-x snap-mandatory scroll-smooth">
+            <div className="flex gap-3" style={{ width: 'max-content' }}>
+              {topPlayers.map(({ name, count }) => (
+                <div key={name} className="snap-center flex-shrink-0 w-[120px] card p-4 text-center">
+                  <div className="w-14 h-14 rounded-full bg-gradient-padel flex items-center justify-center mx-auto mb-2">
+                    <span className="text-white font-bold text-lg">{name.charAt(0).toUpperCase()}</span>
+                  </div>
+                  <p className="font-medium text-gray-900 text-sm truncate" title={name}>{name}</p>
+                  <p className="text-xs text-gray-500 mt-0.5">{count} jogos</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="card p-4 text-center">
+            <p className="text-sm text-gray-500">Os jogadores com quem jogas aparecerão aqui</p>
+          </div>
+        )}
+      </div>
+
+      {/* Clubes onde joga [nome] */}
+      <div>
+        <h2 className="text-lg font-bold text-gray-900 mb-3 flex items-center gap-2">
+          <Building2 className="w-5 h-5 text-red-600" />
+          Clubes onde joga {player?.name?.split(' ')[0] || 'o jogador'}
+        </h2>
+        {clubsWherePlays.length > 0 ? (
+          <div className="overflow-x-auto pb-2 -mx-4 px-4 sm:mx-0 sm:px-0 snap-x snap-mandatory scroll-smooth">
+            <div className="flex gap-3" style={{ width: 'max-content' }}>
+              {clubsWherePlays.map((club) => (
+                <div key={club.id} className="snap-center flex-shrink-0 w-[140px] card overflow-hidden p-0">
+                  <div className="h-20 bg-gray-100 flex items-center justify-center">
+                    {club.logo_url ? (
+                      <img src={club.logo_url} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      <Building2 className="w-10 h-10 text-gray-400" />
+                    )}
+                  </div>
+                  <div className="p-3">
+                    <p className="font-medium text-gray-900 text-sm truncate" title={club.name}>{club.name}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="card p-4 text-center">
+            <p className="text-sm text-gray-500">Os clubes onde jogas aparecerão aqui</p>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ---------- Perfil de Edição - Para Definições ----------
+function ProfileEditScreen({
   player,
   onLogout,
   onSaveFavoriteClub,
@@ -1819,7 +2303,6 @@ function ProfileScreen({
 }) {
   const [clubs, setClubs] = useState<ClubDetail[]>([])
   const [loadingClubs, setLoadingClubs] = useState(true)
-  const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saveMsg, setSaveMsg] = useState('')
   const [uploadingAvatar, setUploadingAvatar] = useState(false)
@@ -1828,7 +2311,6 @@ function ProfileScreen({
   // Editable fields
   const [editName, setEditName] = useState(player?.name || '')
   const [editEmail, setEditEmail] = useState(player?.email || '')
-  const [editCategory, setEditCategory] = useState<string>(player?.player_category || '')
   const [editGender, setEditGender] = useState<string>(player?.gender || '')
   const [editBirthDate, setEditBirthDate] = useState(player?.birth_date || '')
   const [editLocation, setEditLocation] = useState(player?.location || '')
@@ -1843,7 +2325,6 @@ function ProfileScreen({
     if (player) {
       setEditName(player.name || '')
       setEditEmail(player.email || '')
-      setEditCategory(player.player_category || '')
       setEditGender(player.gender || '')
       setEditBirthDate(player.birth_date || '')
       setEditLocation(player.location || '')
@@ -1861,12 +2342,6 @@ function ProfileScreen({
       setLoadingClubs(false)
     }).catch(() => setLoadingClubs(false))
   }, [])
-
-  // Filter categories by gender prefix
-  const genderPrefix = editGender === 'male' ? 'M' : editGender === 'female' ? 'F' : null
-  const filteredCategories = genderPrefix
-    ? PLAYER_CATEGORIES.filter((c) => c.gender === genderPrefix)
-    : PLAYER_CATEGORIES
 
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -1925,24 +2400,40 @@ function ProfileScreen({
   }
 
   const handleSave = async () => {
+    // Validar campos obrigatórios (exceto Sobre mim)
+    const missing: string[] = []
+    if (!editName.trim()) missing.push('Nome')
+    if (!editEmail.trim()) missing.push('Email')
+    if (!editGender) missing.push('Género')
+    if (!editBirthDate) missing.push('Data de Nascimento')
+    if (!editLocation.trim()) missing.push('Localização')
+    if (!editHand) missing.push('Mão Preferida')
+    if (!editPosition) missing.push('Posição em Campo')
+    if (!editGameType) missing.push('Tipo de Jogo Preferido')
+    if (!editPreferredTime) missing.push('Horário de Jogo Preferido')
+
+    if (missing.length > 0) {
+      setSaveMsg(`Preenche os campos obrigatórios: ${missing.join(', ')}`)
+      setTimeout(() => setSaveMsg(''), 5000)
+      return
+    }
+
     setSaving(true)
     setSaveMsg('')
     try {
       await onSaveProfile({
-        name: editName.trim() || undefined,
-        email: editEmail.trim() || undefined,
-        player_category: (editCategory || null) as any,
-        gender: (editGender || undefined) as any,
-        birth_date: editBirthDate || undefined,
-        location: editLocation.trim() || undefined,
-        preferred_hand: (editHand || undefined) as any,
-        court_position: (editPosition || undefined) as any,
+        name: editName.trim(),
+        email: editEmail.trim(),
+        gender: editGender as any,
+        birth_date: editBirthDate,
+        location: editLocation.trim(),
+        preferred_hand: editHand as any,
+        court_position: editPosition as any,
         bio: editBio.trim() || undefined,
-        game_type: (editGameType || undefined) as any,
-        preferred_time: (editPreferredTime || undefined) as any,
+        game_type: editGameType as any,
+        preferred_time: editPreferredTime as any,
       })
       setSaveMsg('Perfil guardado!')
-      setEditing(false)
       setTimeout(() => setSaveMsg(''), 3000)
     } catch {
       setSaveMsg('Erro ao guardar')
@@ -1952,8 +2443,8 @@ function ProfileScreen({
   }
 
   return (
-    <div className="space-y-4 animate-fade-in">
-      {/* Profile Header */}
+    <div className="space-y-4 animate-fade-in pb-20">
+      {/* Profile Header - Simples */}
       <div className="card p-6 text-center">
         <div className="relative inline-block">
           {player?.avatar_url ? (
@@ -1987,61 +2478,28 @@ function ProfileScreen({
         <h2 className="text-xl font-bold text-gray-900 mt-3">{player?.name || 'Jogador'}</h2>
         <p className="text-gray-500 text-sm">{player?.phone_number || player?.phone}</p>
         
-        {/* Category + Level Badge */}
-        <div className="flex items-center justify-center gap-2 mt-3">
-          {player?.player_category && (
+        {/* Category Badge apenas */}
+        {player?.player_category && (
+          <div className="flex items-center justify-center gap-2 mt-3">
             <span className="px-3 py-1.5 bg-blue-50 text-blue-700 rounded-full text-sm font-bold">
               {player.player_category}
             </span>
-          )}
-          <div className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-red-50 rounded-full">
-            <Target className="w-3.5 h-3.5 text-red-600" />
-            <span className="font-semibold text-red-600 text-sm">Nível {player?.level?.toFixed(1) || '3.0'}</span>
           </div>
-        </div>
-        
-        {/* Stats Row */}
-        <div className="grid grid-cols-3 gap-3 mt-4 pt-4 border-t border-gray-100">
-          <div>
-            <p className="text-2xl font-bold text-red-600">{player?.level?.toFixed(1) || '3.0'}</p>
-            <p className="text-xs text-gray-500">Nível</p>
-          </div>
-          <div>
-            <p className="text-2xl font-bold text-gray-900">{player?.wins || 0}</p>
-            <p className="text-xs text-gray-500">Vitórias</p>
-          </div>
-          <div>
-            <p className="text-2xl font-bold text-amber-500">{player?.points || 0}</p>
-            <p className="text-xs text-gray-500">Pontos</p>
-          </div>
-        </div>
+        )}
       </div>
 
       {/* Success/Error Message */}
       {saveMsg && (
-        <div className={`text-center text-sm font-medium py-2 px-4 rounded-lg ${saveMsg.includes('Erro') ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}>
+        <div className={`text-center text-sm font-medium py-2 px-4 rounded-lg ${saveMsg.includes('Erro') || saveMsg.includes('obrigatórios') ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}>
           {saveMsg}
         </div>
       )}
 
-      {/* Profile Edit Section */}
-      <div className="card overflow-hidden">
-        <button
-          onClick={() => setEditing(!editing)}
-          className="w-full p-4 flex items-center justify-between border-b border-gray-100"
-        >
-          <div className="flex items-center gap-2">
-            <Edit2 className="w-5 h-5 text-red-600" />
-            <h3 className="font-semibold text-gray-900">Editar Perfil</h3>
-          </div>
-          <ChevronDown className={`w-5 h-5 text-gray-400 transition-transform ${editing ? 'rotate-180' : ''}`} />
-        </button>
-
-        {editing && (
-          <div className="p-4 space-y-4">
+      {/* Profile Edit Section - Sempre aberto */}
+      <div className="card p-4 space-y-4">
             {/* Nome */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Nome</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Nome <span className="text-red-600">*</span></label>
               <input
                 type="text"
                 value={editName}
@@ -2065,23 +2523,15 @@ function ProfileScreen({
 
             {/* Género */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Género</label>
-              <div className="grid grid-cols-3 gap-2">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Género <span className="text-red-600">*</span></label>
+              <div className="grid grid-cols-2 gap-2">
                 {[
                   { value: 'male', label: 'Masculino' },
                   { value: 'female', label: 'Feminino' },
-                  { value: 'other', label: 'Outro' },
                 ].map((opt) => (
                   <button
                     key={opt.value}
-                    onClick={() => {
-                      setEditGender(opt.value)
-                      // Reset category if gender prefix changes
-                      const newPrefix = opt.value === 'male' ? 'M' : opt.value === 'female' ? 'F' : null
-                      if (editCategory && newPrefix && !editCategory.startsWith(newPrefix)) {
-                        setEditCategory('')
-                      }
-                    }}
+                    onClick={() => setEditGender(opt.value)}
                     className={`py-2 px-2 rounded-lg text-sm font-medium border transition-colors ${
                       editGender === opt.value
                         ? 'bg-red-600 text-white border-red-600'
@@ -2094,32 +2544,9 @@ function ProfileScreen({
               </div>
             </div>
 
-            {/* Categoria */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Categoria</label>
-              <div className="grid grid-cols-6 gap-1.5">
-                {filteredCategories.map((cat) => (
-                  <button
-                    key={cat.value}
-                    onClick={() => setEditCategory(editCategory === cat.value ? '' : cat.value)}
-                    className={`py-2 rounded-lg text-sm font-bold transition-colors ${
-                      editCategory === cat.value
-                        ? 'bg-red-600 text-white'
-                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                    }`}
-                  >
-                    {cat.label}
-                  </button>
-                ))}
-              </div>
-              {!editGender && (
-                <p className="text-xs text-gray-400 mt-1">Seleciona o género para filtrar as categorias</p>
-              )}
-            </div>
-
             {/* Data de Nascimento */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Data de Nascimento</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Data de Nascimento <span className="text-red-600">*</span></label>
               <input
                 type="date"
                 value={editBirthDate}
@@ -2130,7 +2557,7 @@ function ProfileScreen({
 
             {/* Localização */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Localização</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Localização <span className="text-red-600">*</span></label>
               <input
                 type="text"
                 value={editLocation}
@@ -2142,7 +2569,7 @@ function ProfileScreen({
 
             {/* Mão Preferida */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Mão Preferida</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Mão Preferida <span className="text-red-600">*</span></label>
               <div className="grid grid-cols-3 gap-2">
                 {[
                   { value: 'right', label: 'Direita' },
@@ -2166,7 +2593,7 @@ function ProfileScreen({
 
             {/* Posição em Campo */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Posição em Campo</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Posição em Campo <span className="text-red-600">*</span></label>
               <div className="grid grid-cols-3 gap-2">
                 {[
                   { value: 'right', label: 'Direita' },
@@ -2190,7 +2617,7 @@ function ProfileScreen({
 
             {/* Tipo de Jogo Preferido */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Tipo de Jogo Preferido</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Tipo de Jogo Preferido <span className="text-red-600">*</span></label>
               <div className="grid grid-cols-3 gap-2">
                 {[
                   { value: 'competitive', label: 'Competitivo' },
@@ -2214,7 +2641,7 @@ function ProfileScreen({
 
             {/* Horário Preferido */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Horário de Jogo Preferido</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Horário de Jogo Preferido <span className="text-red-600">*</span></label>
               <div className="grid grid-cols-4 gap-2">
                 {[
                   { value: 'morning', label: 'Manhã' },
@@ -2264,8 +2691,6 @@ function ProfileScreen({
                 </>
               )}
             </button>
-          </div>
-        )}
       </div>
 
       {/* Clube Favorito – lista de clubes Padel One */}
@@ -2312,15 +2737,6 @@ function ProfileScreen({
           )}
         </div>
       </div>
-
-      {/* Logout */}
-      <button 
-        onClick={onLogout}
-        className="w-full card p-4 flex items-center gap-3 text-red-600 hover:bg-red-50 transition-colors"
-      >
-        <LogOut className="w-5 h-5" />
-        <span className="font-medium">Terminar Sessão</span>
-      </button>
     </div>
   )
 }

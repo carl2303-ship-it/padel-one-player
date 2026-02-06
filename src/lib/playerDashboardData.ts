@@ -447,6 +447,9 @@ export interface TournamentMyMatch {
   team2_name: string
   team1_score: number
   team2_score: number
+  set1?: string
+  set2?: string
+  set3?: string
   status: string
   round: string
   is_winner?: boolean
@@ -648,6 +651,12 @@ export async function fetchTournamentStandingsAndMatches(
                 : teamIds.includes(m.team1?.id)
               is_winner = inTeam1 ? t1Sets > t2Sets : t2Sets > t1Sets
             }
+            const set1 = m.team1_score_set1 != null && m.team2_score_set1 != null
+              ? `${m.team1_score_set1}-${m.team2_score_set1}` : undefined
+            const set2 = m.team1_score_set2 != null && m.team2_score_set2 != null && (m.team1_score_set2 > 0 || m.team2_score_set2 > 0)
+              ? `${m.team1_score_set2}-${m.team2_score_set2}` : undefined
+            const set3 = m.team1_score_set3 != null && m.team2_score_set3 != null && (m.team1_score_set3 > 0 || m.team2_score_set3 > 0)
+              ? `${m.team1_score_set3}-${m.team2_score_set3}` : undefined
             return {
               id: m.id,
               court: m.court || '',
@@ -656,6 +665,9 @@ export async function fetchTournamentStandingsAndMatches(
               team2_name: team2Name,
               team1_score: t1Sets,
               team2_score: t2Sets,
+              set1,
+              set2,
+              set3,
               status: m.status,
               round: m.round || '',
               is_winner,
