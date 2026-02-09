@@ -129,16 +129,44 @@ export function calculateNewRatings(
 // ============================================
 
 /**
- * Calcula a percentagem de fiabilidade do nível com base no número de jogos.
- * 0 jogos → 0%, 10 jogos → 50%, 30 jogos → 85%, 50+ jogos → 100%
+ * Calcula a percentagem de fiabilidade do nível com base no número de jogos RATED.
+ * Quanto mais jogos, maior a fiabilidade. Sempre monotonicamente crescente.
+ * 
+ * 0 jogos → 0%
+ * 5 jogos → 25%
+ * 10 jogos → 45%
+ * 20 jogos → 65%
+ * 30 jogos → 80%
+ * 50 jogos → 95%
+ * 75+ jogos → 100%
  */
 export function calculateReliability(totalMatches: number): number {
   if (totalMatches <= 0) return 0
-  if (totalMatches >= 50) return 100
-  // Curva logarítmica suave
-  const reliability = Math.min(100, Math.round(100 * (1 - Math.exp(-totalMatches / 15))))
+  if (totalMatches >= 75) return 100
+  // Curva logarítmica mais suave: 100 * (ln(matches + 1) / ln(76))
+  // Garante: monotonicamente crescente, 0→0%, 75→100%
+  const reliability = Math.min(100, Math.round(100 * (Math.log(totalMatches + 1) / Math.log(76))))
   return reliability
 }
+
+// ============================================
+// Player Cache (para acumular durante batch)
+// ============================================
+
+/**
+ * Cache em memória que mantém ratings e contadores de jogos atualizados
+ * durante o processamento de múltiplos jogos.
+ * Sem isto, cada jogo leria os mesmos valores da BD.
+ */
+export interface CachedPlayer {
+  id: string
+  user_id: string
+  name: string
+  rating: number
+  matchCount: number  // jogos RATED processados (acumulado)
+}
+
+export type PlayerCache = Map<string, CachedPlayer>  // key = player_accounts.id
 
 // ============================================
 // Supabase Integration
@@ -149,9 +177,10 @@ export function calculateReliability(totalMatches: number): number {
  * Busca os dados dos 4 jogadores, calcula os novos ratings, e atualiza no Supabase.
  * 
  * @param matchId - ID do jogo na tabela 'matches'
+ * @param cache - Cache opcional de jogadores para acumular ratings entre jogos (batch mode)
  * @returns resultado do cálculo ou null se não foi possível processar
  */
-export async function processMatchRating(matchId: string): Promise<RatingResult | null> {
+export async function processMatchRating(matchId: string, cache?: PlayerCache): Promise<RatingResult | null> {
   // 1) Buscar o jogo com os IDs das equipas
   const { data: match, error: matchErr } = await supabase
     .from('matches')
@@ -240,6 +269,7 @@ export async function processMatchRating(matchId: string): Promise<RatingResult 
 
   // 5) Mapear para player_accounts (onde está o rating real)
   //    Procurar por user_id OU phone_number OU name
+  //    Se o cache tiver dados, usa o cache (rating + matchCount acumulados)
   const accountsMap = new Map<string, any>() // player.id → player_account
 
   for (const p of playersData) {
@@ -286,9 +316,26 @@ export async function processMatchRating(matchId: string): Promise<RatingResult 
   }
 
   // 6) Construir PlayerRating para cada jogador
+  //    Se temos cache, usar rating e matchCount do cache (acumulados de jogos anteriores)
+  //    Se não, usar valores da BD como ponto de partida
   const buildRating = (playerId: string): PlayerRating | null => {
     const acct = accountsMap.get(playerId)
     if (!acct) return null
+
+    // Verificar se este jogador já está no cache (com rating/matchCount acumulados)
+    const cached = cache?.get(acct.id)
+    if (cached) {
+      return {
+        id: cached.id,
+        user_id: cached.user_id,
+        name: cached.name,
+        rating: cached.rating,
+        matches: cached.matchCount,
+      }
+    }
+
+    // Primeira vez: usar valores da BD
+    // matchCount inicial = wins + losses (jogos existentes antes do processamento)
     return {
       id: acct.id,
       user_id: acct.user_id || '',
@@ -317,18 +364,30 @@ export async function processMatchRating(matchId: string): Promise<RatingResult 
     return result
   }
 
-  // 8) Atualizar no Supabase
+  // 8) Atualizar cache e Supabase
   if (result.team1 && result.team2) {
-    const isWinTeam1 = score.sets1 > score.sets2
-
     const allUpdatedPlayers = [result.team1.p1, result.team1.p2, result.team2.p3, result.team2.p4]
 
     for (const rp of allUpdatedPlayers) {
+      const newReliability = calculateReliability(rp.matches)
+
+      // Atualizar cache (para o próximo jogo usar valores acumulados)
+      if (cache) {
+        cache.set(rp.id, {
+          id: rp.id,
+          user_id: rp.user_id,
+          name: rp.name,
+          rating: rp.rating,
+          matchCount: rp.matches,
+        })
+      }
+
+      // Atualizar na BD
       const { error } = await supabase
         .from('player_accounts')
         .update({
           level: rp.rating,
-          level_reliability_percent: calculateReliability(rp.matches),
+          level_reliability_percent: newReliability,
         })
         .eq('id', rp.id)
 
@@ -338,10 +397,10 @@ export async function processMatchRating(matchId: string): Promise<RatingResult 
     }
 
     console.log('[RatingEngine] Updated ratings for match:', matchId)
-    console.log(`  ${result.team1.p1.name}: ${p1.rating.toFixed(2)} → ${result.team1.p1.rating.toFixed(2)} (${result.team1.p1.delta > 0 ? '+' : ''}${result.team1.p1.delta.toFixed(4)})`)
-    console.log(`  ${result.team1.p2.name}: ${p2.rating.toFixed(2)} → ${result.team1.p2.rating.toFixed(2)} (${result.team1.p2.delta > 0 ? '+' : ''}${result.team1.p2.delta.toFixed(4)})`)
-    console.log(`  ${result.team2.p3.name}: ${p3.rating.toFixed(2)} → ${result.team2.p3.rating.toFixed(2)} (${result.team2.p3.delta > 0 ? '+' : ''}${result.team2.p3.delta.toFixed(4)})`)
-    console.log(`  ${result.team2.p4.name}: ${p4.rating.toFixed(2)} → ${result.team2.p4.rating.toFixed(2)} (${result.team2.p4.delta > 0 ? '+' : ''}${result.team2.p4.delta.toFixed(4)})`)
+    console.log(`  ${result.team1.p1.name}: ${p1.rating.toFixed(2)} → ${result.team1.p1.rating.toFixed(2)} (${result.team1.p1.delta > 0 ? '+' : ''}${result.team1.p1.delta.toFixed(4)}) | jogos: ${result.team1.p1.matches} | fiab: ${calculateReliability(result.team1.p1.matches)}%`)
+    console.log(`  ${result.team1.p2.name}: ${p2.rating.toFixed(2)} → ${result.team1.p2.rating.toFixed(2)} (${result.team1.p2.delta > 0 ? '+' : ''}${result.team1.p2.delta.toFixed(4)}) | jogos: ${result.team1.p2.matches} | fiab: ${calculateReliability(result.team1.p2.matches)}%`)
+    console.log(`  ${result.team2.p3.name}: ${p3.rating.toFixed(2)} → ${result.team2.p3.rating.toFixed(2)} (${result.team2.p3.delta > 0 ? '+' : ''}${result.team2.p3.delta.toFixed(4)}) | jogos: ${result.team2.p3.matches} | fiab: ${calculateReliability(result.team2.p3.matches)}%`)
+    console.log(`  ${result.team2.p4.name}: ${p4.rating.toFixed(2)} → ${result.team2.p4.rating.toFixed(2)} (${result.team2.p4.delta > 0 ? '+' : ''}${result.team2.p4.delta.toFixed(4)}) | jogos: ${result.team2.p4.matches} | fiab: ${calculateReliability(result.team2.p4.matches)}%`)
   }
 
   return result
@@ -350,6 +409,11 @@ export async function processMatchRating(matchId: string): Promise<RatingResult 
 /**
  * Processa todos os jogos completados de torneios concluídos.
  * Processa cronologicamente para que cada jogo use o rating atualizado do anterior.
+ * 
+ * IMPORTANTE: Usa um PlayerCache em memória para que:
+ * - Ratings acumulem correctamente entre jogos
+ * - matchCount incremente a cada jogo processado (fiabilidade sobe!)
+ * - Não dependa de wins/losses da BD que não são atualizados aqui
  * 
  * @param since - Data mínima (ISO string). Se não especificado, processa todos.
  * @param onProgress - Callback opcional para reportar progresso
@@ -385,6 +449,9 @@ export async function processAllUnratedMatches(
   console.log(`[RatingEngine] Found ${matches.length} completed matches to process`)
   onProgress?.(0, matches.length, 'A iniciar processamento...')
 
+  // Cache partilhado entre todos os jogos - acumula ratings e matchCount
+  const playerCache: PlayerCache = new Map()
+
   let processed = 0
   let skipped = 0
   let errors = 0
@@ -392,7 +459,7 @@ export async function processAllUnratedMatches(
   for (let i = 0; i < matches.length; i++) {
     const match = matches[i]
     try {
-      const result = await processMatchRating(match.id)
+      const result = await processMatchRating(match.id, playerCache)
       if (!result) {
         errors++
       } else if (result.skipped) {
@@ -411,8 +478,11 @@ export async function processAllUnratedMatches(
     }
   }
 
-  const summary = `[RatingEngine] CONCLUÍDO: ${processed} processados, ${skipped} saltados, ${errors} erros de ${matches.length} total`
-  console.log(summary)
+  // Resumo final com estatísticas do cache
+  const uniquePlayers = playerCache.size
+  const maxMatches = Math.max(0, ...Array.from(playerCache.values()).map(p => p.matchCount))
+  const summary = `CONCLUÍDO: ${processed} processados, ${skipped} saltados, ${errors} erros de ${matches.length} total | ${uniquePlayers} jogadores atualizados (max ${maxMatches} jogos rated)`
+  console.log(`[RatingEngine] ${summary}`)
   onProgress?.(matches.length, matches.length, summary)
 
   return { processed, skipped, errors, total: matches.length }
