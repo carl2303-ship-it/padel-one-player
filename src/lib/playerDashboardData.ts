@@ -433,10 +433,13 @@ export interface TournamentStandingRow {
   group_name?: string
   final_position?: number
   wins: number
+  draws: number
   losses: number
   points_for: number
   points_against: number
   points: number
+  player1_name?: string
+  player2_name?: string
 }
 
 export interface TournamentMyMatch {
@@ -470,9 +473,19 @@ export async function fetchTournamentStandingsAndMatches(
       )
       .eq('tournament_id', tournamentId)
       .eq('status', 'completed'),
-    supabase.from('teams').select('id, name, group_name, final_position').eq('tournament_id', tournamentId),
+    supabase.from('teams').select('id, name, group_name, final_position, player1_id, player2_id').eq('tournament_id', tournamentId),
     supabase.from('players').select('id, name, group_name').eq('tournament_id', tournamentId),
   ])
+
+  // Create a map of player names by id
+  const playerNamesMap = new Map<string, string>()
+  if (players) {
+    players.forEach((p: any) => {
+      playerNamesMap.set(p.id, p.name)
+    })
+  }
+
+  console.log('[fetchTournamentStandingsAndMatches] Teams:', teams?.length, 'Players:', players?.length, 'Matches:', matches?.length)
 
   if (tournament) tournamentName = tournament.name || ''
 
@@ -486,6 +499,7 @@ export async function fetchTournamentStandingsAndMatches(
         name: p.name,
         group_name: p.group_name || 'Geral',
         wins: 0,
+        draws: 0,
         losses: 0,
         points_for: 0,
         points_against: 0,
@@ -503,9 +517,11 @@ export async function fetchTournamentStandingsAndMatches(
           if (t1s > t2s) {
             s.wins++
             s.points += 2
+          } else if (t1s === t2s) {
+            s.draws++
+            s.points += 1
           } else {
             s.losses++
-            s.points += 1
           }
         }
       })
@@ -517,25 +533,34 @@ export async function fetchTournamentStandingsAndMatches(
           if (t2s > t1s) {
             s.wins++
             s.points += 2
+          } else if (t2s === t1s) {
+            s.draws++
+            s.points += 1
           } else {
             s.losses++
-            s.points += 1
           }
         }
       })
     })
   } else if (teams) {
+    console.log('[fetchTournamentStandingsAndMatches] Processing teams, playerNamesMap size:', playerNamesMap.size)
     teams.forEach((t: any) => {
+      const player1Name = t.player1_id ? playerNamesMap.get(t.player1_id) : undefined
+      const player2Name = t.player2_id ? playerNamesMap.get(t.player2_id) : undefined
+      console.log('[fetchTournamentStandingsAndMatches] Team:', t.name, 'Player1ID:', t.player1_id, 'Player1Name:', player1Name, 'Player2ID:', t.player2_id, 'Player2Name:', player2Name)
       standingsMap.set(t.id, {
         id: t.id,
         name: t.name,
         group_name: t.group_name || 'Geral',
         final_position: t.final_position,
         wins: 0,
+        draws: 0,
         losses: 0,
         points_for: 0,
         points_against: 0,
         points: 0,
+        player1_name: player1Name,
+        player2_name: player2Name,
       })
     })
     ;(matches || []).forEach((m: any) => {
@@ -550,9 +575,11 @@ export async function fetchTournamentStandingsAndMatches(
         if (t1s > t2s) {
           s1.wins++
           s1.points += 2
-        } else if (t2s > t1s) {
-          s1.losses++
+        } else if (t1s === t2s) {
+          s1.draws++
           s1.points += 1
+        } else {
+          s1.losses++
         }
       }
       if (s2) {
@@ -561,20 +588,73 @@ export async function fetchTournamentStandingsAndMatches(
         if (t2s > t1s) {
           s2.wins++
           s2.points += 2
-        } else if (t1s > t2s) {
-          s2.losses++
+        } else if (t2s === t1s) {
+          s2.draws++
           s2.points += 1
+        } else {
+          s2.losses++
         }
       }
     })
   }
 
-  const standingsArray = Array.from(standingsMap.values()).sort((a, b) => {
+  // Confronto direto: verifica quem ganhou o jogo entre duas entidades
+  const getHeadToHead = (idA: string, idB: string): number => {
+    const directMatches = (matches || []).filter((m: any) => {
+      if (isIndividual) {
+        const t1 = [m.player1_individual_id, m.player2_individual_id].filter(Boolean)
+        const t2 = [m.player3_individual_id, m.player4_individual_id].filter(Boolean)
+        return (t1.includes(idA) && t2.includes(idB)) || (t1.includes(idB) && t2.includes(idA))
+      }
+      return (m.team1_id === idA && m.team2_id === idB) || (m.team1_id === idB && m.team2_id === idA)
+    })
+    if (directMatches.length === 0) return 0
+    let aWins = 0, bWins = 0
+    for (const m of directMatches) {
+      const t1s = (m.team1_score_set1 || 0) + (m.team1_score_set2 || 0) + (m.team1_score_set3 || 0)
+      const t2s = (m.team2_score_set1 || 0) + (m.team2_score_set2 || 0) + (m.team2_score_set3 || 0)
+      const team1IsA = isIndividual
+        ? [m.player1_individual_id, m.player2_individual_id].filter(Boolean).includes(idA)
+        : m.team1_id === idA
+      if (t1s > t2s) { if (team1IsA) aWins++; else bWins++ }
+      else if (t2s > t1s) { if (team1IsA) bWins++; else aWins++ }
+    }
+    if (aWins > bWins) return -1 // A fica à frente
+    if (bWins > aWins) return 1  // B fica à frente
+    return 0
+  }
+
+  // Contar quantas entidades (sem final_position) partilham o mesmo grupo + vitórias + pontos
+  const unsortedStandings = Array.from(standingsMap.values())
+  const groupPointsCount = new Map<string, number>()
+  unsortedStandings.forEach(s => {
+    if (!s.final_position) {
+      const key = `${s.group_name || 'Geral'}__${s.wins}__${s.points}`
+      groupPointsCount.set(key, (groupPointsCount.get(key) || 0) + 1)
+    }
+  })
+
+  const standingsArray = unsortedStandings.sort((a, b) => {
     if (a.final_position && b.final_position) return a.final_position - b.final_position
     if (a.final_position) return -1
     if (b.final_position) return 1
+    // 1. Número de vitórias
+    if (b.wins !== a.wins) return b.wins - a.wins
+    // 2. Pontos (V=2, E=1, D=0)
     if (b.points !== a.points) return b.points - a.points
-    return b.points_for - b.points_against - (a.points_for - a.points_against)
+    // 3. Confronto direto (apenas quando exatamente 2 empatadas no mesmo grupo)
+    const gKey = `${a.group_name || 'Geral'}__${a.wins}__${a.points}`
+    if ((groupPointsCount.get(gKey) || 0) === 2) {
+      const h2h = getHeadToHead(a.id, b.id)
+      if (h2h !== 0) return h2h
+    }
+    // 4. Diferença de jogos (games)
+    const diffA = a.points_for - a.points_against
+    const diffB = b.points_for - b.points_against
+    if (diffB !== diffA) return diffB - diffA
+    // 5. Jogos ganhos (mais jogos a favor)
+    if (b.points_for !== a.points_for) return b.points_for - a.points_for
+    return 0
   })
 
   let myMatches: TournamentMyMatch[] = []

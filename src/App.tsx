@@ -42,8 +42,34 @@ import {
   KeyRound,
   HelpCircle,
   Shield,
-  CreditCard
+  CreditCard,
+  Heart,
+  Image,
+  Video,
+  UserPlus,
+  Send,
+  Trash2,
+  UserMinus
 } from 'lucide-react'
+import {
+  followUser,
+  unfollowUser,
+  getFollowingIds,
+  getSuggestedPlayers,
+  getFeedPosts,
+  createPost,
+  deletePost,
+  getMyGroups,
+  createGroup,
+  getGroupMembers,
+  addGroupMember,
+  removeGroupMember,
+  searchPlayers,
+  type CommunityPlayer,
+  type CommunityPost,
+  type CommunityGroup,
+  type GroupMember,
+} from './lib/communityData'
 import { fetchAllClubs, fetchClubById, fetchUpcomingTournaments, fetchEnrolledByCategory, getTournamentRegistrationUrl, type ClubDetail, type UpcomingTournamentFromTour, type EnrolledByCategory } from './lib/clubAndTournaments'
 
 type Screen = 'home' | 'games' | 'profile-view' | 'profile-edit' | 'club' | 'compete' | 'community'
@@ -419,8 +445,8 @@ function App() {
             onSaveProfile={handleSaveProfile}
           />
         )}
-        {currentScreen === 'community' && (
-          <CommunityScreen onBack={() => setCurrentScreen('home')} />
+        {currentScreen === 'community' && player?.user_id && (
+          <CommunityScreen userId={player.user_id} playerAccountId={player.id} />
         )}
       </main>
 
@@ -1099,18 +1125,39 @@ function HomeScreen({
               {detailTab === 'standings' && (
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 sticky top-0">
-                    <tr><th className="px-3 py-2 text-left">#</th><th className="px-3 py-2 text-left">Nome</th><th className="px-3 py-2 text-center">V</th><th className="px-3 py-2 text-center">D</th><th className="px-3 py-2 text-center">Pts</th></tr>
+                    <tr>
+                      <th className="px-1.5 py-2 text-left text-xs w-8">#</th>
+                      <th className="px-1.5 py-2 text-left text-xs">Nome</th>
+                      <th className="px-1 py-2 text-center text-xs w-8">V</th>
+                      <th className="px-1 py-2 text-center text-xs w-8">E</th>
+                      <th className="px-1 py-2 text-center text-xs w-8">D</th>
+                      <th className="px-1 py-2 text-center text-xs w-10">+/-</th>
+                      <th className="px-1.5 py-2 text-center text-xs font-semibold w-10">Pts</th>
+                    </tr>
                   </thead>
                   <tbody>
-                    {tournamentDetail.standings.map((row, i) => (
-                      <tr key={row.id} className="border-t">
-                        <td className="px-3 py-2">{i + 1}</td>
-                        <td className="px-3 py-2 font-medium">{row.name}</td>
-                        <td className="px-3 py-2 text-center text-gray-500">{(row.wins ?? 0) + (row.losses ?? 0)}</td>
-                        <td className="px-3 py-2 text-center text-green-600">{row.wins}</td>
-                        <td className="px-3 py-2 text-center font-bold">{row.points}</td>
-                      </tr>
-                    ))}
+                    {tournamentDetail.standings.map((row, i) => {
+                      const diff = (row.points_for ?? 0) - (row.points_against ?? 0)
+                      const hasPlayers = row.player1_name || row.player2_name
+                      return (
+                        <tr key={row.id} className="border-t">
+                          <td className="px-1.5 py-2 text-gray-500">{i + 1}</td>
+                          <td className="px-1.5 py-2">
+                            <div className="font-medium truncate max-w-[120px]">{row.name}</div>
+                            {hasPlayers && (
+                              <div className="text-xs text-gray-500 truncate max-w-[120px]">
+                                {[row.player1_name, row.player2_name].filter(Boolean).join(' / ')}
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-1 py-2 text-center text-green-600">{row.wins ?? 0}</td>
+                          <td className="px-1 py-2 text-center text-yellow-600">{row.draws ?? 0}</td>
+                          <td className="px-1 py-2 text-center text-red-500">{row.losses ?? 0}</td>
+                          <td className={`px-1 py-2 text-center text-xs ${diff > 0 ? 'text-green-600' : diff < 0 ? 'text-red-500' : 'text-gray-400'}`}>{diff > 0 ? '+' : ''}{diff}</td>
+                          <td className="px-1.5 py-2 text-center font-bold">{row.points}</td>
+                        </tr>
+                      )
+                    })}
                   </tbody>
                 </table>
               )}
@@ -1118,7 +1165,8 @@ function HomeScreen({
                 <div className="divide-y">
                   {tournamentDetail.myMatches.length === 0 ? <div className="p-6 text-center text-gray-500">Sem jogos registados</div> : tournamentDetail.myMatches.map((m) => {
                     const setScores = [m.set1, m.set2, m.set3].filter(Boolean)
-                    const scoreDisplay = setScores.length > 0 ? setScores.join(' ') : `${m.team1_score}-${m.team2_score}`
+                    // Mostrar sempre os jogos de cada set, nunca o resultado 1-0/0-1
+                    const scoreDisplay = setScores.length > 0 ? setScores.join(' ') : '-'
                     return (
                     <div key={m.id} className="p-4">
                       <div className="flex justify-between items-start">
@@ -1141,22 +1189,570 @@ function HomeScreen({
 }
 
 // ---------- Comunidade ----------
-function CommunityScreen({ onBack }: { onBack: () => void }) {
-  return (
-    <div className="space-y-4 animate-fade-in">
-      <button onClick={onBack} className="flex items-center gap-2 text-gray-600 hover:text-gray-900">
-        <ArrowLeft className="w-5 h-5" />
-        <span>Voltar</span>
-      </button>
-      <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-        <Users className="w-8 h-8 text-red-600" />
-        Comunidade
-      </h1>
-      <div className="card p-8 text-center">
-        <span className="text-4xl mb-2 block">👥</span>
-        <p className="text-gray-700 font-medium">Em breve</p>
-        <p className="text-sm text-gray-500 mt-1">A comunidade Padel One está a chegar.</p>
+function CommunityScreen({ userId, playerAccountId }: { userId: string; playerAccountId: string }) {
+  const [activeTab, setActiveTab] = useState<'feed' | 'grupos'>('feed')
+
+  // Feed state
+  const [suggestions, setSuggestions] = useState<CommunityPlayer[]>([])
+  const [posts, setPosts] = useState<CommunityPost[]>([])
+  const [feedLoading, setFeedLoading] = useState(true)
+  const [followingSet, setFollowingSet] = useState<Set<string>>(new Set())
+
+  // New post modal
+  const [showNewPost, setShowNewPost] = useState(false)
+  const [newPostText, setNewPostText] = useState('')
+  const [newPostImage, setNewPostImage] = useState<File | null>(null)
+  const [newPostVideo, setNewPostVideo] = useState<File | null>(null)
+  const [postingLoading, setPostingLoading] = useState(false)
+
+  // Groups state
+  const [groups, setGroups] = useState<CommunityGroup[]>([])
+  const [groupsLoading, setGroupsLoading] = useState(true)
+  const [showCreateGroup, setShowCreateGroup] = useState(false)
+  const [newGroupName, setNewGroupName] = useState('')
+  const [newGroupDesc, setNewGroupDesc] = useState('')
+  const [newGroupImage, setNewGroupImage] = useState<File | null>(null)
+  const [creatingGroup, setCreatingGroup] = useState(false)
+
+  // Group detail
+  const [selectedGroup, setSelectedGroup] = useState<CommunityGroup | null>(null)
+  const [groupMembers, setGroupMembers] = useState<GroupMember[]>([])
+  const [groupMembersLoading, setGroupMembersLoading] = useState(false)
+  const [showAddMember, setShowAddMember] = useState(false)
+  const [memberSearchQuery, setMemberSearchQuery] = useState('')
+  const [memberSearchResults, setMemberSearchResults] = useState<CommunityPlayer[]>([])
+  const [memberSearching, setMemberSearching] = useState(false)
+
+  // Load feed data
+  useEffect(() => {
+    if (activeTab === 'feed') loadFeed()
+  }, [activeTab, userId])
+
+  // Load groups data
+  useEffect(() => {
+    if (activeTab === 'grupos') loadGroups()
+  }, [activeTab, userId])
+
+  async function loadFeed() {
+    setFeedLoading(true)
+    try {
+      const [suggestedData, feedData] = await Promise.all([
+        getSuggestedPlayers(userId),
+        getFeedPosts(userId),
+      ])
+      setSuggestions(suggestedData)
+      setPosts(feedData)
+      // Build following set
+      const ids = await getFollowingIds(userId)
+      setFollowingSet(new Set(ids))
+    } catch (err) {
+      console.error('[Community] Load feed error:', err)
+    }
+    setFeedLoading(false)
+  }
+
+  async function loadGroups() {
+    setGroupsLoading(true)
+    try {
+      const data = await getMyGroups(userId)
+      setGroups(data)
+    } catch (err) {
+      console.error('[Community] Load groups error:', err)
+    }
+    setGroupsLoading(false)
+  }
+
+  async function handleFollow(targetUserId: string) {
+    const ok = await followUser(userId, targetUserId)
+    if (ok) {
+      setFollowingSet(prev => new Set([...prev, targetUserId]))
+      setSuggestions(prev => prev.filter(s => s.user_id !== targetUserId))
+    }
+  }
+
+  async function handleUnfollow(targetUserId: string) {
+    const ok = await unfollowUser(userId, targetUserId)
+    if (ok) {
+      setFollowingSet(prev => {
+        const next = new Set(prev)
+        next.delete(targetUserId)
+        return next
+      })
+    }
+  }
+
+  async function handleCreatePost() {
+    if (!newPostText.trim() && !newPostImage && !newPostVideo) return
+    setPostingLoading(true)
+    const ok = await createPost(userId, newPostText, newPostImage || undefined, newPostVideo || undefined)
+    if (ok) {
+      setNewPostText('')
+      setNewPostImage(null)
+      setNewPostVideo(null)
+      setShowNewPost(false)
+      await loadFeed()
+    }
+    setPostingLoading(false)
+  }
+
+  async function handleDeletePost(postId: string) {
+    const ok = await deletePost(postId)
+    if (ok) {
+      setPosts(prev => prev.filter(p => p.id !== postId))
+    }
+  }
+
+  async function handleCreateGroup() {
+    if (!newGroupName.trim()) return
+    setCreatingGroup(true)
+    const groupId = await createGroup(newGroupName, newGroupDesc, userId, newGroupImage || undefined)
+    if (groupId) {
+      setNewGroupName('')
+      setNewGroupDesc('')
+      setNewGroupImage(null)
+      setShowCreateGroup(false)
+      await loadGroups()
+    }
+    setCreatingGroup(false)
+  }
+
+  async function handleOpenGroup(group: CommunityGroup) {
+    setSelectedGroup(group)
+    setGroupMembersLoading(true)
+    const members = await getGroupMembers(group.id)
+    setGroupMembers(members)
+    setGroupMembersLoading(false)
+  }
+
+  async function handleSearchMembers() {
+    if (memberSearchQuery.trim().length < 2) return
+    setMemberSearching(true)
+    const existingIds = groupMembers.map(m => m.user_id)
+    const results = await searchPlayers(memberSearchQuery, existingIds)
+    setMemberSearchResults(results)
+    setMemberSearching(false)
+  }
+
+  async function handleAddMember(player: CommunityPlayer) {
+    if (!selectedGroup) return
+    const ok = await addGroupMember(selectedGroup.id, player.user_id)
+    if (ok) {
+      setMemberSearchResults(prev => prev.filter(p => p.user_id !== player.user_id))
+      // Refresh members
+      const members = await getGroupMembers(selectedGroup.id)
+      setGroupMembers(members)
+    }
+  }
+
+  async function handleRemoveMember(memberUserId: string) {
+    if (!selectedGroup) return
+    const ok = await removeGroupMember(selectedGroup.id, memberUserId)
+    if (ok) {
+      setGroupMembers(prev => prev.filter(m => m.user_id !== memberUserId))
+    }
+  }
+
+  function timeAgo(dateStr: string): string {
+    const now = new Date()
+    const d = new Date(dateStr)
+    const diffMs = now.getTime() - d.getTime()
+    const mins = Math.floor(diffMs / 60000)
+    if (mins < 1) return 'agora'
+    if (mins < 60) return `${mins}m`
+    const hours = Math.floor(mins / 60)
+    if (hours < 24) return `${hours}h`
+    const days = Math.floor(hours / 24)
+    if (days < 7) return `${days}d`
+    return d.toLocaleDateString('pt-PT', { day: 'numeric', month: 'short' })
+  }
+
+  // ---- Group Detail Modal ----
+  if (selectedGroup) {
+    return (
+      <div className="animate-fade-in pb-4">
+        {/* Header */}
+        <div className="flex items-center gap-3 mb-4">
+          <button onClick={() => { setSelectedGroup(null); setShowAddMember(false); setMemberSearchQuery(''); setMemberSearchResults([]) }} className="p-1">
+            <ArrowLeft className="w-5 h-5 text-gray-600" />
+          </button>
+          <div className="flex-1">
+            <h2 className="text-lg font-bold text-gray-900">{selectedGroup.name}</h2>
+            {selectedGroup.description && <p className="text-sm text-gray-500">{selectedGroup.description}</p>}
+          </div>
+        </div>
+
+        {/* Group image */}
+        {selectedGroup.image_url && (
+          <div className="rounded-xl overflow-hidden mb-4 h-40">
+            <img src={selectedGroup.image_url} alt={selectedGroup.name} className="w-full h-full object-cover" />
+          </div>
+        )}
+
+        {/* Members */}
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-semibold text-gray-700">Membros ({groupMembers.length})</h3>
+          {selectedGroup.is_admin && (
+            <button onClick={() => setShowAddMember(!showAddMember)} className="flex items-center gap-1 text-sm text-red-600 font-medium">
+              <UserPlus className="w-4 h-4" />
+              Adicionar
+            </button>
+          )}
+        </div>
+
+        {/* Add member search */}
+        {showAddMember && (
+          <div className="bg-gray-50 rounded-xl p-3 mb-3">
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={memberSearchQuery}
+                onChange={e => setMemberSearchQuery(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleSearchMembers()}
+                placeholder="Pesquisar jogador..."
+                className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
+              />
+              <button onClick={handleSearchMembers} disabled={memberSearching} className="px-3 py-2 bg-red-600 text-white rounded-lg text-sm">
+                {memberSearching ? '...' : <Search className="w-4 h-4" />}
+              </button>
+            </div>
+            {memberSearchResults.length > 0 && (
+              <div className="mt-2 space-y-2">
+                {memberSearchResults.map(p => (
+                  <div key={p.user_id} className="flex items-center justify-between bg-white rounded-lg p-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-red-400 to-red-600 flex items-center justify-center text-white text-xs font-bold overflow-hidden">
+                        {p.avatar_url ? <img src={p.avatar_url} className="w-full h-full object-cover" /> : p.name.charAt(0).toUpperCase()}
+                      </div>
+                      <span className="text-sm font-medium">{p.name}</span>
+                    </div>
+                    <button onClick={() => handleAddMember(p)} className="text-xs text-white bg-red-600 px-2 py-1 rounded-lg">Adicionar</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {groupMembersLoading ? (
+          <div className="text-center py-8 text-gray-400">A carregar membros...</div>
+        ) : (
+          <div className="space-y-2">
+            {groupMembers.map(m => (
+              <div key={m.id} className="flex items-center justify-between bg-white rounded-xl p-3 shadow-sm border border-gray-100">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-red-400 to-red-600 flex items-center justify-center text-white font-bold overflow-hidden">
+                    {m.avatar_url ? <img src={m.avatar_url} className="w-full h-full object-cover" /> : m.name?.charAt(0).toUpperCase()}
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-gray-900">{m.name}</p>
+                    <div className="flex items-center gap-2">
+                      {m.role === 'admin' && <span className="text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded font-medium">Admin</span>}
+                      {m.level && <span className="text-xs text-gray-500">Nível {m.level}</span>}
+                    </div>
+                  </div>
+                </div>
+                {selectedGroup.is_admin && m.user_id !== userId && (
+                  <button onClick={() => handleRemoveMember(m.user_id)} className="text-gray-400 hover:text-red-500">
+                    <UserMinus className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
+    )
+  }
+
+  return (
+    <div className="animate-fade-in pb-4">
+      {/* Header */}
+      <div className="mb-4">
+        <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+          <Users className="w-7 h-7 text-red-600" />
+          Comunidade
+        </h1>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex bg-gray-100 rounded-xl p-1 mb-4">
+        <button
+          onClick={() => setActiveTab('feed')}
+          className={`flex-1 py-2 text-sm font-semibold rounded-lg transition-all ${activeTab === 'feed' ? 'bg-white text-red-600 shadow-sm' : 'text-gray-500'}`}
+        >
+          Feed
+        </button>
+        <button
+          onClick={() => setActiveTab('grupos')}
+          className={`flex-1 py-2 text-sm font-semibold rounded-lg transition-all ${activeTab === 'grupos' ? 'bg-white text-red-600 shadow-sm' : 'text-gray-500'}`}
+        >
+          Grupos
+        </button>
+      </div>
+
+      {/* ==================== TAB FEED ==================== */}
+      {activeTab === 'feed' && (
+        <div>
+          {feedLoading ? (
+            <div className="text-center py-12 text-gray-400">A carregar...</div>
+          ) : (
+            <>
+              {/* Sugestões de jogadores */}
+              {suggestions.length > 0 && (
+                <div className="mb-5">
+                  <h3 className="text-sm font-semibold text-gray-700 mb-2 px-1">Jogadores sugeridos</h3>
+                  <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
+                    {suggestions.map(player => (
+                      <div key={player.user_id} className="flex-shrink-0 w-28 bg-white rounded-xl shadow-sm border border-gray-100 p-3 text-center">
+                        <div className="w-12 h-12 mx-auto rounded-full bg-gradient-to-br from-red-400 to-red-600 flex items-center justify-center text-white font-bold text-lg mb-2 overflow-hidden">
+                          {player.avatar_url
+                            ? <img src={player.avatar_url} className="w-full h-full object-cover" />
+                            : player.name.charAt(0).toUpperCase()
+                          }
+                        </div>
+                        <p className="text-xs font-semibold text-gray-900 truncate">{player.name}</p>
+                        {player.player_category && (
+                          <span className="inline-block mt-1 text-[10px] bg-red-50 text-red-600 px-1.5 py-0.5 rounded-full font-medium">{player.player_category}</span>
+                        )}
+                        {player.level && !player.player_category && (
+                          <span className="inline-block mt-1 text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded-full">Nv {player.level}</span>
+                        )}
+                        <button
+                          onClick={() => handleFollow(player.user_id)}
+                          className="mt-2 w-full py-1 text-[11px] font-semibold bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                        >
+                          Seguir
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Feed de posts */}
+              {posts.length === 0 ? (
+                <div className="text-center py-12">
+                  <Users className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                  <p className="text-gray-500 font-medium">O teu feed está vazio</p>
+                  <p className="text-sm text-gray-400 mt-1">Segue jogadores para ver as suas publicações aqui.</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {posts.map(post => (
+                    <div key={post.id} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                      {/* Post header */}
+                      <div className="flex items-center justify-between p-3 pb-2">
+                        <div className="flex items-center gap-2">
+                          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-red-400 to-red-600 flex items-center justify-center text-white font-bold text-sm overflow-hidden">
+                            {post.author_avatar
+                              ? <img src={post.author_avatar} className="w-full h-full object-cover" />
+                              : (post.author_name || 'J').charAt(0).toUpperCase()
+                            }
+                          </div>
+                          <div>
+                            <p className="text-sm font-semibold text-gray-900">{post.author_name}</p>
+                            <p className="text-[11px] text-gray-400">{timeAgo(post.created_at)}</p>
+                          </div>
+                        </div>
+                        {post.user_id === userId && (
+                          <button onClick={() => handleDeletePost(post.id)} className="text-gray-300 hover:text-red-500">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                      {/* Post content */}
+                      {post.content && (
+                        <p className="px-3 pb-2 text-sm text-gray-700">{post.content}</p>
+                      )}
+                      {/* Post image */}
+                      {post.image_url && (
+                        <img src={post.image_url} alt="" className="w-full max-h-80 object-cover" />
+                      )}
+                      {/* Post video */}
+                      {post.video_url && (
+                        <video src={post.video_url} controls className="w-full max-h-80" />
+                      )}
+                      {/* Post footer */}
+                      <div className="px-3 py-2 border-t border-gray-50 flex items-center gap-4">
+                        <button className="flex items-center gap-1 text-gray-400 hover:text-red-500 transition-colors">
+                          <Heart className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Floating + button */}
+          <button
+            onClick={() => setShowNewPost(true)}
+            className="fixed bottom-20 right-4 w-14 h-14 bg-red-600 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-red-700 transition-colors z-40"
+          >
+            <Plus className="w-7 h-7" />
+          </button>
+
+          {/* New Post Modal */}
+          {showNewPost && (
+            <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center animate-fade-in">
+              <div className="bg-white w-full max-w-md rounded-t-2xl sm:rounded-2xl p-5 max-h-[80vh] overflow-y-auto">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-bold text-gray-900">Nova Publicação</h3>
+                  <button onClick={() => { setShowNewPost(false); setNewPostText(''); setNewPostImage(null); setNewPostVideo(null) }}>
+                    <X className="w-5 h-5 text-gray-400" />
+                  </button>
+                </div>
+                <textarea
+                  value={newPostText}
+                  onChange={e => setNewPostText(e.target.value)}
+                  placeholder="O que queres partilhar?"
+                  rows={4}
+                  className="w-full p-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-500 resize-none"
+                />
+                <div className="flex items-center gap-3 mt-3">
+                  <label className="flex items-center gap-1 text-sm text-gray-500 cursor-pointer hover:text-red-600">
+                    <Image className="w-5 h-5" />
+                    <span>Foto</span>
+                    <input type="file" accept="image/*" className="hidden" onChange={e => { if (e.target.files?.[0]) { setNewPostImage(e.target.files[0]); setNewPostVideo(null) } }} />
+                  </label>
+                  <label className="flex items-center gap-1 text-sm text-gray-500 cursor-pointer hover:text-red-600">
+                    <Video className="w-5 h-5" />
+                    <span>Vídeo</span>
+                    <input type="file" accept="video/*" className="hidden" onChange={e => { if (e.target.files?.[0]) { setNewPostVideo(e.target.files[0]); setNewPostImage(null) } }} />
+                  </label>
+                </div>
+                {newPostImage && (
+                  <div className="mt-2 relative">
+                    <img src={URL.createObjectURL(newPostImage)} className="w-full h-40 object-cover rounded-lg" />
+                    <button onClick={() => setNewPostImage(null)} className="absolute top-1 right-1 bg-black/50 text-white rounded-full p-1"><X className="w-3 h-3" /></button>
+                  </div>
+                )}
+                {newPostVideo && (
+                  <div className="mt-2 flex items-center gap-2 text-sm text-gray-600 bg-gray-50 p-2 rounded-lg">
+                    <Video className="w-4 h-4" />
+                    <span className="truncate">{newPostVideo.name}</span>
+                    <button onClick={() => setNewPostVideo(null)} className="text-red-500"><X className="w-4 h-4" /></button>
+                  </div>
+                )}
+                <button
+                  onClick={handleCreatePost}
+                  disabled={postingLoading || (!newPostText.trim() && !newPostImage && !newPostVideo)}
+                  className="mt-4 w-full py-2.5 bg-red-600 text-white rounded-xl font-semibold disabled:opacity-40 hover:bg-red-700 transition-colors flex items-center justify-center gap-2"
+                >
+                  {postingLoading ? 'A publicar...' : <><Send className="w-4 h-4" /> Publicar</>}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ==================== TAB GRUPOS ==================== */}
+      {activeTab === 'grupos' && (
+        <div>
+          {groupsLoading ? (
+            <div className="text-center py-12 text-gray-400">A carregar...</div>
+          ) : (
+            <>
+              {/* Create group button */}
+              <button
+                onClick={() => setShowCreateGroup(true)}
+                className="w-full mb-4 py-3 border-2 border-dashed border-gray-200 rounded-xl text-sm font-semibold text-gray-500 hover:text-red-600 hover:border-red-300 transition-colors flex items-center justify-center gap-2"
+              >
+                <Plus className="w-5 h-5" />
+                Criar Grupo
+              </button>
+
+              {groups.length === 0 ? (
+                <div className="text-center py-12">
+                  <Users className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                  <p className="text-gray-500 font-medium">Sem grupos</p>
+                  <p className="text-sm text-gray-400 mt-1">Cria um grupo para organizar os teus jogos.</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {groups.map(group => (
+                    <button
+                      key={group.id}
+                      onClick={() => handleOpenGroup(group)}
+                      className="w-full text-left bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition-shadow"
+                    >
+                      {group.image_url ? (
+                        <div className="h-28 relative">
+                          <img src={group.image_url} alt={group.name} className="w-full h-full object-cover" />
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+                          <div className="absolute bottom-0 left-0 right-0 p-3">
+                            <p className="text-white font-bold text-sm">{group.name}</p>
+                            <p className="text-white/70 text-xs">{group.member_count} membros</p>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="p-4 flex items-center gap-3">
+                          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-red-400 to-red-600 flex items-center justify-center text-white font-bold text-lg">
+                            {group.name.charAt(0).toUpperCase()}
+                          </div>
+                          <div>
+                            <p className="font-semibold text-gray-900 text-sm">{group.name}</p>
+                            <p className="text-xs text-gray-500">{group.member_count} membros</p>
+                          </div>
+                          <ChevronRight className="w-4 h-4 text-gray-400 ml-auto" />
+                        </div>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+
+          {/* Create Group Modal */}
+          {showCreateGroup && (
+            <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center animate-fade-in">
+              <div className="bg-white w-full max-w-md rounded-t-2xl sm:rounded-2xl p-5">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-bold text-gray-900">Criar Grupo</h3>
+                  <button onClick={() => { setShowCreateGroup(false); setNewGroupName(''); setNewGroupDesc(''); setNewGroupImage(null) }}>
+                    <X className="w-5 h-5 text-gray-400" />
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  value={newGroupName}
+                  onChange={e => setNewGroupName(e.target.value)}
+                  placeholder="Nome do grupo"
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-500 mb-3"
+                />
+                <textarea
+                  value={newGroupDesc}
+                  onChange={e => setNewGroupDesc(e.target.value)}
+                  placeholder="Descrição (opcional)"
+                  rows={3}
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-500 resize-none mb-3"
+                />
+                <label className="flex items-center gap-2 text-sm text-gray-500 cursor-pointer hover:text-red-600 mb-4">
+                  <Image className="w-5 h-5" />
+                  <span>{newGroupImage ? newGroupImage.name : 'Adicionar imagem de capa'}</span>
+                  <input type="file" accept="image/*" className="hidden" onChange={e => { if (e.target.files?.[0]) setNewGroupImage(e.target.files[0]) }} />
+                </label>
+                {newGroupImage && (
+                  <div className="mb-3 relative">
+                    <img src={URL.createObjectURL(newGroupImage)} className="w-full h-32 object-cover rounded-lg" />
+                    <button onClick={() => setNewGroupImage(null)} className="absolute top-1 right-1 bg-black/50 text-white rounded-full p-1"><X className="w-3 h-3" /></button>
+                  </div>
+                )}
+                <button
+                  onClick={handleCreateGroup}
+                  disabled={creatingGroup || !newGroupName.trim()}
+                  className="w-full py-2.5 bg-red-600 text-white rounded-xl font-semibold disabled:opacity-40 hover:bg-red-700 transition-colors"
+                >
+                  {creatingGroup ? 'A criar...' : 'Criar Grupo'}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -1367,6 +1963,7 @@ function CompeteScreen({
   // Usar pastTournamentDetails do dashboardData se disponíveis
   useEffect(() => {
     if (d?.pastTournamentDetails && Object.keys(d.pastTournamentDetails).length > 0 && Object.keys(pastTournamentDetails).length === 0) {
+      console.log('[COMPETE-HISTORY] Loading from dashboardData, count:', Object.keys(d.pastTournamentDetails).length)
       setPastTournamentDetails(d.pastTournamentDetails)
       setHistoryFetched(true)
     }
@@ -1374,13 +1971,26 @@ function CompeteScreen({
 
   // Carregar detalhes dos torneios passados quando abre o tab history
   useEffect(() => {
+    console.log('[COMPETE-HISTORY] Effect triggered, activeTab:', activeTab, 'pastTournaments:', d?.pastTournaments?.length, 'userId:', userId, 'historyFetched:', historyFetched, 'pastTournamentDetails keys:', Object.keys(pastTournamentDetails).length)
     if (activeTab !== 'history') return
-    if (!d?.pastTournaments?.length) return
-    if (!userId) return
-    if (historyFetched || Object.keys(pastTournamentDetails).length > 0) return
+    if (!d?.pastTournaments?.length) {
+      console.log('[COMPETE-HISTORY] No past tournaments')
+      return
+    }
+    if (!userId) {
+      console.log('[COMPETE-HISTORY] No userId')
+      return
+    }
+    // FORÇAR RE-FETCH se não temos detalhes
+    const hasDetails = Object.keys(pastTournamentDetails).length > 0
+    if (historyFetched && hasDetails) {
+      console.log('[COMPETE-HISTORY] Already fetched and has details, skipping')
+      return
+    }
     let active = true
     console.log('[History] Fetching', d.pastTournaments.length, 'tournaments, userId:', userId)
     setPastTournamentLoading(true)
+    setHistoryFetched(false) // Reset para permitir re-fetch
     ;(async () => {
       try {
         const { fetchTournamentStandingsAndMatches } = await import('./lib/playerDashboardData')
@@ -1388,6 +1998,7 @@ function CompeteScreen({
         for (const t of (d.pastTournaments ?? [])) {
           if (!active) break
           try {
+            console.log('[History] Fetching tournament:', t.name, t.id)
             const data = await fetchTournamentStandingsAndMatches(t.id, userId!)
             results[t.id] = { standings: data.standings, myMatches: data.myMatches, playerPosition: data.playerPosition, tournamentName: data.tournamentName }
             console.log(`[History] ${t.name}: ${data.standings.length} standings, ${data.myMatches.length} matches`)
@@ -1682,7 +2293,8 @@ function CompeteScreen({
                           <div className="space-y-2">
                             {details.myMatches.map((m) => {
                               const setScores = [m.set1, m.set2, m.set3].filter(Boolean)
-                              const scoreDisplay = setScores.length > 0 ? setScores.join(' ') : `${m.team1_score}-${m.team2_score}`
+                              // Mostrar sempre os jogos de cada set, nunca o resultado 1-0/0-1
+                              const scoreDisplay = setScores.length > 0 ? setScores.join(' ') : '-'
                               return (
                               <div key={m.id} className="flex justify-between items-center text-sm py-2 px-3 bg-gray-50 rounded-lg">
                                 <span className="text-gray-700 truncate flex-1 mr-2">
@@ -1706,30 +2318,43 @@ function CompeteScreen({
                       {details?.standings && details.standings.length > 0 && (
                         <div className="mt-4 pt-4 border-t border-gray-100">
                           <p className="text-xs font-medium text-gray-500 mb-2">Classificação final</p>
-                          <div className="overflow-x-auto -mx-1">
-                            <table className="w-full text-sm min-w-[200px]">
-                              <thead>
-                                <tr className="text-left text-gray-500 border-b">
-                                  <th className="py-1.5 px-2 font-medium">#</th>
-                                  <th className="py-1.5 px-2 font-medium">Nome</th>
-                                  <th className="py-1.5 px-2 text-center font-medium">V</th>
-                                  <th className="py-1.5 px-2 text-center font-medium">D</th>
-                                  <th className="py-1.5 px-2 text-center font-medium">Pts</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {details.standings.map((row, i) => (
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="text-gray-500 border-b">
+                                <th className="py-1.5 px-1 text-left font-medium w-6">#</th>
+                                <th className="py-1.5 px-1 text-left font-medium">Nome</th>
+                                <th className="py-1.5 px-1 text-center font-medium w-6">V</th>
+                                <th className="py-1.5 px-1 text-center font-medium w-6">E</th>
+                                <th className="py-1.5 px-1 text-center font-medium w-6">D</th>
+                                <th className="py-1.5 px-1 text-center font-medium w-8">+/-</th>
+                                <th className="py-1.5 px-1 text-center font-semibold w-7">Pts</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {details.standings.map((row, i) => {
+                                const diff = (row.points_for ?? 0) - (row.points_against ?? 0)
+                                const hasPlayers = row.player1_name || row.player2_name
+                                return (
                                   <tr key={row.id} className={`border-b border-gray-50 ${details.playerPosition === i + 1 ? 'bg-red-50 font-semibold' : ''}`}>
-                                    <td className="py-1.5 px-2">{i + 1}</td>
-                                    <td className="py-1.5 px-2 font-medium truncate max-w-[140px]">{row.name}</td>
-                                    <td className="py-1.5 px-2 text-center text-green-600">{row.wins}</td>
-                                    <td className="py-1.5 px-2 text-center text-red-500">{row.losses}</td>
-                                    <td className="py-1.5 px-2 text-center font-bold">{row.points}</td>
+                                    <td className="py-1.5 px-1">{i + 1}</td>
+                                    <td className="py-1.5 px-1">
+                                      <div className="font-medium truncate max-w-[120px]">{row.name}</div>
+                                      {hasPlayers && (
+                                        <div className="text-xs text-gray-500 truncate max-w-[120px]">
+                                          {[row.player1_name, row.player2_name].filter(Boolean).join(' / ')}
+                                        </div>
+                                      )}
+                                    </td>
+                                    <td className="py-1.5 px-1 text-center text-green-600">{row.wins}</td>
+                                    <td className="py-1.5 px-1 text-center text-yellow-600">{row.draws ?? 0}</td>
+                                    <td className="py-1.5 px-1 text-center text-red-500">{row.losses}</td>
+                                    <td className={`py-1.5 px-1 text-center text-xs ${diff > 0 ? 'text-green-600' : diff < 0 ? 'text-red-500' : 'text-gray-400'}`}>{diff > 0 ? '+' : ''}{diff}</td>
+                                    <td className="py-1.5 px-1 text-center font-bold">{row.points}</td>
                                   </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
+                                )
+                              })}
+                            </tbody>
+                          </table>
                         </div>
                       )}
                     </div>
@@ -1890,18 +2515,39 @@ function CompeteScreen({
               {detailTab === 'standings' && (
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 sticky top-0">
-                    <tr><th className="px-3 py-2 text-left">#</th><th className="px-3 py-2 text-left">Nome</th><th className="px-3 py-2 text-center">V</th><th className="px-3 py-2 text-center">D</th><th className="px-3 py-2 text-center">Pts</th></tr>
+                    <tr>
+                      <th className="px-1.5 py-2 text-left text-xs w-8">#</th>
+                      <th className="px-1.5 py-2 text-left text-xs">Nome</th>
+                      <th className="px-1 py-2 text-center text-xs w-8">V</th>
+                      <th className="px-1 py-2 text-center text-xs w-8">E</th>
+                      <th className="px-1 py-2 text-center text-xs w-8">D</th>
+                      <th className="px-1 py-2 text-center text-xs w-10">+/-</th>
+                      <th className="px-1.5 py-2 text-center text-xs font-semibold w-10">Pts</th>
+                    </tr>
                   </thead>
                   <tbody>
-                    {tournamentDetail.standings.map((row, i) => (
-                      <tr key={row.id} className="border-t">
-                        <td className="px-3 py-2">{i + 1}</td>
-                        <td className="px-3 py-2 font-medium">{row.name}</td>
-                        <td className="px-3 py-2 text-center text-gray-500">{(row.wins ?? 0) + (row.losses ?? 0)}</td>
-                        <td className="px-3 py-2 text-center text-green-600">{row.wins}</td>
-                        <td className="px-3 py-2 text-center font-bold">{row.points}</td>
-                      </tr>
-                    ))}
+                    {tournamentDetail.standings.map((row, i) => {
+                      const diff = (row.points_for ?? 0) - (row.points_against ?? 0)
+                      const hasPlayers = row.player1_name || row.player2_name
+                      return (
+                        <tr key={row.id} className="border-t">
+                          <td className="px-1.5 py-2 text-gray-500">{i + 1}</td>
+                          <td className="px-1.5 py-2">
+                            <div className="font-medium truncate max-w-[120px]">{row.name}</div>
+                            {hasPlayers && (
+                              <div className="text-xs text-gray-500 truncate max-w-[120px]">
+                                {[row.player1_name, row.player2_name].filter(Boolean).join(' / ')}
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-1 py-2 text-center text-green-600">{row.wins ?? 0}</td>
+                          <td className="px-1 py-2 text-center text-yellow-600">{row.draws ?? 0}</td>
+                          <td className="px-1 py-2 text-center text-red-500">{row.losses ?? 0}</td>
+                          <td className={`px-1 py-2 text-center text-xs ${diff > 0 ? 'text-green-600' : diff < 0 ? 'text-red-500' : 'text-gray-400'}`}>{diff > 0 ? '+' : ''}{diff}</td>
+                          <td className="px-1.5 py-2 text-center font-bold">{row.points}</td>
+                        </tr>
+                      )
+                    })}
                   </tbody>
                 </table>
               )}
@@ -1909,7 +2555,8 @@ function CompeteScreen({
                 <div className="divide-y">
                   {tournamentDetail.myMatches.length === 0 ? <div className="p-6 text-center text-gray-500">Sem jogos registados</div> : tournamentDetail.myMatches.map((m) => {
                     const setScores = [m.set1, m.set2, m.set3].filter(Boolean)
-                    const scoreDisplay = setScores.length > 0 ? setScores.join(' ') : `${m.team1_score}-${m.team2_score}`
+                    // Mostrar sempre os jogos de cada set, nunca o resultado 1-0/0-1
+                    const scoreDisplay = setScores.length > 0 ? setScores.join(' ') : '-'
                     return (
                     <div key={m.id} className="p-4">
                       <div className="flex justify-between items-start">
