@@ -49,12 +49,15 @@ import {
   UserPlus,
   Send,
   Trash2,
-  UserMinus
+  UserMinus,
+  ChevronLeft
 } from 'lucide-react'
 import {
   followUser,
   unfollowUser,
   getFollowingIds,
+  getFollowingCount,
+  getFollowersCount,
   getSuggestedPlayers,
   getFeedPosts,
   createPost,
@@ -65,19 +68,28 @@ import {
   addGroupMember,
   removeGroupMember,
   searchPlayers,
+  getPlayerProfile,
+  getFollowingList,
+  getFollowersList,
+  categoryToLevel,
+  categoryColors,
+  getInitials,
   type CommunityPlayer,
+  type PlayerProfile,
   type CommunityPost,
   type CommunityGroup,
   type GroupMember,
 } from './lib/communityData'
 import { fetchAllClubs, fetchClubById, fetchUpcomingTournaments, fetchEnrolledByCategory, getTournamentRegistrationUrl, type ClubDetail, type UpcomingTournamentFromTour, type EnrolledByCategory } from './lib/clubAndTournaments'
 
-type Screen = 'home' | 'games' | 'profile-view' | 'profile-edit' | 'club' | 'compete' | 'community'
+type Screen = 'home' | 'games' | 'profile-view' | 'profile-edit' | 'club' | 'compete' | 'community' | 'player-profile' | 'follows-list'
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [player, setPlayer] = useState<PlayerAccount | null>(null)
   const [currentScreen, setCurrentScreen] = useState<Screen>('home')
+  const [selectedPlayerUserId, setSelectedPlayerUserId] = useState<string | null>(null)
+  const [followsListUserId, setFollowsListUserId] = useState<string | null>(null) // For FollowsListScreen
   const [isLoading, setIsLoading] = useState(true)
   
   // Auth states
@@ -403,10 +415,12 @@ function App() {
           <HomeScreen
             player={player}
             dashboardData={dashboardData}
+            userId={player?.user_id ?? null}
             onRefresh={refreshDashboard}
             onOpenClub={() => setCurrentScreen('club')}
             onOpenCompete={() => setCurrentScreen('compete')}
             onOpenGames={() => setCurrentScreen('games')}
+            onOpenFollowsList={(uid: string) => { setFollowsListUserId(uid); setCurrentScreen('follows-list') }}
           />
         )}
         {currentScreen === 'games' && (
@@ -435,7 +449,9 @@ function App() {
           <ProfileViewScreen
             player={player}
             dashboardData={dashboardData}
+            userId={player?.user_id ?? null}
             onOpenGames={() => setCurrentScreen('games')}
+            onOpenFollowsList={(uid: string) => { setFollowsListUserId(uid); setCurrentScreen('follows-list') }}
           />
         )}
         {currentScreen === 'profile-edit' && (
@@ -446,7 +462,23 @@ function App() {
           />
         )}
         {currentScreen === 'community' && player?.user_id && (
-          <CommunityScreen userId={player.user_id} playerAccountId={player.id} />
+          <CommunityScreen userId={player.user_id} playerAccountId={player.id} onOpenPlayerProfile={(uid: string) => { setSelectedPlayerUserId(uid); setCurrentScreen('player-profile') }} />
+        )}
+        {currentScreen === 'player-profile' && selectedPlayerUserId && player?.user_id && (
+          <OtherPlayerProfileScreen
+            targetUserId={selectedPlayerUserId}
+            myUserId={player.user_id}
+            onBack={() => setCurrentScreen('community')}
+            onOpenFollowsList={(uid: string) => { setFollowsListUserId(uid); setCurrentScreen('follows-list') }}
+          />
+        )}
+        {currentScreen === 'follows-list' && followsListUserId && player?.user_id && (
+          <FollowsListScreen
+            targetUserId={followsListUserId}
+            myUserId={player.user_id}
+            onBack={() => setCurrentScreen('player-profile')}
+            onOpenPlayerProfile={(uid: string) => { setSelectedPlayerUserId(uid); setCurrentScreen('player-profile') }}
+          />
         )}
       </main>
 
@@ -876,20 +908,31 @@ function TournamentCard({
 function HomeScreen({
   player,
   dashboardData,
+  userId,
   onRefresh,
   onOpenClub,
   onOpenCompete,
   onOpenGames,
+  onOpenFollowsList,
 }: {
   player: PlayerAccount | null
   dashboardData: PlayerDashboardData | null
+  userId: string | null
   onRefresh: () => Promise<void>
   onOpenClub: () => void
   onOpenCompete: () => void
   onOpenGames: () => void
+  onOpenFollowsList: (userId: string) => void
 }) {
   void onRefresh
   const [viewingTournament, setViewingTournament] = useState<{ id: string; name: string } | null>(null)
+  const [followingCount, setFollowingCount] = useState(0)
+  const [followersCount, setFollowersCount] = useState(0)
+  useEffect(() => {
+    if (!userId) return
+    getFollowingCount(userId).then(setFollowingCount)
+    getFollowersCount(userId).then(setFollowersCount)
+  }, [userId])
   const [tournamentDetail, setTournamentDetail] = useState<{
     standings: any[]
     myMatches: any[]
@@ -989,22 +1032,32 @@ function HomeScreen({
         </div>
       </div>
 
-      {/* Estatísticas - Jogos, Vitórias, Taxa Vitória */}
-      <div className="grid grid-cols-3 gap-3">
-        <div className="card p-4 text-center">
-          <p className="text-2xl mb-1">🎾</p>
-          <p className="text-2xl font-bold text-gray-900">{totalMatches}</p>
-          <p className="text-xs text-gray-500 mt-1 font-medium">Jogos</p>
+      {/* Estatísticas - Jogos, Vitórias, Taxa, Seguir, Seguidores */}
+      <div className="grid grid-cols-5 gap-2">
+        <div className="card p-3 text-center">
+          <p className="text-lg mb-0.5">🎾</p>
+          <p className="text-xl font-bold text-gray-900">{totalMatches}</p>
+          <p className="text-[10px] text-gray-500 mt-0.5 font-medium">Jogos</p>
         </div>
-        <div className="card p-4 text-center">
-          <p className="text-2xl mb-1">🏆</p>
-          <p className="text-2xl font-bold text-green-600">{wins}</p>
-          <p className="text-xs text-gray-500 mt-1 font-medium">Vitórias</p>
+        <div className="card p-3 text-center">
+          <p className="text-lg mb-0.5">🏆</p>
+          <p className="text-xl font-bold text-green-600">{wins}</p>
+          <p className="text-[10px] text-gray-500 mt-0.5 font-medium">Vitórias</p>
         </div>
-        <div className="card p-4 text-center">
-          <p className="text-2xl mb-1">📈</p>
-          <p className="text-2xl font-bold text-gray-900">{winRate}%</p>
-          <p className="text-xs text-gray-500 mt-1 font-medium">Taxa vitória</p>
+        <div className="card p-3 text-center">
+          <p className="text-lg mb-0.5">📈</p>
+          <p className="text-xl font-bold text-gray-900">{winRate}%</p>
+          <p className="text-[10px] text-gray-500 mt-0.5 font-medium">Taxa</p>
+        </div>
+        <div className="card p-3 text-center cursor-pointer hover:bg-gray-50 transition-colors" onClick={() => userId && onOpenFollowsList(userId)}>
+          <p className="text-lg mb-0.5">👥</p>
+          <p className="text-xl font-bold text-red-600">{followingCount}</p>
+          <p className="text-[10px] text-gray-500 mt-0.5 font-medium">A seguir</p>
+        </div>
+        <div className="card p-3 text-center cursor-pointer hover:bg-gray-50 transition-colors" onClick={() => userId && onOpenFollowsList(userId)}>
+          <p className="text-lg mb-0.5">❤️</p>
+          <p className="text-xl font-bold text-red-600">{followersCount}</p>
+          <p className="text-[10px] text-gray-500 mt-0.5 font-medium">Seguidores</p>
         </div>
       </div>
 
@@ -1189,7 +1242,7 @@ function HomeScreen({
 }
 
 // ---------- Comunidade ----------
-function CommunityScreen({ userId, playerAccountId }: { userId: string; playerAccountId: string }) {
+function CommunityScreen({ userId, playerAccountId, onOpenPlayerProfile }: { userId: string; playerAccountId: string; onOpenPlayerProfile: (userId: string) => void }) {
   const [activeTab, setActiveTab] = useState<'feed' | 'grupos'>('feed')
 
   // Feed state
@@ -1222,6 +1275,12 @@ function CommunityScreen({ userId, playerAccountId }: { userId: string; playerAc
   const [memberSearchQuery, setMemberSearchQuery] = useState('')
   const [memberSearchResults, setMemberSearchResults] = useState<CommunityPlayer[]>([])
   const [memberSearching, setMemberSearching] = useState(false)
+
+  // Global player search
+  const [playerSearchQuery, setPlayerSearchQuery] = useState('')
+  const [playerSearchResults, setPlayerSearchResults] = useState<CommunityPlayer[]>([])
+  const [playerSearching, setPlayerSearching] = useState(false)
+  const [showPlayerSearch, setShowPlayerSearch] = useState(false)
 
   // Load feed data
   useEffect(() => {
@@ -1352,6 +1411,41 @@ function CommunityScreen({ userId, playerAccountId }: { userId: string; playerAc
     }
   }
 
+  // Auto-search when typing (debounced)
+  useEffect(() => {
+    if (playerSearchQuery.trim().length < 2) {
+      setPlayerSearchResults([])
+      return
+    }
+    const timer = setTimeout(async () => {
+      setPlayerSearching(true)
+      console.log('[Community] Searching for:', playerSearchQuery.trim())
+      const results = await searchPlayers(playerSearchQuery, [userId])
+      const enriched = results.map(p => ({ ...p, is_following: followingSet.has(p.user_id) }))
+      setPlayerSearchResults(enriched)
+      setPlayerSearching(false)
+      setShowPlayerSearch(true)
+    }, 400)
+    return () => clearTimeout(timer)
+  }, [playerSearchQuery])
+
+  async function handleFollowFromSearch(targetUserId: string) {
+    const ok = await followUser(userId, targetUserId)
+    if (ok) {
+      setFollowingSet(prev => new Set([...prev, targetUserId]))
+      setPlayerSearchResults(prev => prev.map(p => p.user_id === targetUserId ? { ...p, is_following: true } : p))
+      setSuggestions(prev => prev.filter(s => s.user_id !== targetUserId))
+    }
+  }
+
+  async function handleUnfollowFromSearch(targetUserId: string) {
+    const ok = await unfollowUser(userId, targetUserId)
+    if (ok) {
+      setFollowingSet(prev => { const n = new Set(prev); n.delete(targetUserId); return n })
+      setPlayerSearchResults(prev => prev.map(p => p.user_id === targetUserId ? { ...p, is_following: false } : p))
+    }
+  }
+
   function timeAgo(dateStr: string): string {
     const now = new Date()
     const d = new Date(dateStr)
@@ -1418,14 +1512,14 @@ function CommunityScreen({ userId, playerAccountId }: { userId: string; playerAc
             {memberSearchResults.length > 0 && (
               <div className="mt-2 space-y-2">
                 {memberSearchResults.map(p => (
-                  <div key={p.user_id} className="flex items-center justify-between bg-white rounded-lg p-2">
+                  <div key={p.id} className="flex items-center justify-between bg-white rounded-lg p-2">
                     <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-red-400 to-red-600 flex items-center justify-center text-white text-xs font-bold overflow-hidden">
-                        {p.avatar_url ? <img src={p.avatar_url} className="w-full h-full object-cover" /> : p.name.charAt(0).toUpperCase()}
+                      <div className="w-8 h-8 rounded-full bg-gray-900 flex items-center justify-center text-white text-xs font-bold overflow-hidden">
+                        {p.avatar_url ? <img src={p.avatar_url} className="w-full h-full object-cover" /> : getInitials(p.name)}
                       </div>
                       <span className="text-sm font-medium">{p.name}</span>
                     </div>
-                    <button onClick={() => handleAddMember(p)} className="text-xs text-white bg-red-600 px-2 py-1 rounded-lg">Adicionar</button>
+                    <button onClick={() => handleAddMember(p)} className="text-xs text-white bg-orange-500 px-2 py-1 rounded-lg hover:bg-orange-600">Adicionar</button>
                   </div>
                 ))}
               </div>
@@ -1437,27 +1531,31 @@ function CommunityScreen({ userId, playerAccountId }: { userId: string; playerAc
           <div className="text-center py-8 text-gray-400">A carregar membros...</div>
         ) : (
           <div className="space-y-2">
-            {groupMembers.map(m => (
-              <div key={m.id} className="flex items-center justify-between bg-white rounded-xl p-3 shadow-sm border border-gray-100">
+            {groupMembers.map(m => {
+              const mColors = categoryColors(m.player_category)
+              return (
+              <div key={m.id} className="flex items-center justify-between bg-white rounded-xl p-3 shadow-sm border border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors" onClick={() => onOpenPlayerProfile(m.user_id)}>
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-red-400 to-red-600 flex items-center justify-center text-white font-bold overflow-hidden">
-                    {m.avatar_url ? <img src={m.avatar_url} className="w-full h-full object-cover" /> : m.name?.charAt(0).toUpperCase()}
+                  <div className="w-10 h-10 rounded-full bg-gray-900 flex items-center justify-center text-white font-bold text-sm overflow-hidden">
+                    {m.avatar_url ? <img src={m.avatar_url} className="w-full h-full object-cover" /> : getInitials(m.name)}
                   </div>
                   <div>
                     <p className="text-sm font-semibold text-gray-900">{m.name}</p>
                     <div className="flex items-center gap-2">
                       {m.role === 'admin' && <span className="text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded font-medium">Admin</span>}
-                      {m.level && <span className="text-xs text-gray-500">Nível {m.level}</span>}
+                      {m.player_category && <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${mColors.bg} ${mColors.text}`}>{m.player_category}</span>}
+                      {(m.player_category || m.level) && <span className="text-xs text-gray-500">Nv {categoryToLevel(m.player_category) ?? m.level}</span>}
                     </div>
                   </div>
                 </div>
                 {selectedGroup.is_admin && m.user_id !== userId && (
-                  <button onClick={() => handleRemoveMember(m.user_id)} className="text-gray-400 hover:text-red-500">
+                  <button onClick={(e) => { e.stopPropagation(); handleRemoveMember(m.user_id) }} className="text-gray-400 hover:text-red-500">
                     <UserMinus className="w-4 h-4" />
                   </button>
                 )}
               </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </div>
@@ -1467,11 +1565,99 @@ function CommunityScreen({ userId, playerAccountId }: { userId: string; playerAc
   return (
     <div className="animate-fade-in pb-4">
       {/* Header */}
-      <div className="mb-4">
+      <div className="mb-3">
         <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
           <Users className="w-7 h-7 text-red-600" />
           Comunidade
         </h1>
+      </div>
+
+      {/* Search bar */}
+      <div className="mb-4">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <input
+            type="text"
+            value={playerSearchQuery}
+            onChange={e => {
+              setPlayerSearchQuery(e.target.value)
+              if (e.target.value.trim().length === 0) {
+                setPlayerSearchResults([])
+                setShowPlayerSearch(false)
+              } else {
+                setShowPlayerSearch(true)
+              }
+            }}
+            onFocus={() => { if (playerSearchQuery.trim().length >= 2) setShowPlayerSearch(true) }}
+            placeholder="Pesquisar jogadores..."
+            className="w-full pl-9 pr-10 py-2.5 bg-gray-100 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-500 focus:bg-white transition-colors"
+          />
+          {playerSearchQuery && (
+            <button
+              onClick={() => { setPlayerSearchQuery(''); setPlayerSearchResults([]); setShowPlayerSearch(false) }}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+
+        {/* Search results dropdown */}
+        {showPlayerSearch && (
+          <div className="mt-2 bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden max-h-80 overflow-y-auto">
+            {playerSearching ? (
+              <div className="text-center py-6 text-gray-400 text-sm">A pesquisar...</div>
+            ) : playerSearchResults.length > 0 ? (
+              <div className="divide-y divide-gray-50">
+                {playerSearchResults.map(p => {
+                  const lvl = categoryToLevel(p.player_category) ?? p.level
+                  const colors = categoryColors(p.player_category)
+                  return (
+                  <div key={p.id} className="flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors cursor-pointer" onClick={() => onOpenPlayerProfile(p.user_id)}>
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 rounded-full bg-gray-900 flex items-center justify-center text-white font-bold text-sm overflow-hidden">
+                        {p.avatar_url ? <img src={p.avatar_url} className="w-full h-full object-cover" /> : getInitials(p.name)}
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-gray-900">{p.name}</p>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          {lvl && <span className={`text-xs font-black px-2 py-0.5 rounded-full ${colors.bg} ${colors.text}`}>Nv {lvl}</span>}
+                          {p.player_category && <span className="text-xs text-gray-500 font-medium">{p.player_category}</span>}
+                          {p.location && <span className="text-xs text-gray-400">{p.location}</span>}
+                        </div>
+                      </div>
+                    </div>
+                    {p.is_following ? (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleUnfollowFromSearch(p.user_id) }}
+                        className="px-3 py-1.5 text-xs font-semibold border border-orange-300 text-orange-600 rounded-lg hover:bg-orange-50 transition-colors"
+                      >
+                        A seguir
+                      </button>
+                    ) : (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleFollowFromSearch(p.user_id) }}
+                        className="px-3 py-1.5 text-xs font-semibold bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors"
+                      >
+                        Seguir
+                      </button>
+                    )}
+                  </div>
+                  )
+                })}
+              </div>
+            ) : playerSearchQuery.trim().length >= 2 ? (
+              <div className="text-center py-6">
+                <p className="text-sm text-gray-500">Nenhum jogador encontrado</p>
+                <p className="text-xs text-gray-400 mt-1">Tenta outro nome</p>
+              </div>
+            ) : (
+              <div className="text-center py-6">
+                <p className="text-sm text-gray-400">Escreve pelo menos 2 letras para pesquisar</p>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Tabs */}
@@ -1502,29 +1688,33 @@ function CommunityScreen({ userId, playerAccountId }: { userId: string; playerAc
                 <div className="mb-5">
                   <h3 className="text-sm font-semibold text-gray-700 mb-2 px-1">Jogadores sugeridos</h3>
                   <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
-                    {suggestions.map(player => (
-                      <div key={player.user_id} className="flex-shrink-0 w-28 bg-white rounded-xl shadow-sm border border-gray-100 p-3 text-center">
-                        <div className="w-12 h-12 mx-auto rounded-full bg-gradient-to-br from-red-400 to-red-600 flex items-center justify-center text-white font-bold text-lg mb-2 overflow-hidden">
+                    {suggestions.map((player, idx) => {
+                      const lvl = categoryToLevel(player.player_category) ?? player.level
+                      const colors = categoryColors(player.player_category)
+                      return (
+                      <div key={`sug-${player.id}-${idx}`} className="flex-shrink-0 w-36 bg-white rounded-2xl shadow-sm border border-gray-100 p-4 text-center cursor-pointer hover:shadow-md transition-shadow" onClick={() => onOpenPlayerProfile(player.user_id)}>
+                        <div className="w-16 h-16 mx-auto rounded-full bg-gray-900 flex items-center justify-center text-white font-bold text-lg mb-2.5 overflow-hidden">
                           {player.avatar_url
                             ? <img src={player.avatar_url} className="w-full h-full object-cover" />
-                            : player.name.charAt(0).toUpperCase()
+                            : getInitials(player.name)
                           }
                         </div>
-                        <p className="text-xs font-semibold text-gray-900 truncate">{player.name}</p>
-                        {player.player_category && (
-                          <span className="inline-block mt-1 text-[10px] bg-red-50 text-red-600 px-1.5 py-0.5 rounded-full font-medium">{player.player_category}</span>
+                        <p className="text-sm font-semibold text-gray-900 truncate">{player.name}</p>
+                        {lvl && (
+                          <span className={`inline-block mt-1.5 text-xl font-black px-3 py-0.5 rounded-full ${colors.bg} ${colors.text}`}>Nv {lvl}</span>
                         )}
-                        {player.level && !player.player_category && (
-                          <span className="inline-block mt-1 text-[10px] bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded-full">Nv {player.level}</span>
+                        {player.player_category && (
+                          <p className="mt-1 text-xs font-semibold text-gray-500">{player.player_category}</p>
                         )}
                         <button
-                          onClick={() => handleFollow(player.user_id)}
-                          className="mt-2 w-full py-1 text-[11px] font-semibold bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                          onClick={(e) => { e.stopPropagation(); handleFollow(player.user_id) }}
+                          className="mt-3 w-full py-1.5 text-xs font-semibold bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors"
                         >
                           Seguir
                         </button>
                       </div>
-                    ))}
+                      )
+                    })}
                   </div>
                 </div>
               )}
@@ -1543,10 +1733,10 @@ function CommunityScreen({ userId, playerAccountId }: { userId: string; playerAc
                       {/* Post header */}
                       <div className="flex items-center justify-between p-3 pb-2">
                         <div className="flex items-center gap-2">
-                          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-red-400 to-red-600 flex items-center justify-center text-white font-bold text-sm overflow-hidden">
+                          <div className="w-9 h-9 rounded-full bg-gray-900 flex items-center justify-center text-white font-bold text-xs overflow-hidden">
                             {post.author_avatar
                               ? <img src={post.author_avatar} className="w-full h-full object-cover" />
-                              : (post.author_name || 'J').charAt(0).toUpperCase()
+                              : getInitials(post.author_name)
                             }
                           </div>
                           <div>
@@ -2657,21 +2847,469 @@ function getOtherPlayersFromMatch(match: { player1_name?: string; player2_name?:
   return names
 }
 
+// ---------- Listas de Seguindo/Seguidores ----------
+function FollowsListScreen({
+  targetUserId,
+  myUserId,
+  onBack,
+  onOpenPlayerProfile,
+}: {
+  targetUserId: string
+  myUserId: string
+  onBack: () => void
+  onOpenPlayerProfile: (userId: string) => void
+}) {
+  const [activeTab, setActiveTab] = useState<'following' | 'followers'>('following')
+  const [followingList, setFollowingList] = useState<CommunityPlayer[]>([])
+  const [followersList, setFollowersList] = useState<CommunityPlayer[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    setLoading(true)
+    Promise.all([
+      getFollowingList(targetUserId),
+      getFollowersList(targetUserId),
+    ]).then(([following, followers]) => {
+      setFollowingList(following)
+      setFollowersList(followers)
+      setLoading(false)
+    })
+  }, [targetUserId])
+
+  const handleToggleFollow = async (userId: string, currentlyFollowing: boolean) => {
+    if (currentlyFollowing) {
+      await unfollowUser(myUserId, userId)
+      // Update both lists
+      setFollowingList(prev => prev.filter(p => p.user_id !== userId))
+      setFollowersList(prev => prev.map(p => p.user_id === userId ? { ...p, is_following: false } : p))
+    } else {
+      await followUser(myUserId, userId)
+      setFollowersList(prev => prev.map(p => p.user_id === userId ? { ...p, is_following: true } : p))
+    }
+  }
+
+  const currentList = activeTab === 'following' ? followingList : followersList
+
+  return (
+    <div className="animate-fade-in pb-20">
+      {/* Header */}
+      <div className="mb-4">
+        <button onClick={onBack} className="flex items-center gap-1 text-gray-600 hover:text-red-600 transition-colors mb-3">
+          <ChevronLeft className="w-5 h-5" />
+          <span className="text-sm font-medium">Voltar</span>
+        </button>
+        <h1 className="text-2xl font-bold text-gray-900">Seguidores</h1>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex gap-2 mb-4 bg-gray-100 p-1 rounded-lg">
+        <button
+          onClick={() => setActiveTab('following')}
+          className={`flex-1 py-2 text-sm font-semibold rounded-lg transition-all ${activeTab === 'following' ? 'bg-white text-red-600 shadow-sm' : 'text-gray-500'}`}
+        >
+          A seguir
+        </button>
+        <button
+          onClick={() => setActiveTab('followers')}
+          className={`flex-1 py-2 text-sm font-semibold rounded-lg transition-all ${activeTab === 'followers' ? 'bg-white text-red-600 shadow-sm' : 'text-gray-500'}`}
+        >
+          Seguidores
+        </button>
+      </div>
+
+      {/* List */}
+      {loading ? (
+        <div className="flex items-center justify-center py-12">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-600"></div>
+        </div>
+      ) : currentList.length === 0 ? (
+        <div className="card p-8 text-center">
+          <p className="text-gray-500">
+            {activeTab === 'following' ? 'Ainda não segue ninguém' : 'Ainda não tem seguidores'}
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {currentList.map((p) => {
+            const colors = categoryColors(p.player_category)
+            const lvl = p.level
+            return (
+              <div key={p.id} className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+                <div className="flex items-center gap-3">
+                  <div 
+                    className="w-12 h-12 rounded-full bg-gray-900 flex items-center justify-center text-white font-bold text-sm overflow-hidden cursor-pointer"
+                    onClick={() => onOpenPlayerProfile(p.user_id)}
+                  >
+                    {p.avatar_url ? <img src={p.avatar_url} className="w-full h-full object-cover" /> : getInitials(p.name)}
+                  </div>
+                  <div className="flex-1 min-w-0 cursor-pointer" onClick={() => onOpenPlayerProfile(p.user_id)}>
+                    <p className="text-sm font-semibold text-gray-900">{p.name}</p>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      {lvl && <span className={`text-xs font-black px-2 py-0.5 rounded-full ${colors.bg} ${colors.text}`}>Nv {lvl}</span>}
+                      {p.player_category && <span className="text-xs text-gray-500 font-medium">{p.player_category}</span>}
+                      {p.location && <span className="text-xs text-gray-400">{p.location}</span>}
+                    </div>
+                  </div>
+                  {p.user_id !== myUserId && (
+                    <button
+                      onClick={() => handleToggleFollow(p.user_id, p.is_following ?? false)}
+                      className={`px-4 py-1.5 text-xs font-semibold rounded-lg transition-colors ${
+                        p.is_following
+                          ? 'border border-orange-300 text-orange-600 hover:bg-orange-50'
+                          : 'bg-orange-500 text-white hover:bg-orange-600'
+                      }`}
+                    >
+                      {p.is_following ? 'Seguindo' : 'Seguir'}
+                    </button>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---------- Perfil de Outro Jogador (a partir da Comunidade) ----------
+function OtherPlayerProfileScreen({
+  targetUserId,
+  myUserId,
+  onBack,
+  onOpenFollowsList,
+}: {
+  targetUserId: string
+  myUserId: string
+  onBack: () => void
+  onOpenFollowsList: (userId: string) => void
+}) {
+  const [profile, setProfile] = useState<PlayerProfile | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [isFollowing, setIsFollowing] = useState(false)
+
+  useEffect(() => {
+    setLoading(true)
+    getPlayerProfile(targetUserId, myUserId).then((p) => {
+      setProfile(p)
+      setIsFollowing(p?.isFollowedByMe ?? false)
+      setLoading(false)
+    })
+  }, [targetUserId, myUserId])
+
+  const handleToggleFollow = async () => {
+    if (!profile) return
+    if (isFollowing) {
+      await unfollowUser(myUserId, targetUserId)
+      setIsFollowing(false)
+      setProfile(prev => prev ? { ...prev, followersCount: prev.followersCount - 1 } : prev)
+    } else {
+      await followUser(myUserId, targetUserId)
+      setIsFollowing(true)
+      setProfile(prev => prev ? { ...prev, followersCount: prev.followersCount + 1 } : prev)
+    }
+  }
+
+  const getHandLabel = (h?: string) => ({ right: 'Direita', left: 'Esquerda', ambidextrous: 'Ambidestro' }[h || ''] || '—')
+  const getPositionLabel = (p?: string) => ({ right: 'Direita', left: 'Esquerda', both: 'Ambas' }[p || ''] || '—')
+  const getGameTypeLabel = (g?: string) => ({ competitive: 'Competitivo', friendly: 'Amigável', both: 'Ambos' }[g || ''] || '—')
+  const getTimeLabel = (t?: string) => ({ morning: 'Manhã', afternoon: 'Tarde', evening: 'Noite', all_day: 'Dia todo' }[t || ''] || '—')
+
+  const splitName = (fullName: string): { firstName: string; lastName: string } => {
+    const parts = fullName.trim().split(/\s+/)
+    if (parts.length === 1) return { firstName: parts[0], lastName: '' }
+    return { firstName: parts[0], lastName: parts.slice(1).join(' ') }
+  }
+
+  const getAgeCategory = (): string | null => {
+    const bd = profile?.birth_date
+    if (!bd) return null
+    const birth = new Date(bd)
+    const today = new Date()
+    let age = today.getFullYear() - birth.getFullYear()
+    const m = today.getMonth() - birth.getMonth()
+    if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--
+    if (age < 18) return null
+    const cat = Math.floor(age / 5) * 5
+    return `+${cat}`
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-600"></div>
+      </div>
+    )
+  }
+
+  if (!profile) {
+    return (
+      <div className="text-center py-20">
+        <button onClick={onBack} className="text-red-600 font-medium mb-4 flex items-center gap-1 mx-auto">
+          <ChevronLeft className="w-4 h-4" /> Voltar
+        </button>
+        <p className="text-gray-500">Perfil não encontrado</p>
+      </div>
+    )
+  }
+
+  const colors = categoryColors(profile.player_category)
+  const lvl = profile.level
+  const ageCategory = getAgeCategory()
+  const totalMatches = (profile.wins ?? 0) + (profile.losses ?? 0)
+  const winRate = totalMatches > 0 ? Math.round(((profile.wins ?? 0) / totalMatches) * 100) : 0
+
+  return (
+    <div className="space-y-5 animate-fade-in pb-20">
+      {/* Header com botão voltar */}
+      <div className="flex items-center gap-3 mb-1">
+        <button onClick={onBack} className="flex items-center gap-1 text-gray-600 hover:text-red-600 transition-colors">
+          <ChevronLeft className="w-5 h-5" />
+          <span className="text-sm font-medium">Comunidade</span>
+        </button>
+      </div>
+
+      {/* Profile Card */}
+      <div className="card p-5">
+        <div className="flex items-start gap-4">
+          <div className="flex-shrink-0">
+            {profile.avatar_url ? (
+              <img src={profile.avatar_url} alt="Avatar" className="w-20 h-20 rounded-full object-cover border-4 border-gray-200" />
+            ) : (
+              <div className="w-20 h-20 rounded-full bg-gray-900 flex items-center justify-center">
+                <span className="text-white font-bold text-2xl">{getInitials(profile.name)}</span>
+              </div>
+            )}
+          </div>
+          <div className="flex-1 min-w-0">
+            <h2 className="font-bold text-xl text-gray-900">{profile.name}</h2>
+            {profile.location && <p className="text-xs text-gray-500 mt-0.5">{profile.location}</p>}
+            {profile.bio && <p className="text-sm text-gray-600 mt-1 leading-relaxed">{profile.bio.length > 160 ? profile.bio.substring(0, 160) + '...' : profile.bio}</p>}
+            {/* Follow button */}
+            <button
+              onClick={handleToggleFollow}
+              className={`mt-3 px-5 py-2 text-sm font-semibold rounded-lg transition-colors ${
+                isFollowing
+                  ? 'border border-orange-300 text-orange-600 hover:bg-orange-50'
+                  : 'bg-orange-500 text-white hover:bg-orange-600'
+              }`}
+            >
+              {isFollowing ? 'A seguir' : 'Seguir'}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Nível + Fiabilidade + Categoria + Idade */}
+      <div className="rounded-xl shadow-sm overflow-hidden p-6 bg-gradient-to-br from-red-50 to-red-100">
+        <div className="flex items-center justify-between">
+          <div className="flex-1">
+            <p className="text-5xl font-bold text-red-600">Nível {profile.level?.toFixed(1) || '3.0'}</p>
+            <p className="text-sm text-gray-600 mt-2 flex items-center gap-1.5">
+              <span>📊</span> Fiabilidade {profile.level_reliability_percent?.toFixed(0) ?? '85'}%
+            </p>
+          </div>
+          <div className="flex flex-col gap-2 self-start">
+            {profile.player_category && (
+              <div className={`px-4 py-2 rounded-lg shadow-sm ${colors.bg}`}>
+                <span className={`text-sm font-bold ${colors.text}`}>{profile.player_category}</span>
+              </div>
+            )}
+            {ageCategory && (
+              <div className="px-4 py-2 bg-amber-500 rounded-lg shadow-sm">
+                <span className="text-sm font-bold text-white">{ageCategory}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Estatísticas */}
+      <div className="grid grid-cols-5 gap-2">
+        <div className="card p-3 text-center">
+          <p className="text-lg mb-0.5">🎾</p>
+          <p className="text-xl font-bold text-gray-900">{totalMatches}</p>
+          <p className="text-[10px] text-gray-500 mt-0.5 font-medium">Jogos</p>
+        </div>
+        <div className="card p-3 text-center">
+          <p className="text-lg mb-0.5">🏆</p>
+          <p className="text-xl font-bold text-green-600">{profile.wins ?? 0}</p>
+          <p className="text-[10px] text-gray-500 mt-0.5 font-medium">Vitórias</p>
+        </div>
+        <div className="card p-3 text-center">
+          <p className="text-lg mb-0.5">📈</p>
+          <p className="text-xl font-bold text-gray-900">{winRate}%</p>
+          <p className="text-[10px] text-gray-500 mt-0.5 font-medium">Taxa</p>
+        </div>
+        <div className="card p-3 text-center cursor-pointer hover:bg-gray-50 transition-colors" onClick={() => onOpenFollowsList(targetUserId)}>
+          <p className="text-lg mb-0.5">👥</p>
+          <p className="text-xl font-bold text-red-600">{profile.followingCount}</p>
+          <p className="text-[10px] text-gray-500 mt-0.5 font-medium">A seguir</p>
+        </div>
+        <div className="card p-3 text-center cursor-pointer hover:bg-gray-50 transition-colors" onClick={() => onOpenFollowsList(targetUserId)}>
+          <p className="text-lg mb-0.5">❤️</p>
+          <p className="text-xl font-bold text-red-600">{profile.followersCount}</p>
+          <p className="text-[10px] text-gray-500 mt-0.5 font-medium">Seguidores</p>
+        </div>
+      </div>
+
+      {/* Preferências do jogador */}
+      <div className="card p-5">
+        <h3 className="font-bold text-gray-900 mb-4 flex items-center gap-2">
+          <Target className="w-5 h-5 text-red-600" />
+          Preferências de jogador
+        </h3>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="p-3 bg-gray-50 rounded-lg">
+            <p className="text-xs text-gray-500 mb-0.5">Mão dominante</p>
+            <p className="font-medium text-gray-900">{getHandLabel(profile.preferred_hand)}</p>
+          </div>
+          <div className="p-3 bg-gray-50 rounded-lg">
+            <p className="text-xs text-gray-500 mb-0.5">Posição no campo</p>
+            <p className="font-medium text-gray-900">{getPositionLabel(profile.court_position)}</p>
+          </div>
+          <div className="p-3 bg-gray-50 rounded-lg">
+            <p className="text-xs text-gray-500 mb-0.5">Tipo de jogo</p>
+            <p className="font-medium text-gray-900">{getGameTypeLabel(profile.game_type)}</p>
+          </div>
+          <div className="p-3 bg-gray-50 rounded-lg">
+            <p className="text-xs text-gray-500 mb-0.5">Horário preferido</p>
+            <p className="font-medium text-gray-900">{getTimeLabel(profile.preferred_time)}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* 5 Últimos Jogos - Cards estilo Playtomic */}
+      <div>
+        <h2 className="text-lg font-bold text-gray-900 mb-3 flex items-center gap-2">
+          <span>📊</span> Resultados Recentes
+        </h2>
+        {profile.recentMatches.length > 0 ? (
+          <div className="overflow-x-auto pb-2 -mx-4 px-4 sm:mx-0 sm:px-0 snap-x snap-mandatory scroll-smooth">
+            <div className="flex gap-4" style={{ width: 'max-content' }}>
+              {profile.recentMatches.map((match) => (
+                <div key={match.id} className="snap-center">
+                  <GameCardPlaytomic
+                    match={{
+                      id: match.id,
+                      tournament_id: match.tournament_id || '',
+                      tournament_name: match.tournament_name || '',
+                      court: '',
+                      start_time: match.played_at || '',
+                      team1_name: match.team1_name,
+                      team2_name: match.team2_name,
+                      player1_name: match.player1_name,
+                      player2_name: match.player2_name,
+                      player3_name: match.player3_name,
+                      player4_name: match.player4_name,
+                      score1: match.score1,
+                      score2: match.score2,
+                      status: 'completed',
+                      round: '',
+                      is_winner: match.is_winner,
+                      set1: match.set1,
+                      set2: match.set2,
+                      set3: match.set3,
+                    }}
+                    currentPlayerName={profile.name}
+                    currentPlayerAvatar={profile.avatar_url}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="card p-6 text-center">
+            <span className="text-4xl mb-2 block">🎾</span>
+            <p className="text-gray-700 font-medium">Sem jogos recentes</p>
+          </div>
+        )}
+      </div>
+
+      {/* Jogadores com quem mais joga */}
+      <div>
+        <h2 className="text-lg font-bold text-gray-900 mb-3 flex items-center gap-2">
+          <Users className="w-5 h-5 text-red-600" />
+          Jogadores com quem mais joga
+        </h2>
+        {profile.topPlayers.length > 0 ? (
+          <div className="overflow-x-auto pb-2 -mx-4 px-4 sm:mx-0 sm:px-0 snap-x snap-mandatory scroll-smooth">
+            <div className="flex gap-3" style={{ width: 'max-content' }}>
+              {profile.topPlayers.map(({ name, count }) => {
+                const { firstName, lastName } = splitName(name)
+                return (
+                <div key={name} className="snap-center flex-shrink-0 w-[100px] card p-3 text-center">
+                  <div className="w-12 h-12 rounded-full bg-gray-900 flex items-center justify-center mx-auto mb-2">
+                    <span className="text-white font-bold text-sm">{getInitials(name)}</span>
+                  </div>
+                  <p className="font-semibold text-gray-900 text-xs leading-tight">{firstName}</p>
+                  {lastName && <p className="font-semibold text-gray-900 text-xs leading-tight">{lastName}</p>}
+                  <p className="text-[10px] text-gray-500 mt-1">{count} jogos</p>
+                </div>
+                )
+              })}
+            </div>
+          </div>
+        ) : (
+          <div className="card p-4 text-center">
+            <p className="text-sm text-gray-500">Sem dados de parceiros de jogo</p>
+          </div>
+        )}
+      </div>
+
+      {/* Clube favorito */}
+      {profile.favoriteClub && (
+        <div>
+          <h2 className="text-lg font-bold text-gray-900 mb-3 flex items-center gap-2">
+            <Building2 className="w-5 h-5 text-red-600" />
+            Clube favorito
+          </h2>
+          <div className="card overflow-hidden p-0">
+            <div className="p-4 flex items-center gap-3">
+              <div className="w-14 h-14 rounded-xl bg-gray-100 flex items-center justify-center overflow-hidden flex-shrink-0">
+                {profile.favoriteClub.logo_url ? (
+                  <img src={profile.favoriteClub.logo_url} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  <Building2 className="w-8 h-8 text-gray-400" />
+                )}
+              </div>
+              <div>
+                <p className="font-semibold text-gray-900">{profile.favoriteClub.name}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ---------- Perfil Público (Visualização) - Igual à Home, com 5 últimos jogos, sem Informações do Jogador ----------
 function ProfileViewScreen({
   player,
   dashboardData,
+  userId,
   onOpenGames,
+  onOpenFollowsList,
 }: {
   player: PlayerAccount | null
   dashboardData: PlayerDashboardData | null
+  userId: string | null
   onOpenGames: () => void
+  onOpenFollowsList: (userId: string) => void
 }) {
   const d = dashboardData
   const totalMatches = d?.stats?.totalMatches ?? (player?.wins || 0) + (player?.losses || 0)
   const wins = d?.stats?.wins ?? player?.wins ?? 0
   const winRate = d?.stats?.winRate ?? (totalMatches > 0 ? Math.round(((player?.wins || 0) / totalMatches) * 100) : 0)
   const bio = player?.bio || ''
+  const [followingCount, setFollowingCount] = useState(0)
+  const [followersCount, setFollowersCount] = useState(0)
+  useEffect(() => {
+    if (!userId) return
+    getFollowingCount(userId).then(setFollowingCount)
+    getFollowersCount(userId).then(setFollowersCount)
+  }, [userId])
   const truncatedBio = bio.length > 160 ? bio.substring(0, 160) + '...' : bio
   const recentMatches = (d?.recentMatches ?? []).slice(0, 5)
 
@@ -2753,6 +3391,12 @@ function ProfileViewScreen({
   const getGameTypeLabel = (g?: string) => ({ competitive: 'Competitivo', friendly: 'Amigável', both: 'Ambos' }[g || ''] || '—')
   const getTimeLabel = (t?: string) => ({ morning: 'Manhã', afternoon: 'Tarde', evening: 'Noite', all_day: 'Dia todo' }[t || ''] || '—')
 
+  const splitName = (fullName: string): { firstName: string; lastName: string } => {
+    const parts = fullName.trim().split(/\s+/)
+    if (parts.length === 1) return { firstName: parts[0], lastName: '' }
+    return { firstName: parts[0], lastName: parts.slice(1).join(' ') }
+  }
+
   return (
     <div className="space-y-6 animate-fade-in pb-20">
       {/* Profile Card - Foto + Nome + Bio (igual à Home) */}
@@ -2798,22 +3442,32 @@ function ProfileViewScreen({
         </div>
       </div>
 
-      {/* Estatísticas - Jogos, Vitórias, Taxa Vitória */}
-      <div className="grid grid-cols-3 gap-3">
-        <div className="card p-4 text-center">
-          <p className="text-2xl mb-1">🎾</p>
-          <p className="text-2xl font-bold text-gray-900">{totalMatches}</p>
-          <p className="text-xs text-gray-500 mt-1 font-medium">Jogos</p>
+      {/* Estatísticas - Jogos, Vitórias, Taxa, Seguir, Seguidores */}
+      <div className="grid grid-cols-5 gap-2">
+        <div className="card p-3 text-center">
+          <p className="text-lg mb-0.5">🎾</p>
+          <p className="text-xl font-bold text-gray-900">{totalMatches}</p>
+          <p className="text-[10px] text-gray-500 mt-0.5 font-medium">Jogos</p>
         </div>
-        <div className="card p-4 text-center">
-          <p className="text-2xl mb-1">🏆</p>
-          <p className="text-2xl font-bold text-green-600">{wins}</p>
-          <p className="text-xs text-gray-500 mt-1 font-medium">Vitórias</p>
+        <div className="card p-3 text-center">
+          <p className="text-lg mb-0.5">🏆</p>
+          <p className="text-xl font-bold text-green-600">{wins}</p>
+          <p className="text-[10px] text-gray-500 mt-0.5 font-medium">Vitórias</p>
         </div>
-        <div className="card p-4 text-center">
-          <p className="text-2xl mb-1">📈</p>
-          <p className="text-2xl font-bold text-gray-900">{winRate}%</p>
-          <p className="text-xs text-gray-500 mt-1 font-medium">Taxa vitória</p>
+        <div className="card p-3 text-center">
+          <p className="text-lg mb-0.5">📈</p>
+          <p className="text-xl font-bold text-gray-900">{winRate}%</p>
+          <p className="text-[10px] text-gray-500 mt-0.5 font-medium">Taxa</p>
+        </div>
+        <div className="card p-3 text-center cursor-pointer hover:bg-gray-50 transition-colors" onClick={() => userId && onOpenFollowsList(userId)}>
+          <p className="text-lg mb-0.5">👥</p>
+          <p className="text-xl font-bold text-red-600">{followingCount}</p>
+          <p className="text-[10px] text-gray-500 mt-0.5 font-medium">A seguir</p>
+        </div>
+        <div className="card p-3 text-center cursor-pointer hover:bg-gray-50 transition-colors" onClick={() => userId && onOpenFollowsList(userId)}>
+          <p className="text-lg mb-0.5">❤️</p>
+          <p className="text-xl font-bold text-red-600">{followersCount}</p>
+          <p className="text-[10px] text-gray-500 mt-0.5 font-medium">Seguidores</p>
         </div>
       </div>
 
@@ -2883,15 +3537,19 @@ function ProfileViewScreen({
         {topPlayers.length > 0 ? (
           <div className="overflow-x-auto pb-2 -mx-4 px-4 sm:mx-0 sm:px-0 snap-x snap-mandatory scroll-smooth">
             <div className="flex gap-3" style={{ width: 'max-content' }}>
-              {topPlayers.map(({ name, count }) => (
-                <div key={name} className="snap-center flex-shrink-0 w-[120px] card p-4 text-center">
-                  <div className="w-14 h-14 rounded-full bg-gradient-padel flex items-center justify-center mx-auto mb-2">
-                    <span className="text-white font-bold text-lg">{name.charAt(0).toUpperCase()}</span>
+              {topPlayers.map(({ name, count }) => {
+                const { firstName, lastName } = splitName(name)
+                return (
+                <div key={name} className="snap-center flex-shrink-0 w-[100px] card p-3 text-center">
+                  <div className="w-12 h-12 rounded-full bg-gray-900 flex items-center justify-center mx-auto mb-2">
+                    <span className="text-white font-bold text-sm">{getInitials(name)}</span>
                   </div>
-                  <p className="font-medium text-gray-900 text-sm truncate" title={name}>{name}</p>
-                  <p className="text-xs text-gray-500 mt-0.5">{count} jogos</p>
+                  <p className="font-semibold text-gray-900 text-xs leading-tight">{firstName}</p>
+                  {lastName && <p className="font-semibold text-gray-900 text-xs leading-tight">{lastName}</p>}
+                  <p className="text-[10px] text-gray-500 mt-1">{count} jogos</p>
                 </div>
-              ))}
+                )
+              })}
             </div>
           </div>
         ) : (
@@ -3384,6 +4042,99 @@ function ProfileEditScreen({
           )}
         </div>
       </div>
+
+      {/* Admin: Rating Engine */}
+      <RatingAdminPanel />
+    </div>
+  )
+}
+
+// ---------- Admin: Rating Engine Panel ----------
+function RatingAdminPanel() {
+  const [processing, setProcessing] = useState(false)
+  const [progress, setProgress] = useState('')
+  const [result, setResult] = useState<{ processed: number; skipped: number; errors: number; total: number } | null>(null)
+
+  const handleProcess2026 = async () => {
+    if (processing) return
+    setProcessing(true)
+    setProgress('A carregar motor de rating...')
+    setResult(null)
+
+    try {
+      const { processAllUnratedMatches } = await import('./lib/ratingEngine')
+      setProgress('A processar jogos de 2026...')
+
+      const res = await processAllUnratedMatches(
+        '2026-01-01',
+        (_current, _total, info) => setProgress(info)
+      )
+
+      setResult(res)
+      setProgress(`Concluído! ${res.processed} jogos processados.`)
+    } catch (err: any) {
+      setProgress(`Erro: ${err.message}`)
+      console.error('[RatingAdmin]', err)
+    } finally {
+      setProcessing(false)
+    }
+  }
+
+  return (
+    <div className="card p-5 border-2 border-dashed border-gray-300">
+      <h3 className="font-bold text-gray-900 mb-2 flex items-center gap-2">
+        <TrendingUp className="w-5 h-5 text-red-600" />
+        Motor de Rating (Admin)
+      </h3>
+      <p className="text-xs text-gray-500 mb-4">
+        Processa jogos de torneios completados em 2026 e atualiza os níveis dos jogadores com o algoritmo ELO adaptado para Padel.
+      </p>
+
+      <button
+        onClick={handleProcess2026}
+        disabled={processing}
+        className={`w-full py-3 rounded-lg font-semibold text-sm transition-colors ${
+          processing
+            ? 'bg-gray-200 text-gray-500 cursor-not-allowed'
+            : 'bg-red-600 text-white hover:bg-red-700'
+        }`}
+      >
+        {processing ? (
+          <span className="flex items-center justify-center gap-2">
+            <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            A processar...
+          </span>
+        ) : (
+          'Atualizar Níveis (Jogos 2026)'
+        )}
+      </button>
+
+      {progress && (
+        <div className="mt-3 p-3 bg-gray-50 rounded-lg">
+          <p className="text-xs text-gray-600 font-mono">{progress}</p>
+        </div>
+      )}
+
+      {result && (
+        <div className="mt-3 grid grid-cols-4 gap-2 text-center">
+          <div className="p-2 bg-green-50 rounded-lg">
+            <p className="text-lg font-bold text-green-600">{result.processed}</p>
+            <p className="text-[10px] text-gray-500">Processados</p>
+          </div>
+          <div className="p-2 bg-yellow-50 rounded-lg">
+            <p className="text-lg font-bold text-yellow-600">{result.skipped}</p>
+            <p className="text-[10px] text-gray-500">Saltados</p>
+          </div>
+          <div className="p-2 bg-red-50 rounded-lg">
+            <p className="text-lg font-bold text-red-600">{result.errors}</p>
+            <p className="text-[10px] text-gray-500">Erros</p>
+          </div>
+          <div className="p-2 bg-gray-50 rounded-lg">
+            <p className="text-lg font-bold text-gray-900">{result.total}</p>
+            <p className="text-[10px] text-gray-500">Total</p>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
