@@ -81,15 +81,18 @@ import {
   type GroupMember,
 } from './lib/communityData'
 import { fetchAllClubs, fetchClubById, fetchUpcomingTournaments, fetchEnrolledByCategory, getTournamentRegistrationUrl, type ClubDetail, type UpcomingTournamentFromTour, type EnrolledByCategory } from './lib/clubAndTournaments'
+import { fetchAvailableClasses, fetchMyClasses, enrollInClass, type Class as ClassData } from './lib/classes'
 
-type Screen = 'home' | 'games' | 'profile-view' | 'profile-edit' | 'club' | 'compete' | 'community' | 'player-profile' | 'follows-list'
+type Screen = 'home' | 'games' | 'profile-view' | 'profile-edit' | 'club' | 'club-detail' | 'compete' | 'community' | 'player-profile' | 'follows-list' | 'learn' | 'find-game'
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [player, setPlayer] = useState<PlayerAccount | null>(null)
+  const [authUserId, setAuthUserId] = useState<string | null>(null) // The real auth.uid() from Supabase
   const [currentScreen, setCurrentScreen] = useState<Screen>('home')
   const [selectedPlayerUserId, setSelectedPlayerUserId] = useState<string | null>(null)
   const [followsListUserId, setFollowsListUserId] = useState<string | null>(null) // For FollowsListScreen
+  const [selectedClubId, setSelectedClubId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   
   // Auth states
@@ -120,6 +123,7 @@ function App() {
 
       if (playerAccount) {
         setPlayer(playerAccount as any)
+        setAuthUserId(session.user.id)
         setIsAuthenticated(true)
         const data = await fetchPlayerDashboardData(session.user.id)
         setDashboardData(data)
@@ -139,6 +143,9 @@ function App() {
       if (data) {
         setPlayer(data as any)
         setIsAuthenticated(true)
+        // Try to get real auth uid, fallback to player_accounts.user_id
+        const { data: { session: s2 } } = await supabase.auth.getSession()
+        setAuthUserId(s2?.user?.id || data.user_id || null)
         if (data.user_id) {
           const dash = await fetchPlayerDashboardData(data.user_id)
           setDashboardData(dash)
@@ -204,8 +211,6 @@ function App() {
         normalizedPhone = '+351' + normalizedPhone
       }
 
-      console.log('[LOGIN] Procurando telefone via Edge Function:', normalizedPhone)
-
       // Chamar Edge Function para obter o email (usa Service Role Key, ignora RLS)
       const response = await fetch(
         'https://rqiwnxcexsccguruiteq.supabase.co/functions/v1/get-player-login-email',
@@ -220,8 +225,6 @@ function App() {
       )
 
       const emailData = await response.json()
-      console.log('[LOGIN] Resposta da Edge Function:', emailData)
-
       if (!response.ok || !emailData?.success || !emailData?.email) {
         if (emailData?.error === 'Player account not found') {
           setAuthError('Telefone não encontrado')
@@ -235,8 +238,6 @@ function App() {
       }
 
       const emailToUse = emailData.email
-      console.log('[LOGIN] Email obtido:', emailToUse)
-
       // Fazer login com Supabase Auth
       const { error: authError, data: authData } = await supabase.auth.signInWithPassword({
         email: emailToUse,
@@ -244,7 +245,6 @@ function App() {
       })
 
       if (authError) {
-        console.log('[LOGIN] Erro de auth:', authError)
         if (authError.message.includes('Invalid login')) {
           setAuthError('Password incorreta')
         } else {
@@ -253,8 +253,6 @@ function App() {
         setIsAuthLoading(false)
         return
       }
-
-      console.log('[LOGIN] Login com sucesso! User:', authData?.user?.id)
 
       // Buscar player_account agora que estamos autenticados
       if (authData?.user) {
@@ -265,7 +263,6 @@ function App() {
           .maybeSingle()
         
         playerAccount = account
-        console.log('[LOGIN] Player account:', playerAccount)
       }
 
       localStorage.setItem('padel_one_player_phone', normalizedPhone)
@@ -273,6 +270,7 @@ function App() {
       if (playerAccount) {
         setPlayer(playerAccount as any)
         if (authData?.user) {
+          setAuthUserId(authData.user.id)
           const data = await fetchPlayerDashboardData(authData.user.id)
           setDashboardData(data)
         }
@@ -419,8 +417,11 @@ function App() {
             onRefresh={refreshDashboard}
             onOpenClub={() => setCurrentScreen('club')}
             onOpenCompete={() => setCurrentScreen('compete')}
+            onOpenLearn={() => setCurrentScreen('learn')}
             onOpenGames={() => setCurrentScreen('games')}
             onOpenFollowsList={(uid: string) => { setFollowsListUserId(uid); setCurrentScreen('follows-list') }}
+            onOpenPlayerProfile={(uid: string) => { setSelectedPlayerUserId(uid); setCurrentScreen('player-profile') }}
+            onOpenFindGame={() => setCurrentScreen('find-game')}
           />
         )}
         {currentScreen === 'games' && (
@@ -428,6 +429,8 @@ function App() {
             player={player}
             dashboardData={dashboardData}
             onRefresh={refreshDashboard}
+            onBack={() => setCurrentScreen('home')}
+            onOpenPlayerProfile={(uid: string) => { setSelectedPlayerUserId(uid); setCurrentScreen('player-profile') }}
           />
         )}
         {currentScreen === 'club' && (
@@ -445,6 +448,26 @@ function App() {
             onBack={() => setCurrentScreen('home')}
           />
         )}
+        {currentScreen === 'learn' && (
+          <LearnScreen
+            userId={player?.user_id ?? null}
+            playerAccountId={player?.id ?? null}
+            onBack={() => setCurrentScreen('home')}
+            onOpenPlayerProfile={(uid: string) => { setSelectedPlayerUserId(uid); setCurrentScreen('player-profile') }}
+            onOpenClub={(clubId: string) => { setSelectedClubId(clubId); setCurrentScreen('club-detail') }}
+          />
+        )}
+        {currentScreen === 'find-game' && (
+          <FindGameScreen
+            player={player}
+            userId={authUserId || player?.user_id || null}
+            onBack={() => setCurrentScreen('home')}
+            onOpenPlayerProfile={(uid: string) => { setSelectedPlayerUserId(uid); setCurrentScreen('player-profile') }}
+          />
+        )}
+        {currentScreen === 'club-detail' && selectedClubId && (
+          <ClubScreen favoriteClubId={selectedClubId} onBack={() => setCurrentScreen('learn')} />
+        )}
         {currentScreen === 'profile-view' && (
           <ProfileViewScreen
             player={player}
@@ -452,6 +475,7 @@ function App() {
             userId={player?.user_id ?? null}
             onOpenGames={() => setCurrentScreen('games')}
             onOpenFollowsList={(uid: string) => { setFollowsListUserId(uid); setCurrentScreen('follows-list') }}
+            onOpenPlayerProfile={(uid: string) => { setSelectedPlayerUserId(uid); setCurrentScreen('player-profile') }}
           />
         )}
         {currentScreen === 'profile-edit' && (
@@ -470,6 +494,7 @@ function App() {
             myUserId={player.user_id}
             onBack={() => setCurrentScreen('community')}
             onOpenFollowsList={(uid: string) => { setFollowsListUserId(uid); setCurrentScreen('follows-list') }}
+            onOpenPlayerProfile={(uid: string) => { setSelectedPlayerUserId(uid); setCurrentScreen('player-profile') }}
           />
         )}
         {currentScreen === 'follows-list' && followsListUserId && player?.user_id && (
@@ -749,16 +774,21 @@ function isCurrentPlayer(playerName: string, currentName?: string): boolean {
   return p.startsWith(c) || c.startsWith(p)
 }
 
-function PlayerCircle({ name, bgClass, textClass, avatarUrl, currentPlayerName }: {
+function PlayerCircle({ name, bgClass, textClass, avatarUrl, currentPlayerName, onClick }: {
   name: string
   bgClass: string
   textClass: string
   avatarUrl?: string | null
   currentPlayerName?: string
+  onClick?: () => void
 }) {
   const showAvatar = avatarUrl && isCurrentPlayer(name, currentPlayerName)
   return (
-    <div className={`w-11 h-11 rounded-full flex items-center justify-center shadow-sm flex-shrink-0 overflow-hidden ${!showAvatar ? bgClass : ''}`} title={name}>
+    <div 
+      className={`w-11 h-11 rounded-full flex items-center justify-center shadow-sm flex-shrink-0 overflow-hidden ${!showAvatar ? bgClass : ''} ${onClick ? 'cursor-pointer hover:opacity-80 transition-opacity' : ''}`}
+      title={name}
+      onClick={onClick}
+    >
       {showAvatar ? (
         <img src={avatarUrl} alt={name} className="w-full h-full object-cover" />
       ) : (
@@ -769,11 +799,53 @@ function PlayerCircle({ name, bgClass, textClass, avatarUrl, currentPlayerName }
 }
 
 /** Card ao estilo Playtomic: layout vertical – equipa 1 em cima, resultado no meio, equipa 2 em baixo; nomes abaixo de cada bolinha; troféu ao lado do resultado da equipa vencedora */
-function GameCardPlaytomic({ match, fullWidth, currentPlayerAvatar, currentPlayerName }: { match: PlayerMatchForCard; fullWidth?: boolean; currentPlayerAvatar?: string | null; currentPlayerName?: string }) {
+function GameCardPlaytomic({ 
+  match, 
+  fullWidth, 
+  currentPlayerAvatar, 
+  currentPlayerName,
+  onPlayerClick 
+}: { 
+  match: PlayerMatchForCard
+  fullWidth?: boolean
+  currentPlayerAvatar?: string | null
+  currentPlayerName?: string
+  onPlayerClick?: (playerName: string) => void
+}) {
   const p1 = match.player1_name ?? twoPlayersPerTeam(match.team1_name)[0]
   const p2 = match.player2_name ?? twoPlayersPerTeam(match.team1_name)[1]
   const p3 = match.player3_name ?? twoPlayersPerTeam(match.team2_name)[0]
   const p4 = match.player4_name ?? twoPlayersPerTeam(match.team2_name)[1]
+  
+  // Estados para armazenar níveis e categorias dos jogadores
+  const [playersData, setPlayersData] = useState<{ [name: string]: { level?: number; category?: string } }>({})
+  
+  // Buscar níveis dos jogadores usando a função robusta findPlayerDataByName
+  useEffect(() => {
+    const fetchPlayerLevels = async () => {
+      const { findPlayerDataByName } = await import('./lib/classes')
+      const names = [p1, p2, p3, p4].filter(n => n && n !== 'TBD')
+      const data: { [name: string]: { level?: number; category?: string } } = {}
+      
+      for (const name of names) {
+        const playerData = await findPlayerDataByName(name)
+        if (playerData) {
+          const level = playerData.level ?? (playerData.player_category ? categoryToLevel(playerData.player_category) : undefined)
+          data[name] = {
+            level,
+            category: playerData.player_category ?? undefined
+          }
+        } else {
+          console.warn(`[GameCard] Player not found: ${name}`)
+        }
+      }
+      
+      setPlayersData(data)
+    }
+    
+    fetchPlayerLevels()
+  }, [p1, p2, p3, p4])
+  
   const setStrings = [match.set1, match.set2, match.set3].filter(Boolean) as string[]
   const parsedSets = setStrings.map(parseSetScores)
   const hasSets = parsedSets.some(Boolean)
@@ -782,6 +854,43 @@ function GameCardPlaytomic({ match, fullWidth, currentPlayerAvatar, currentPlaye
   const team2Scores = parsedSets.map((p) => (p ? p[1] : '-'))
   const team1Won = match.status === 'completed' && match.score1 != null && match.score2 != null && match.score1 > match.score2
   const team2Won = match.status === 'completed' && match.score1 != null && match.score2 != null && match.score2 > match.score1
+  
+  // Função para extrair primeiro nome
+  const getFirstName = (fullName: string) => {
+    return fullName.split(' ')[0]
+  }
+  
+  // Função para renderizar jogador com nível
+  const renderPlayer = (name: string, bgClass: string, textClass: string) => {
+    const firstName = getFirstName(name)
+    const playerData = playersData[name]
+    const colors = playerData?.category ? categoryColors(playerData.category) : null
+    
+    return (
+      <div className="flex flex-col items-center min-h-[78px]">
+        <PlayerCircle 
+          name={name} 
+          bgClass={bgClass} 
+          textClass={textClass} 
+          avatarUrl={currentPlayerAvatar} 
+          currentPlayerName={currentPlayerName}
+          onClick={onPlayerClick ? () => onPlayerClick(name) : undefined}
+        />
+        <span className="text-[10px] text-gray-700 font-medium truncate max-w-[60px] mt-1 text-center" title={name}>
+          {firstName}
+        </span>
+        {playerData?.level !== undefined && (
+          <div 
+            className="mt-0.5 px-2 py-0.5 rounded-full text-[9px] font-bold text-white"
+            style={{ backgroundColor: colors?.hex || '#9ca3af' }}
+            title={`Nível ${playerData.level.toFixed(1)}${playerData.category ? ` - ${playerData.category}` : ''}`}
+          >
+            {playerData.level.toFixed(1)}
+          </div>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div className={`rounded-2xl bg-white border border-gray-100 shadow-md overflow-hidden ${fullWidth ? 'w-full' : 'flex-shrink-0 w-[280px] sm:w-[300px]'}`}>
@@ -803,14 +912,8 @@ function GameCardPlaytomic({ match, fullWidth, currentPlayerAvatar, currentPlaye
           {/* Equipa 1 – laranja */}
           <div className="flex items-start justify-between gap-4">
             <div className="grid grid-cols-2 gap-x-4 gap-y-0 w-[120px] flex-shrink-0 items-start">
-              <div className="flex flex-col items-center min-h-[52px]">
-                <PlayerCircle name={p1} bgClass="bg-orange-400" textClass="text-xl font-bold text-white" avatarUrl={currentPlayerAvatar} currentPlayerName={currentPlayerName} />
-                <span className="text-[10px] text-gray-600 truncate max-w-[60px] mt-0.5 text-center line-clamp-2 min-h-[24px]" title={p1}>{p1}</span>
-              </div>
-              <div className="flex flex-col items-center min-h-[52px]">
-                <PlayerCircle name={p2} bgClass="bg-orange-400" textClass="text-xl font-bold text-white" avatarUrl={currentPlayerAvatar} currentPlayerName={currentPlayerName} />
-                <span className="text-[10px] text-gray-600 truncate max-w-[60px] mt-0.5 text-center line-clamp-2 min-h-[24px]" title={p2}>{p2}</span>
-              </div>
+              {renderPlayer(p1, 'bg-orange-400', 'text-xl font-bold text-white')}
+              {renderPlayer(p2, 'bg-orange-400', 'text-xl font-bold text-white')}
             </div>
             {match.status === 'completed' && (hasSets || match.score1 != null) && (
               <div className="flex items-center gap-1.5 flex-shrink-0">
@@ -830,14 +933,8 @@ function GameCardPlaytomic({ match, fullWidth, currentPlayerAvatar, currentPlaye
           {/* Equipa 2 – azul claro (grid igual para alinhar com equipa 1) */}
           <div className="flex items-start justify-between gap-4">
             <div className="grid grid-cols-2 gap-x-4 gap-y-0 w-[120px] flex-shrink-0 items-start">
-              <div className="flex flex-col items-center min-h-[52px]">
-                <PlayerCircle name={p3} bgClass="bg-sky-200" textClass="text-xl font-bold text-sky-800" avatarUrl={currentPlayerAvatar} currentPlayerName={currentPlayerName} />
-                <span className="text-[10px] text-gray-600 truncate max-w-[60px] mt-0.5 text-center line-clamp-2 min-h-[24px]" title={p3}>{p3}</span>
-              </div>
-              <div className="flex flex-col items-center min-h-[52px]">
-                <PlayerCircle name={p4} bgClass="bg-sky-200" textClass="text-xl font-bold text-sky-800" avatarUrl={currentPlayerAvatar} currentPlayerName={currentPlayerName} />
-                <span className="text-[10px] text-gray-600 truncate max-w-[60px] mt-0.5 text-center line-clamp-2 min-h-[24px]" title={p4}>{p4}</span>
-              </div>
+              {renderPlayer(p3, 'bg-sky-200', 'text-xl font-bold text-sky-800')}
+              {renderPlayer(p4, 'bg-sky-200', 'text-xl font-bold text-sky-800')}
             </div>
             {match.status === 'completed' && (hasSets || match.score1 != null) && (
               <div className="flex items-center gap-1.5 flex-shrink-0">
@@ -912,8 +1009,11 @@ function HomeScreen({
   onRefresh,
   onOpenClub,
   onOpenCompete,
+  onOpenLearn,
   onOpenGames,
   onOpenFollowsList,
+  onOpenPlayerProfile,
+  onOpenFindGame,
 }: {
   player: PlayerAccount | null
   dashboardData: PlayerDashboardData | null
@@ -921,8 +1021,11 @@ function HomeScreen({
   onRefresh: () => Promise<void>
   onOpenClub: () => void
   onOpenCompete: () => void
+  onOpenLearn: () => void
   onOpenGames: () => void
   onOpenFollowsList: (userId: string) => void
+  onOpenPlayerProfile: (userId: string) => void
+  onOpenFindGame: () => void
 }) {
   void onRefresh
   const [viewingTournament, setViewingTournament] = useState<{ id: string; name: string } | null>(null)
@@ -939,6 +1042,14 @@ function HomeScreen({
     name: string
   } | null>(null)
   const [detailTab, setDetailTab] = useState<'standings' | 'matches'>('standings')
+
+  const handlePlayerClick = async (playerName: string) => {
+    const { findPlayerUserIdByName } = await import('./lib/classes')
+    const userId = await findPlayerUserIdByName(playerName)
+    if (userId) {
+      onOpenPlayerProfile(userId)
+    }
+  }
 
   const d = dashboardData
   const name = d?.playerName || player?.name?.split(' ')[0] || 'Jogador'
@@ -984,8 +1095,8 @@ function HomeScreen({
         <ActionButton icon={Calendar} label="Reservar" color="lime" />
         <ActionButton icon={Building2} label="Clube Favorito" color="blue" onClick={onOpenClub} />
         <ActionButton icon={Trophy} label="Competir" color="amber" onClick={onOpenCompete} />
-        <ActionButton icon={Gamepad2} label="Encontrar Jogo" color="purple" emoji="🎾" />
-        <ActionButton icon={GraduationCap} label="Aprender" color="emerald" />
+        <ActionButton icon={Gamepad2} label="Encontrar Jogo" color="purple" emoji="🎾" onClick={onOpenFindGame} />
+        <ActionButton icon={GraduationCap} label="Aprender" color="emerald" onClick={onOpenLearn} />
       </div>
 
       {/* Profile Card - Foto + Nome + Bio */}
@@ -1016,21 +1127,38 @@ function HomeScreen({
       </div>
 
       {/* Nível + Fiabilidade + Categoria */}
-      <div className="rounded-xl shadow-sm overflow-hidden p-6 bg-gradient-to-br from-red-50 to-red-100">
-        <div className="flex items-center justify-between">
-          <div className="flex-1">
-            <p className="text-5xl font-bold text-red-600">Nível {player?.level?.toFixed(1) || '3.0'}</p>
-            <p className="text-sm text-gray-600 mt-2 flex items-center gap-1.5">
-              <span>📊</span> Fiabilidade {player?.level_reliability_percent?.toFixed(0) ?? '85'}%
-            </p>
-          </div>
-          {player?.player_category && (
-            <div className="px-4 py-2 bg-blue-500 rounded-lg shadow-sm self-start">
-              <span className="text-sm font-bold text-white">{player.player_category}</span>
+      {(() => {
+        const colors = player?.player_category ? categoryColors(player.player_category) : null
+        const hasGradient = colors && colors.hex !== '#e5e7eb'
+        const bgStyle = hasGradient 
+          ? { background: `linear-gradient(135deg, ${colors.hex} 0%, ${colors.hexTo} 100%)` }
+          : {}
+
+        return (
+          <div 
+            className={`rounded-xl shadow-sm overflow-hidden p-6 ${!hasGradient ? 'bg-gradient-to-br from-red-50 to-red-100' : ''}`}
+            style={bgStyle}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex-1">
+                <p className={`text-5xl font-bold ${hasGradient ? 'text-white' : 'text-red-600'}`}>
+                  Nível {player?.level?.toFixed(1) || '3.0'}
+                </p>
+                <p className={`text-sm mt-2 flex items-center gap-1.5 ${hasGradient ? 'text-white/90' : 'text-gray-600'}`}>
+                  <span>📊</span> Fiabilidade {player?.level_reliability_percent?.toFixed(0) ?? '85'}%
+                </p>
+              </div>
+              {player?.player_category && colors && hasGradient && (
+                <div className="px-4 py-2 rounded-lg shadow-sm self-start border-2 bg-white" style={{ borderColor: colors.hex }}>
+                  <span className="text-sm font-bold" style={{ color: colors.hex }}>
+                    {player.player_category}
+                  </span>
+                </div>
+              )}
             </div>
-          )}
-        </div>
-      </div>
+          </div>
+        )
+      })()}
 
       {/* Estatísticas - Jogos, Vitórias, Taxa, Seguir, Seguidores */}
       <div className="grid grid-cols-5 gap-2">
@@ -1094,7 +1222,12 @@ function HomeScreen({
             <div className="flex gap-4" style={{ width: 'max-content' }}>
               {upcomingMatches.map((match) => (
                 <div key={match.id} className="snap-center">
-                  <GameCardPlaytomic match={match} currentPlayerAvatar={player?.avatar_url} currentPlayerName={player?.name} />
+                  <GameCardPlaytomic 
+                    match={match} 
+                    currentPlayerAvatar={player?.avatar_url} 
+                    currentPlayerName={player?.name}
+                    onPlayerClick={handlePlayerClick}
+                  />
                 </div>
               ))}
             </div>
@@ -1152,7 +1285,12 @@ function HomeScreen({
             <div className="flex gap-4" style={{ width: 'max-content' }}>
               {d.recentMatches.map((match) => (
                 <div key={match.id} className="snap-center">
-                  <GameCardPlaytomic match={match} currentPlayerAvatar={player?.avatar_url} currentPlayerName={player?.name} />
+                  <GameCardPlaytomic 
+                    match={match} 
+                    currentPlayerAvatar={player?.avatar_url} 
+                    currentPlayerName={player?.name}
+                    onPlayerClick={handlePlayerClick}
+                  />
                 </div>
               ))}
             </div>
@@ -1419,7 +1557,6 @@ function CommunityScreen({ userId, playerAccountId, onOpenPlayerProfile }: { use
     }
     const timer = setTimeout(async () => {
       setPlayerSearching(true)
-      console.log('[Community] Searching for:', playerSearchQuery.trim())
       const results = await searchPlayers(playerSearchQuery, [userId])
       const enriched = results.map(p => ({ ...p, is_following: followingSet.has(p.user_id) }))
       setPlayerSearchResults(enriched)
@@ -2083,15 +2220,7 @@ function CompeteScreen({
   // Use ligas do dashboardData se existirem, senão usa as buscadas diretamente
   const leagueStandings = (d?.leagueStandings?.length ?? 0) > 0 ? d!.leagueStandings : leaguesDirect
   
-  // Log para debug - ver quais ligas estão a ser mostradas
-  useEffect(() => {
-    if (activeTab === 'leagues') {
-      console.log('[Leagues Display] Showing', leagueStandings.length, 'leagues')
-      console.log('[Leagues Display] d.leagueStandings:', d?.leagueStandings)
-      console.log('[Leagues Display] leaguesDirect:', leaguesDirect)
-      console.log('[Leagues Display] Final leagueStandings:', leagueStandings)
-    }
-  }, [activeTab, leagueStandings, d?.leagueStandings, leaguesDirect])
+
 
   useEffect(() => {
     let active = true
@@ -2113,7 +2242,7 @@ function CompeteScreen({
     setLeaguesLoading(true)
     ;(async () => {
       try {
-        console.log('[Leagues] Fetching leagues for player_account_id:', playerAccountId)
+        // Fetching leagues for player
         
         const anonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJxaXdueGNleHNjY2d1cnVpdGVxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk3Njc5MzcsImV4cCI6MjA3NTM0MzkzN30.Dl05zPQDtPVpmvn_Y-JokT3wDq0Oh9uF3op5xcHZpkY'
         
@@ -2133,8 +2262,6 @@ function CompeteScreen({
         
         if (active && resp.ok) {
           const data = await resp.json()
-          console.log('[Leagues] Got', data?.leagues?.length ?? 0, 'leagues')
-          console.log('[Leagues] Full data:', data?.leagues)
           if (data?.leagues?.length) {
             setLeaguesDirect(data.leagues)
           }
@@ -2153,7 +2280,6 @@ function CompeteScreen({
   // Usar pastTournamentDetails do dashboardData se disponíveis
   useEffect(() => {
     if (d?.pastTournamentDetails && Object.keys(d.pastTournamentDetails).length > 0 && Object.keys(pastTournamentDetails).length === 0) {
-      console.log('[COMPETE-HISTORY] Loading from dashboardData, count:', Object.keys(d.pastTournamentDetails).length)
       setPastTournamentDetails(d.pastTournamentDetails)
       setHistoryFetched(true)
     }
@@ -2161,24 +2287,13 @@ function CompeteScreen({
 
   // Carregar detalhes dos torneios passados quando abre o tab history
   useEffect(() => {
-    console.log('[COMPETE-HISTORY] Effect triggered, activeTab:', activeTab, 'pastTournaments:', d?.pastTournaments?.length, 'userId:', userId, 'historyFetched:', historyFetched, 'pastTournamentDetails keys:', Object.keys(pastTournamentDetails).length)
     if (activeTab !== 'history') return
-    if (!d?.pastTournaments?.length) {
-      console.log('[COMPETE-HISTORY] No past tournaments')
-      return
-    }
-    if (!userId) {
-      console.log('[COMPETE-HISTORY] No userId')
-      return
-    }
+    if (!d?.pastTournaments?.length) return
+    if (!userId) return
     // FORÇAR RE-FETCH se não temos detalhes
     const hasDetails = Object.keys(pastTournamentDetails).length > 0
-    if (historyFetched && hasDetails) {
-      console.log('[COMPETE-HISTORY] Already fetched and has details, skipping')
-      return
-    }
+    if (historyFetched && hasDetails) return
     let active = true
-    console.log('[History] Fetching', d.pastTournaments.length, 'tournaments, userId:', userId)
     setPastTournamentLoading(true)
     setHistoryFetched(false) // Reset para permitir re-fetch
     ;(async () => {
@@ -2188,10 +2303,8 @@ function CompeteScreen({
         for (const t of (d.pastTournaments ?? [])) {
           if (!active) break
           try {
-            console.log('[History] Fetching tournament:', t.name, t.id)
             const data = await fetchTournamentStandingsAndMatches(t.id, userId!)
             results[t.id] = { standings: data.standings, myMatches: data.myMatches, playerPosition: data.playerPosition, tournamentName: data.tournamentName }
-            console.log(`[History] ${t.name}: ${data.standings.length} standings, ${data.myMatches.length} matches`)
             if (active) setPastTournamentDetails({ ...results })
           } catch (err) {
             console.error(`[History] Error ${t.name}:`, err)
@@ -2769,14 +2882,1400 @@ function CompeteScreen({
   )
 }
 
+// ---------- Encontrar Jogo ----------
+function FindGameScreen({
+  player,
+  userId,
+  onBack,
+  onOpenPlayerProfile,
+}: {
+  player: PlayerAccount | null
+  userId: string | null
+  onBack: () => void
+  onOpenPlayerProfile: (userId: string) => void
+}) {
+  const [activeSection, setActiveSection] = useState<'existing' | 'request' | 'create'>('existing')
+  const [loading, setLoading] = useState(true)
+  const [games, setGames] = useState<import('./lib/openGames').OpenGame[]>([])
+  const [clubsAvailability, setClubsAvailability] = useState<import('./lib/openGames').ClubWithAvailability[]>([])
+  const [loadingClubs, setLoadingClubs] = useState(false)
+  
+  // Filtros
+  const [selectedClubId, setSelectedClubId] = useState<string>('')
+  const [selectedDay, setSelectedDay] = useState<number>(0) // 0 = today, 1 = tomorrow, etc.
+  const [selectedPeriod, setSelectedPeriod] = useState<string>('all') // all, morning, afternoon, night
+  const [showFilters, setShowFilters] = useState(false)
+  
+  // Modal para criar jogo
+  const [createModal, setCreateModal] = useState<{
+    clubId: string
+    clubName: string
+    date: string
+    time: string
+    courts: { court_id: string; court_name: string; court_type: string | null; durations: number[]; price_90: number; price_60: number }[]
+  } | null>(null)
+  const [selectedCourtIdx, setSelectedCourtIdx] = useState<number>(0)
+  const [createGameType, setCreateGameType] = useState<'competitive' | 'friendly'>('friendly')
+  const [createGender, setCreateGender] = useState<'all' | 'male' | 'female' | 'mixed'>('all')
+  const [createDuration, setCreateDuration] = useState<number>(90)
+  const [creating, setCreating] = useState(false)
+
+  // Add player modal
+  const [addPlayerModal, setAddPlayerModal] = useState<{ gameId: string } | null>(null)
+  const [playerSearchQuery, setPlayerSearchQuery] = useState('')
+  const [playerSearchResults, setPlayerSearchResults] = useState<{ id: string; name: string; avatar_url: string | null; level: number | null; player_category: string | null; phone_number: string | null }[]>([])
+  const [searchingPlayers, setSearchingPlayers] = useState(false)
+  const [addingPlayer, setAddingPlayer] = useState(false)
+
+  // Clubs list for filter
+  const [allClubs, setAllClubs] = useState<{ id: string; name: string }[]>([])
+
+  // Player level
+  const playerLevel = player?.level || 3.0
+
+  // Generate dates for filter (14 days)
+  const generateDates = () => {
+    const dates: { label: string; value: number; dateStr: string }[] = []
+    const now = new Date()
+    const dayNames = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
+    for (let i = 0; i < 14; i++) {
+      const d = new Date(now)
+      d.setDate(d.getDate() + i)
+      let label = ''
+      if (i === 0) label = 'Hoje'
+      else if (i === 1) label = 'Amanhã'
+      else label = `${dayNames[d.getDay()]} ${d.getDate()}/${(d.getMonth() + 1).toString().padStart(2, '0')}`
+      dates.push({ label, value: i, dateStr: d.toISOString().split('T')[0] })
+    }
+    return dates
+  }
+  const dates = generateDates()
+
+  // Period to time filter
+  const getPeriodFilter = () => {
+    switch (selectedPeriod) {
+      case 'morning': return { from: '06:00', to: '12:00' }
+      case 'afternoon': return { from: '12:00', to: '18:00' }
+      case 'night': return { from: '18:00', to: '24:00' }
+      default: return { from: '00:00', to: '24:00' }
+    }
+  }
+
+  // Load games
+  useEffect(() => {
+    const loadGames = async () => {
+      setLoading(true)
+      const { fetchOpenGames } = await import('./lib/openGames')
+      const dateStr = dates[selectedDay]?.dateStr
+      const dateFrom = dateStr ? dateStr + 'T00:00:00' : undefined
+      const dateTo = dateStr ? dateStr + 'T23:59:59' : undefined
+      const period = getPeriodFilter()
+      
+      const data = await fetchOpenGames({
+        clubId: selectedClubId || undefined,
+        dateFrom,
+        dateTo,
+        timeFrom: selectedPeriod !== 'all' ? period.from : undefined,
+        timeTo: selectedPeriod !== 'all' ? period.to : undefined,
+      })
+      setGames(data)
+      setLoading(false)
+    }
+    loadGames()
+  }, [selectedClubId, selectedDay, selectedPeriod])
+
+  // Load clubs list for filter
+  useEffect(() => {
+    const loadClubs = async () => {
+      const clubs = await fetchAllClubs()
+      setAllClubs(clubs.map(c => ({ id: c.id, name: c.name })))
+    }
+    loadClubs()
+  }, [])
+
+  // Load clubs availability when "create" section is opened
+  useEffect(() => {
+    if (activeSection === 'create') {
+      const loadAvailability = async () => {
+        setLoadingClubs(true)
+        const { fetchClubsWithAvailability } = await import('./lib/openGames')
+        const data = await fetchClubsWithAvailability(3)
+        setClubsAvailability(data)
+        setLoadingClubs(false)
+      }
+      loadAvailability()
+    }
+  }, [activeSection])
+
+  // Separate games: within level (existing) vs out of level (request)
+  const existingGames = games.filter(g => {
+    return playerLevel >= g.level_min && playerLevel <= g.level_max && g.status === 'open'
+  })
+  const requestGames = games.filter(g => {
+    return (playerLevel < g.level_min || playerLevel > g.level_max) && g.status === 'open'
+  })
+
+  // Join a game
+  const handleJoinGame = async (game: import('./lib/openGames').OpenGame) => {
+    if (!userId) return
+    const { joinOpenGame } = await import('./lib/openGames')
+    const result = await joinOpenGame({
+      gameId: game.id,
+      userId,
+      playerAccountId: player?.id || null,
+      playerLevel,
+      gameLevelMin: game.level_min,
+      gameLevelMax: game.level_max,
+    })
+    if (result.success) {
+      // Refresh games
+      const { fetchOpenGames } = await import('./lib/openGames')
+      const dateStr = dates[selectedDay]?.dateStr
+      const data = await fetchOpenGames({
+        clubId: selectedClubId || undefined,
+        dateFrom: dateStr ? dateStr + 'T00:00:00' : undefined,
+        dateTo: dateStr ? dateStr + 'T23:59:59' : undefined,
+      })
+      setGames(data)
+      if (result.status === 'pending') {
+        alert('Pedido enviado! Os jogadores terão que aceitar o teu pedido.')
+      }
+    } else {
+      alert(result.error || 'Erro ao entrar no jogo')
+    }
+  }
+
+  // Create a game
+  const handleCreateGame = async () => {
+    if (!createModal || !userId) return
+    const court = createModal.courts[selectedCourtIdx]
+    if (!court) return
+    setCreating(true)
+    const { createOpenGame } = await import('./lib/openGames')
+    const scheduledAt = `${createModal.date}T${createModal.time}:00`
+    const pricePerPlayer = createDuration === 90 ? court.price_90 : court.price_60
+    
+    const result = await createOpenGame({
+      userId,
+      playerAccountId: player?.id || null,
+      playerName: player?.name || null,
+      playerPhone: player?.phone_number || null,
+      clubId: createModal.clubId,
+      courtId: court.court_id,
+      scheduledAt,
+      durationMinutes: createDuration,
+      gameType: createGameType,
+      gender: createGender,
+      playerLevel,
+      pricePerPlayer,
+    })
+    
+    setCreating(false)
+    if (result.success) {
+      setCreateModal(null)
+      setActiveSection('existing')
+      // Refresh games
+      const { fetchOpenGames } = await import('./lib/openGames')
+      const data = await fetchOpenGames({})
+      setGames(data)
+    } else {
+      alert(result.error || 'Erro ao criar jogo')
+    }
+  }
+
+  // Format date for display
+  const formatGameDate = (isoStr: string) => {
+    const d = new Date(isoStr)
+    const days = ['domingo', 'segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sábado']
+    const months = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro']
+    return `${days[d.getDay()]}, ${d.getDate()} de ${months[d.getMonth()]} | ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`
+  }
+
+  const formatDateLabel = (dateStr: string) => {
+    const now = new Date()
+    const d = new Date(dateStr + 'T12:00:00')
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    const target = new Date(d.getFullYear(), d.getMonth(), d.getDate())
+    const diffDays = Math.round((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+    if (diffDays === 0) return 'Hoje'
+    if (diffDays === 1) return 'Amanhã'
+    return `${d.getDate().toString().padStart(2, '0')}/${(d.getMonth() + 1).toString().padStart(2, '0')}`
+  }
+
+  // Check if current user is already in a game
+  const isPlayerInGame = (game: import('./lib/openGames').OpenGame) => {
+    return game.players.some(p => p.user_id === userId || (player?.id && p.player_account_id === player.id))
+  }
+  
+  const isGameCreator = (game: import('./lib/openGames').OpenGame) => {
+    return game.creator_user_id === userId || game.players.some(p => p.position === 1 && (p.user_id === userId || (player?.id && p.player_account_id === player.id)))
+  }
+
+  // Cancel a game
+  const handleCancelGame = async (game: import('./lib/openGames').OpenGame) => {
+    if (!confirm('Tens a certeza que queres cancelar este jogo?')) return
+    const { cancelOpenGame } = await import('./lib/openGames')
+    const success = await cancelOpenGame(game.id)
+    if (success) {
+      const { fetchOpenGames } = await import('./lib/openGames')
+      const data = await fetchOpenGames({})
+      setGames(data)
+    } else {
+      alert('Erro ao cancelar jogo')
+    }
+  }
+
+  // Search players for add player modal
+  const handleSearchPlayers = async (query: string) => {
+    setPlayerSearchQuery(query)
+    if (query.length < 2) {
+      setPlayerSearchResults([])
+      return
+    }
+    setSearchingPlayers(true)
+    const { searchPlayerAccounts } = await import('./lib/openGames')
+    const results = await searchPlayerAccounts(query)
+    setPlayerSearchResults(results)
+    setSearchingPlayers(false)
+  }
+
+  // Add player to game
+  const handleAddPlayerToGame = async (playerAccountId: string) => {
+    if (!addPlayerModal) return
+    setAddingPlayer(true)
+    const { addPlayerToOpenGame } = await import('./lib/openGames')
+    const result = await addPlayerToOpenGame({
+      gameId: addPlayerModal.gameId,
+      playerAccountId,
+    })
+    setAddingPlayer(false)
+    if (result.success) {
+      setAddPlayerModal(null)
+      setPlayerSearchQuery('')
+      setPlayerSearchResults([])
+      // Refresh games
+      const { fetchOpenGames } = await import('./lib/openGames')
+      const data = await fetchOpenGames({})
+      setGames(data)
+    } else {
+      alert(result.error || 'Erro ao adicionar jogador')
+    }
+  }
+
+  // Render game card (Playtomic style)
+  const renderGameCard = (game: import('./lib/openGames').OpenGame, isRequest: boolean = false) => {
+    const confirmedPlayers = game.players.filter(p => p.status === 'confirmed')
+    const emptySlots = game.max_players - confirmedPlayers.length
+    const isInGame = isPlayerInGame(game)
+    const isCreator = isGameCreator(game)
+    const levelColors = categoryColors(player?.player_category)
+
+    return (
+      <div key={game.id} className="border border-gray-200 rounded-2xl overflow-hidden bg-white shadow-sm">
+        <div className="p-4">
+          {/* Date & Time */}
+          <p className="font-bold text-gray-900 text-sm mb-1">
+            {formatGameDate(game.scheduled_at)}
+          </p>
+          
+          {/* Game Type & Level Range */}
+          <div className="flex items-center gap-3 text-xs text-gray-500 mb-3 flex-wrap">
+            <span className="flex items-center gap-1">
+              {game.game_type === 'competitive' ? '🏆' : '🤝'} {game.game_type === 'competitive' ? 'Competitivo' : 'Amigável'}
+            </span>
+            <span className="flex items-center gap-1">
+              📊 {game.level_min.toFixed(1)} - {game.level_max.toFixed(1)}
+            </span>
+            {game.gender !== 'all' && (
+              <span className="flex items-center gap-1">
+                {game.gender === 'male' ? '♂️' : game.gender === 'female' ? '♀️' : '⚥'} {game.gender === 'male' ? 'Masc.' : game.gender === 'female' ? 'Fem.' : 'Misto'}
+              </span>
+            )}
+            {game.court_name && (
+              <span className="flex items-center gap-1">
+                🏟️ {game.court_name}
+                {game.court_type && (
+                  <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                    game.court_type === 'indoor' ? 'bg-blue-100 text-blue-700' : 
+                    game.court_type === 'outdoor' ? 'bg-amber-100 text-amber-700' : 
+                    'bg-gray-100 text-gray-600'
+                  }`}>
+                    {game.court_type === 'indoor' ? 'Indoor' : game.court_type === 'outdoor' ? 'Outdoor' : 'Coberto'}
+                  </span>
+                )}
+              </span>
+            )}
+          </div>
+
+          {/* Player circles */}
+          <div className="flex items-start gap-4 mb-3">
+            {/* Left team */}
+            <div className="flex gap-3 flex-1 justify-center">
+              {[0, 1].map(i => {
+                const p = confirmedPlayers[i]
+                if (p) {
+                  const pColors = p.player_category ? categoryColors(p.player_category) : null
+                  return (
+                    <div key={p.id} className="flex flex-col items-center">
+                      <div 
+                        className="w-14 h-14 rounded-full overflow-hidden bg-gray-200 flex items-center justify-center cursor-pointer hover:opacity-80 transition-opacity"
+                        onClick={() => p.user_id && onOpenPlayerProfile(p.user_id)}
+                      >
+                        {p.avatar_url ? (
+                          <img src={p.avatar_url} alt={p.name} className="w-full h-full object-cover" />
+                        ) : (
+                          <span className="text-xl font-bold text-gray-600">{(p.name || '?').charAt(0).toUpperCase()}</span>
+                        )}
+                      </div>
+                      <span className="text-[10px] text-gray-700 font-medium mt-1 truncate max-w-[70px] text-center">{(p.name || '').split(' ')[0]}</span>
+                      {p.level != null && (
+                        <div className="mt-0.5 px-2 py-0.5 rounded-full text-[9px] font-bold text-white" style={{ backgroundColor: pColors?.hex || '#9ca3af' }}>
+                          {p.level.toFixed(1)}
+                        </div>
+                      )}
+                    </div>
+                  )
+                } else {
+                  return (
+                    <div key={`empty-${i}`} className="flex flex-col items-center">
+                      <div 
+                        className={`w-14 h-14 rounded-full border-2 border-dashed flex items-center justify-center cursor-pointer transition-colors ${
+                          isCreator 
+                            ? 'border-indigo-300 hover:border-indigo-500 hover:bg-indigo-50' 
+                            : !isInGame 
+                              ? 'border-gray-300 hover:border-red-400 hover:bg-red-50' 
+                              : 'border-gray-300'
+                        }`}
+                        onClick={() => {
+                          if (isCreator) {
+                            setAddPlayerModal({ gameId: game.id })
+                            setPlayerSearchQuery('')
+                            setPlayerSearchResults([])
+                          } else if (!isInGame) {
+                            handleJoinGame(game)
+                          }
+                        }}
+                      >
+                        <Plus className={`w-6 h-6 ${isCreator ? 'text-indigo-400' : 'text-gray-400'}`} />
+                      </div>
+                      <span className={`text-[10px] font-medium mt-1 ${isCreator ? 'text-indigo-600' : 'text-blue-600'}`}>
+                        {isCreator ? 'Adicionar' : 'Livre'}
+                      </span>
+                    </div>
+                  )
+                }
+              })}
+            </div>
+            
+            {/* Divider */}
+            <div className="w-px h-20 bg-gray-200 self-center" />
+            
+            {/* Right team */}
+            <div className="flex gap-3 flex-1 justify-center">
+              {[2, 3].map(i => {
+                const p = confirmedPlayers[i]
+                if (p) {
+                  const pColors = p.player_category ? categoryColors(p.player_category) : null
+                  return (
+                    <div key={p.id} className="flex flex-col items-center">
+                      <div 
+                        className="w-14 h-14 rounded-full overflow-hidden bg-gray-200 flex items-center justify-center cursor-pointer hover:opacity-80 transition-opacity"
+                        onClick={() => p.user_id && onOpenPlayerProfile(p.user_id)}
+                      >
+                        {p.avatar_url ? (
+                          <img src={p.avatar_url} alt={p.name} className="w-full h-full object-cover" />
+                        ) : (
+                          <span className="text-xl font-bold text-gray-600">{(p.name || '?').charAt(0).toUpperCase()}</span>
+                        )}
+                      </div>
+                      <span className="text-[10px] text-gray-700 font-medium mt-1 truncate max-w-[70px] text-center">{(p.name || '').split(' ')[0]}</span>
+                      {p.level != null && (
+                        <div className="mt-0.5 px-2 py-0.5 rounded-full text-[9px] font-bold text-white" style={{ backgroundColor: pColors?.hex || '#9ca3af' }}>
+                          {p.level.toFixed(1)}
+                        </div>
+                      )}
+                    </div>
+                  )
+                } else {
+                  return (
+                    <div key={`empty-${i}`} className="flex flex-col items-center">
+                      <div 
+                        className={`w-14 h-14 rounded-full border-2 border-dashed flex items-center justify-center cursor-pointer transition-colors ${
+                          isCreator 
+                            ? 'border-indigo-300 hover:border-indigo-500 hover:bg-indigo-50' 
+                            : !isInGame 
+                              ? 'border-gray-300 hover:border-red-400 hover:bg-red-50' 
+                              : 'border-gray-300'
+                        }`}
+                        onClick={() => {
+                          if (isCreator) {
+                            setAddPlayerModal({ gameId: game.id })
+                            setPlayerSearchQuery('')
+                            setPlayerSearchResults([])
+                          } else if (!isInGame) {
+                            handleJoinGame(game)
+                          }
+                        }}
+                      >
+                        <Plus className={`w-6 h-6 ${isCreator ? 'text-indigo-400' : 'text-gray-400'}`} />
+                      </div>
+                      <span className={`text-[10px] font-medium mt-1 ${isCreator ? 'text-indigo-600' : 'text-blue-600'}`}>
+                        {isCreator ? 'Adicionar' : 'Livre'}
+                      </span>
+                    </div>
+                  )
+                }
+              })}
+            </div>
+          </div>
+        </div>
+
+        {/* Club & Price footer */}
+        <div className="border-t border-gray-100 px-4 py-3 flex items-center justify-between bg-gray-50/50">
+          <div className="flex items-center gap-2">
+            {game.club_logo_url ? (
+              <img src={game.club_logo_url} alt="" className="w-8 h-8 rounded-lg object-cover" />
+            ) : (
+              <div className="w-8 h-8 rounded-lg bg-gray-200 flex items-center justify-center">
+                <Building2 className="w-4 h-4 text-gray-400" />
+              </div>
+            )}
+            <div>
+              <p className="text-sm font-medium text-gray-900">{game.club_name}</p>
+              {game.club_city && <p className="text-[10px] text-gray-500">{game.club_city}</p>}
+            </div>
+          </div>
+          <div className="text-right">
+            {game.price_per_player > 0 && (
+              <p className="text-lg font-bold text-blue-600">{game.price_per_player.toFixed(2)}€</p>
+            )}
+            <p className="text-[10px] text-gray-500">{game.duration_minutes}min</p>
+          </div>
+        </div>
+
+        {/* Join/Request/Cancel buttons */}
+        {!isInGame && (
+          <div className="px-4 pb-3 pt-0 bg-gray-50/50">
+            <button
+              onClick={() => handleJoinGame(game)}
+              className={`w-full py-2 rounded-xl text-sm font-semibold transition-colors ${
+                isRequest 
+                  ? 'bg-amber-500 hover:bg-amber-600 text-white' 
+                  : 'bg-blue-600 hover:bg-blue-700 text-white'
+              }`}
+            >
+              {isRequest ? '📩 Solicitar lugar' : '🎾 Entrar no jogo'}
+            </button>
+          </div>
+        )}
+        {isInGame && (
+          <div className="px-4 pb-3 pt-0 bg-gray-50/50 space-y-2">
+            <div className="w-full py-2 rounded-xl text-sm font-semibold text-center text-green-600 bg-green-50 border border-green-200">
+              ✅ Já estás neste jogo
+            </div>
+            {isCreator && (
+              <button
+                onClick={() => handleCancelGame(game)}
+                className="w-full py-2 rounded-xl text-sm font-semibold text-red-600 bg-red-50 border border-red-200 hover:bg-red-100 transition-colors"
+              >
+                ❌ Cancelar jogo
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-4 animate-fade-in pb-20">
+      {/* Header */}
+      <div className="flex items-center gap-3">
+        <button onClick={onBack} className="p-1 -ml-1">
+          <ChevronLeft className="w-6 h-6 text-gray-700" />
+        </button>
+        <h1 className="text-2xl font-bold text-gray-900">Jogos</h1>
+      </div>
+
+      {/* Filter Bar */}
+      <div className="flex gap-2 overflow-x-auto pb-1 -mx-4 px-4 snap-x">
+        {/* Club filter */}
+        <select
+          value={selectedClubId}
+          onChange={(e) => setSelectedClubId(e.target.value)}
+          className="flex-shrink-0 px-3 py-2 bg-gray-900 text-white rounded-full text-sm font-medium appearance-none cursor-pointer min-w-[100px]"
+        >
+          <option value="">Clubes ({allClubs.length})</option>
+          {allClubs.map(c => (
+            <option key={c.id} value={c.id}>{c.name}</option>
+          ))}
+        </select>
+
+        {/* Day selector - horizontal scroll */}
+        {dates.slice(0, 7).map(d => (
+          <button
+            key={d.value}
+            onClick={() => setSelectedDay(d.value)}
+            className={`flex-shrink-0 px-3 py-2 rounded-full text-sm font-medium transition-colors whitespace-nowrap ${
+              selectedDay === d.value ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            }`}
+          >
+            {d.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Period filter */}
+      <div className="flex gap-2">
+        {[
+          { value: 'all', label: 'Todo o dia', icon: '🕐' },
+          { value: 'morning', label: 'Manhã', icon: '🌅' },
+          { value: 'afternoon', label: 'Tarde', icon: '☀️' },
+          { value: 'night', label: 'Noite', icon: '🌙' },
+        ].map(p => (
+          <button
+            key={p.value}
+            onClick={() => setSelectedPeriod(p.value)}
+            className={`flex-1 py-2 rounded-xl text-xs font-medium transition-colors ${
+              selectedPeriod === p.value ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            {p.icon} {p.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Section Tabs */}
+      <div className="flex gap-1 bg-gray-100 p-1 rounded-xl">
+        <button
+          onClick={() => setActiveSection('existing')}
+          className={`flex-1 py-2.5 rounded-lg text-xs font-semibold transition-all ${
+            activeSection === 'existing' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'
+          }`}
+        >
+          🎾 Jogos ({existingGames.length})
+        </button>
+        <button
+          onClick={() => setActiveSection('request')}
+          className={`flex-1 py-2.5 rounded-lg text-xs font-semibold transition-all ${
+            activeSection === 'request' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'
+          }`}
+        >
+          📩 Solicitar ({requestGames.length})
+        </button>
+        <button
+          onClick={() => setActiveSection('create')}
+          className={`flex-1 py-2.5 rounded-lg text-xs font-semibold transition-all ${
+            activeSection === 'create' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'
+          }`}
+        >
+          ➕ Criar jogo
+        </button>
+      </div>
+
+      {/* === SECTION: Jogos Existentes === */}
+      {activeSection === 'existing' && (
+        <div className="space-y-3">
+          <div>
+            <h2 className="text-lg font-bold text-gray-900">Jogos existentes</h2>
+            <p className="text-xs text-gray-500">Estes jogos refletem exatamente a sua pesquisa e o seu nível</p>
+          </div>
+          
+          {loading ? (
+            <div className="text-center py-10">
+              <div className="animate-spin w-8 h-8 border-2 border-red-600 border-t-transparent rounded-full mx-auto mb-3" />
+              <p className="text-sm text-gray-500">A carregar jogos...</p>
+            </div>
+          ) : existingGames.length > 0 ? (
+            <div className="space-y-4">
+              {existingGames.map(game => renderGameCard(game, false))}
+            </div>
+          ) : (
+            <div className="card p-8 text-center">
+              <span className="text-4xl block mb-3">🎾</span>
+              <p className="font-semibold text-gray-700 mb-1">Sem jogos disponíveis</p>
+              <p className="text-sm text-gray-500 mb-4">Não há jogos disponíveis para o teu nível neste momento</p>
+              <button
+                onClick={() => setActiveSection('create')}
+                className="px-6 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 transition-colors"
+              >
+                ➕ Criar um jogo
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* === SECTION: Solicite o seu Lugar === */}
+      {activeSection === 'request' && (
+        <div className="space-y-3">
+          <div>
+            <h2 className="text-lg font-bold text-gray-900">Solicite o seu lugar</h2>
+            <p className="text-xs text-gray-500">Estes jogos estão fora do seu nível. Necessita solicitar um lugar para se juntar.</p>
+          </div>
+          
+          {loading ? (
+            <div className="text-center py-10">
+              <div className="animate-spin w-8 h-8 border-2 border-red-600 border-t-transparent rounded-full mx-auto mb-3" />
+            </div>
+          ) : requestGames.length > 0 ? (
+            <div className="space-y-4">
+              {requestGames.map(game => renderGameCard(game, true))}
+            </div>
+          ) : (
+            <div className="card p-8 text-center">
+              <span className="text-4xl block mb-3">📩</span>
+              <p className="font-semibold text-gray-700 mb-1">Sem jogos fora do seu nível</p>
+              <p className="text-sm text-gray-500">Todos os jogos disponíveis são adequados ao seu nível</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* === SECTION: Crie um Jogo === */}
+      {activeSection === 'create' && (
+        <div className="space-y-3">
+          <div>
+            <h2 className="text-lg font-bold text-gray-900">Crie um jogo</h2>
+            <p className="text-xs text-gray-500">Selecione a hora para criar um jogo</p>
+          </div>
+
+          {loadingClubs ? (
+            <div className="text-center py-10">
+              <div className="animate-spin w-8 h-8 border-2 border-red-600 border-t-transparent rounded-full mx-auto mb-3" />
+              <p className="text-sm text-gray-500">A carregar disponibilidades...</p>
+            </div>
+          ) : clubsAvailability.length > 0 ? (
+            <div className="space-y-6">
+              {clubsAvailability.map(club => (
+                <div key={club.id} className="border border-gray-200 rounded-2xl overflow-hidden bg-white shadow-sm">
+                  {/* Club header */}
+                  <div className="p-4 flex items-center gap-3 border-b border-gray-100">
+                    {club.logo_url ? (
+                      <img src={club.logo_url} alt="" className="w-14 h-14 rounded-xl object-cover" />
+                    ) : (
+                      <div className="w-14 h-14 rounded-xl bg-gray-100 flex items-center justify-center">
+                        <Building2 className="w-7 h-7 text-gray-400" />
+                      </div>
+                    )}
+                    <div>
+                      <p className="font-bold text-gray-900">{club.name}</p>
+                      {club.city && <p className="text-xs text-gray-500">{club.city}</p>}
+                    </div>
+                  </div>
+
+                  {/* Time slots by day */}
+                  <div className="p-4 space-y-4">
+                    {Object.entries(club.availability).map(([date, slots]) => (
+                      <div key={date}>
+                        <p className="font-bold text-gray-800 text-sm mb-2">{formatDateLabel(date)}</p>
+                        <div className="flex gap-2 flex-wrap">
+                          {slots.map((slot, idx) => (
+                            <button
+                              key={`${date}-${idx}`}
+                              onClick={() => {
+                                setCreateModal({
+                                  clubId: club.id,
+                                  clubName: club.name,
+                                  date,
+                                  time: slot.time,
+                                  courts: slot.courts?.map(c => ({ ...c, court_type: c.court_type || null })) || [{ court_id: slot.court_id, court_name: slot.court_name, court_type: null, durations: slot.durations, price_90: slot.price_90, price_60: slot.price_60 }],
+                                })
+                                setSelectedCourtIdx(0)
+                                const firstCourt = slot.courts?.[0] || slot
+                                setCreateDuration(firstCourt.durations.includes(90) ? 90 : 60)
+                              }}
+                              className="px-3 py-2 border border-gray-200 rounded-xl hover:border-blue-400 hover:bg-blue-50 transition-colors text-center"
+                            >
+                              <p className="font-bold text-gray-900 text-sm">{slot.time}</p>
+                              <p className="text-[10px] text-gray-500">
+                                {(slot.courts?.length || 1)} campo{(slot.courts?.length || 1) > 1 ? 's' : ''} • {slot.durations.includes(90) ? '90min' : '60min'}
+                              </p>
+                              {slot.courts && slot.courts.length === 1 && slot.courts[0].court_type && (
+                                <p className="text-[9px] text-gray-400">
+                                  {slot.courts[0].court_type === 'indoor' ? '🏠 Indoor' : slot.courts[0].court_type === 'outdoor' ? '☀️ Outdoor' : '🏗️ Coberto'}
+                                </p>
+                              )}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="card p-8 text-center">
+              <span className="text-4xl block mb-3">🏟️</span>
+              <p className="font-semibold text-gray-700 mb-1">Sem disponibilidades</p>
+              <p className="text-sm text-gray-500">Não há clubes com disponibilidade neste momento</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* === MODAL: Criar Jogo === */}
+      {createModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-fade-in">
+            {/* Header */}
+            <div className="p-4 border-b border-gray-100 flex items-center justify-between">
+              <h3 className="font-bold text-lg text-gray-900">Criar jogo</h3>
+              <button onClick={() => setCreateModal(null)} className="p-1">
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-5">
+              {/* Info */}
+              <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
+                <div>
+                  <p className="font-semibold text-gray-900 text-sm">{createModal.clubName}</p>
+                  <p className="text-xs text-gray-500">{createModal.date} às {createModal.time}</p>
+                </div>
+              </div>
+
+              {/* Court Selector */}
+              {createModal.courts.length > 1 && (
+                <div>
+                  <label className="text-sm font-semibold text-gray-700 mb-2 block">🏟️ Campo</label>
+                  <div className="flex gap-2 flex-wrap">
+                    {createModal.courts.map((c, i) => {
+                      const typeLabel = c.court_type === 'indoor' ? '🏠 Indoor' : c.court_type === 'outdoor' ? '☀️ Outdoor' : c.court_type === 'covered' ? '🏗️ Coberto' : ''
+                      return (
+                        <button
+                          key={c.court_id}
+                          onClick={() => {
+                            setSelectedCourtIdx(i)
+                            setCreateDuration(c.durations.includes(90) ? 90 : 60)
+                          }}
+                          className={`px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
+                            selectedCourtIdx === i 
+                              ? 'bg-indigo-600 text-white' 
+                              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                          }`}
+                        >
+                          <span>{c.court_name}</span>
+                          {typeLabel && <span className="block text-[10px] font-normal opacity-80">{typeLabel}</span>}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+              {createModal.courts.length === 1 && (
+                <div className="p-3 bg-indigo-50 rounded-xl flex items-center gap-2">
+                  <span className="text-sm text-gray-600">🏟️ Campo:</span>
+                  <span className="font-semibold text-indigo-700 text-sm">
+                    {createModal.courts[0].court_name}
+                    {createModal.courts[0].court_type && (
+                      <span className="ml-2 text-xs font-normal text-indigo-500">
+                        {createModal.courts[0].court_type === 'indoor' ? '🏠 Indoor' : createModal.courts[0].court_type === 'outdoor' ? '☀️ Outdoor' : '🏗️ Coberto'}
+                      </span>
+                    )}
+                  </span>
+                </div>
+              )}
+
+              {/* Duration */}
+              <div>
+                <label className="text-sm font-semibold text-gray-700 mb-2 block">Duração</label>
+                <div className="flex gap-2">
+                  {(createModal.courts[selectedCourtIdx]?.durations || [90]).map(d => (
+                    <button
+                      key={d}
+                      onClick={() => setCreateDuration(d)}
+                      className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
+                        createDuration === d ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
+                    >
+                      {d} min
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Game Type */}
+              <div>
+                <label className="text-sm font-semibold text-gray-700 mb-2 block">Tipo de jogo</label>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setCreateGameType('friendly')}
+                    className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
+                      createGameType === 'friendly' ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                  >
+                    🤝 Amigável
+                  </button>
+                  <button
+                    onClick={() => setCreateGameType('competitive')}
+                    className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
+                      createGameType === 'competitive' ? 'bg-amber-500 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                  >
+                    🏆 Competitivo
+                  </button>
+                </div>
+              </div>
+
+              {/* Gender */}
+              <div>
+                <label className="text-sm font-semibold text-gray-700 mb-2 block">Género</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { value: 'all' as const, label: 'Todos' },
+                    { value: 'male' as const, label: 'Apenas Masculino' },
+                    { value: 'female' as const, label: 'Apenas Feminino' },
+                    { value: 'mixed' as const, label: 'Mistos' },
+                  ].map(g => (
+                    <button
+                      key={g.value}
+                      onClick={() => setCreateGender(g.value)}
+                      className={`py-2.5 rounded-xl text-sm font-medium transition-colors ${
+                        createGender === g.value ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
+                    >
+                      {g.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Price info */}
+              {(() => {
+                const court = createModal.courts[selectedCourtIdx]
+                const price = court ? (createDuration === 90 ? court.price_90 : court.price_60) : 0
+                return (
+                  <div className="p-3 bg-blue-50 rounded-xl flex items-center justify-between">
+                    <span className="text-sm text-gray-700">Preço por jogador</span>
+                    <span className="font-bold text-blue-600 text-lg">{price.toFixed(2)}€</span>
+                  </div>
+                )
+              })()}
+
+              {/* Level range info */}
+              <div className="p-3 bg-gray-50 rounded-xl text-center">
+                <p className="text-xs text-gray-500">Intervalo de nível</p>
+                <p className="font-bold text-gray-900">
+                  {Math.max(1.0, playerLevel - 0.5).toFixed(1)} - {Math.min(7.0, playerLevel + 0.5).toFixed(1)}
+                </p>
+                <p className="text-[10px] text-gray-400">Baseado no teu nível ({playerLevel.toFixed(1)})</p>
+              </div>
+
+              {/* Create button */}
+              <button
+                onClick={handleCreateGame}
+                disabled={creating}
+                className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700 transition-colors disabled:opacity-50"
+              >
+                {creating ? 'A criar...' : '🎾 Criar jogo'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* === MODAL: Adicionar Jogador === */}
+      {addPlayerModal && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-0 sm:p-4">
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md shadow-2xl overflow-hidden animate-fade-in max-h-[85vh] flex flex-col">
+            {/* Header */}
+            <div className="p-4 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
+              <h3 className="font-bold text-lg text-gray-900">Adicionar jogador</h3>
+              <button
+                onClick={() => { setAddPlayerModal(null); setPlayerSearchQuery(''); setPlayerSearchResults([]) }}
+                className="p-1 hover:bg-gray-100 rounded-full"
+              >
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+
+            {/* Search */}
+            <div className="p-4 border-b border-gray-100 flex-shrink-0">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Pesquisar jogador por nome..."
+                  value={playerSearchQuery}
+                  onChange={(e) => handleSearchPlayers(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2.5 bg-gray-100 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                  autoFocus
+                />
+              </div>
+            </div>
+
+            {/* Results */}
+            <div className="overflow-y-auto flex-1 p-2">
+              {searchingPlayers && (
+                <div className="text-center py-8 text-gray-500 text-sm">A pesquisar...</div>
+              )}
+              {!searchingPlayers && playerSearchQuery.length >= 2 && playerSearchResults.length === 0 && (
+                <div className="text-center py-8 text-gray-400 text-sm">Nenhum jogador encontrado</div>
+              )}
+              {!searchingPlayers && playerSearchQuery.length < 2 && (
+                <div className="text-center py-8 text-gray-400 text-sm">Escreve pelo menos 2 letras para pesquisar</div>
+              )}
+              {playerSearchResults.map(pr => {
+                const prColors = pr.player_category ? categoryColors(pr.player_category) : null
+                // Check if already in game
+                const currentGame = games.find(g => g.id === addPlayerModal.gameId)
+                const alreadyInGame = currentGame?.players.some(p => p.player_account_id === pr.id)
+                return (
+                  <button
+                    key={pr.id}
+                    disabled={addingPlayer || alreadyInGame}
+                    onClick={() => handleAddPlayerToGame(pr.id)}
+                    className={`w-full flex items-center gap-3 p-3 rounded-xl transition-colors text-left ${
+                      alreadyInGame 
+                        ? 'opacity-50 cursor-not-allowed bg-gray-50' 
+                        : 'hover:bg-indigo-50 active:bg-indigo-100'
+                    }`}
+                  >
+                    {/* Avatar */}
+                    <div className="w-12 h-12 rounded-full overflow-hidden bg-gray-200 flex-shrink-0 flex items-center justify-center">
+                      {pr.avatar_url ? (
+                        <img src={pr.avatar_url} alt={pr.name} className="w-full h-full object-cover" />
+                      ) : (
+                        <span className="text-lg font-bold text-gray-500">{(pr.name || '?').charAt(0).toUpperCase()}</span>
+                      )}
+                    </div>
+                    {/* Info */}
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-sm text-gray-900 truncate">{pr.name}</p>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        {pr.level != null && (
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold text-white" style={{ backgroundColor: prColors?.hex || '#9ca3af' }}>
+                            {pr.level.toFixed(1)}
+                          </span>
+                        )}
+                        {pr.player_category && (
+                          <span className="text-[10px] text-gray-500 font-medium">{pr.player_category}</span>
+                        )}
+                      </div>
+                    </div>
+                    {/* Action */}
+                    <div className="flex-shrink-0">
+                      {alreadyInGame ? (
+                        <span className="text-xs text-green-600 font-medium">No jogo</span>
+                      ) : (
+                        <Plus className="w-5 h-5 text-indigo-500" />
+                      )}
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Tipos para aulas (usando os do classes.ts)
+type ClassGender = 'M' | 'F' | 'Misto'
+
+// ---------- Aprender ----------
+function LearnScreen({
+  userId,
+  playerAccountId,
+  onBack,
+  onOpenPlayerProfile,
+  onOpenClub,
+}: {
+  userId: string | null
+  playerAccountId: string | null
+  onBack: () => void
+  onOpenPlayerProfile: (userId: string) => void
+  onOpenClub: (clubId: string) => void
+}) {
+  const [activeTab, setActiveTab] = useState<'inscrever' | 'minhas-aulas'>('inscrever')
+  const [availableClasses, setAvailableClasses] = useState<ClassData[]>([])
+  const [myClasses, setMyClasses] = useState<ClassData[]>([])
+  const [loading, setLoading] = useState(true)
+  const [enrollingClassId, setEnrollingClassId] = useState<string | null>(null)
+
+  // Carregar aulas disponíveis
+  useEffect(() => {
+    if (activeTab === 'inscrever') {
+      loadAvailableClasses()
+    } else if (activeTab === 'minhas-aulas' && userId) {
+      loadMyClasses()
+    }
+  }, [activeTab, userId])
+
+  const loadAvailableClasses = async () => {
+    setLoading(true)
+    try {
+      const classes = await fetchAvailableClasses()
+      setAvailableClasses(classes)
+    } catch (error) {
+      console.error('[LearnScreen] Error loading classes:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const loadMyClasses = async () => {
+    if (!userId) return
+    setLoading(true)
+    try {
+      const classes = await fetchMyClasses(userId)
+      setMyClasses(classes)
+    } catch (error) {
+      console.error('[LearnScreen] Error loading my classes:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleEnroll = async (classId: string) => {
+    if (!userId) {
+      alert('Precisa de estar autenticado para se inscrever')
+      return
+    }
+
+    setEnrollingClassId(classId)
+    try {
+      const success = await enrollInClass(classId, userId, playerAccountId)
+      if (success) {
+        alert('Inscrição realizada com sucesso!')
+        // Recarregar aulas
+        if (activeTab === 'inscrever') {
+          loadAvailableClasses()
+        } else {
+          loadMyClasses()
+        }
+      } else {
+        alert('Erro ao inscrever-se. Pode já estar inscrito ou a aula estar cheia.')
+      }
+    } catch (error) {
+      console.error('[LearnScreen] Error enrolling:', error)
+      alert('Erro ao inscrever-se')
+    } finally {
+      setEnrollingClassId(null)
+    }
+  }
+
+  const formatDate = (dateStr: string) => {
+    const date = new Date(dateStr)
+    const days = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado']
+    const months = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro']
+    return `${days[date.getDay()]}, ${date.getDate()} de ${months[date.getMonth()]}`
+  }
+
+  const formatDateShort = (dateStr: string) => {
+    const date = new Date(dateStr)
+    const days = ['DOMINGO', 'SEGUNDA-FEIRA', 'TERÇA-FEIRA', 'QUARTA-FEIRA', 'QUINTA-FEIRA', 'SEXTA-FEIRA', 'SÁBADO']
+    const months = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro']
+    return `${days[date.getDay()]}, ${date.getDate()} de ${months[date.getMonth()]}`
+  }
+
+  const formatTime = (dateStr: string) => {
+    const date = new Date(dateStr)
+    return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`
+  }
+
+  const getGenderIcon = (gender: ClassGender) => {
+    if (gender === 'M') return '♂'
+    if (gender === 'F') return '♀'
+    return '⚥'
+  }
+
+  const getGenderLabel = (gender: ClassGender) => {
+    if (gender === 'M') return 'Masculino'
+    if (gender === 'F') return 'Feminino'
+    return 'Misto'
+  }
+
+  return (
+    <div className="space-y-4 animate-fade-in pb-20">
+      {/* Header */}
+      <div className="flex items-center gap-4">
+        <button onClick={onBack} className="p-2 -ml-2">
+          <ArrowLeft className="w-5 h-5 text-gray-600" />
+        </button>
+        <h1 className="text-2xl font-bold text-gray-900">Aulas</h1>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex gap-2 bg-gray-100 p-1 rounded-xl">
+        <button
+          onClick={() => setActiveTab('inscrever')}
+          className={`flex-1 py-2 px-4 rounded-lg text-sm font-semibold transition-all ${
+            activeTab === 'inscrever' 
+              ? 'bg-white text-gray-900 shadow-sm' 
+              : 'text-gray-500'
+          }`}
+        >
+          Inscrever-se
+        </button>
+        <button
+          onClick={() => setActiveTab('minhas-aulas')}
+          className={`flex-1 py-2 px-4 rounded-lg text-sm font-semibold transition-all ${
+            activeTab === 'minhas-aulas' 
+              ? 'bg-white text-gray-900 shadow-sm' 
+              : 'text-gray-500'
+          }`}
+        >
+          As Minhas Aulas
+        </button>
+      </div>
+
+      {/* Content */}
+      {loading ? (
+        <div className="flex items-center justify-center py-12">
+          <div className="text-gray-500">A carregar...</div>
+        </div>
+      ) : (
+        <>
+          {activeTab === 'inscrever' && (
+            <div className="space-y-4">
+              {availableClasses.length === 0 ? (
+                <div className="text-center py-12 text-gray-500">
+                  Não há aulas disponíveis no momento
+                </div>
+              ) : (
+                availableClasses.map((classItem) => (
+                  <ClassCard 
+                    key={classItem.id} 
+                    classItem={classItem} 
+                    formatDate={formatDate} 
+                    formatDateShort={formatDateShort}
+                    formatTime={formatTime}
+                    getGenderIcon={getGenderIcon} 
+                    getGenderLabel={getGenderLabel}
+                    onEnroll={handleEnroll}
+                    isEnrolling={enrollingClassId === classItem.id}
+                    onOpenPlayerProfile={onOpenPlayerProfile}
+                    onOpenClub={onOpenClub}
+                  />
+                ))
+              )}
+            </div>
+          )}
+
+          {activeTab === 'minhas-aulas' && (
+            <div className="space-y-4">
+              {myClasses.length === 0 ? (
+                <div className="text-center py-12 text-gray-500">
+                  Ainda não te inscreveste em nenhuma aula
+                </div>
+              ) : (
+                myClasses.map((classItem) => (
+                  <ClassCard 
+                    key={classItem.id} 
+                    classItem={classItem} 
+                    formatDate={formatDate} 
+                    formatDateShort={formatDateShort}
+                    formatTime={formatTime}
+                    getGenderIcon={getGenderIcon} 
+                    getGenderLabel={getGenderLabel}
+                    isMyClass={true}
+                    onOpenPlayerProfile={onOpenPlayerProfile}
+                    onOpenClub={onOpenClub}
+                  />
+                ))
+              )}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+// Componente de Card de Aula
+function ClassCard({
+  classItem,
+  formatDate,
+  formatDateShort,
+  formatTime,
+  getGenderIcon,
+  getGenderLabel,
+  onEnroll,
+  isEnrolling,
+  isMyClass = false,
+  onOpenPlayerProfile,
+  onOpenClub,
+}: {
+  classItem: ClassData
+  formatDate: (dateStr: string) => string
+  formatDateShort: (dateStr: string) => string
+  formatTime: (dateStr: string) => string
+  getGenderIcon: (gender: ClassGender) => string
+  getGenderLabel: (gender: ClassGender) => string
+  onEnroll?: (classId: string) => void
+  isEnrolling?: boolean
+  isMyClass?: boolean
+  onOpenPlayerProfile?: (userId: string) => void
+  onOpenClub?: (clubId: string) => void
+}) {
+  const { scheduled_at, title, professor, professor_phone, professor_avatar, club, club_id, level, gender, maxPlayers, participants, price } = classItem
+  const dateStr = scheduled_at.split('T')[0]
+  const timeStr = formatTime(scheduled_at)
+  const isFull = participants.length >= maxPlayers
+  const filledSlots = participants.length
+  const emptySlots = maxPlayers - filledSlots
+  
+
+  return (
+    <div className="card p-4">
+      <div className="flex gap-4">
+        {/* Left side - Icon */}
+        <div className="flex-shrink-0">
+          <div className="w-16 h-16 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center">
+            <GraduationCap className="w-8 h-8 text-white" />
+          </div>
+          <div className="text-center mt-2">
+            <p className="text-xs font-semibold text-gray-700">Padel</p>
+            <p className="text-xs text-gray-500">Aula</p>
+          </div>
+        </div>
+
+        {/* Right side - Details */}
+        <div className="flex-1 min-w-0">
+          {/* Date */}
+          <p className="text-xs text-gray-500 mb-1">
+            {formatDateShort(scheduled_at)} | {timeStr}
+          </p>
+
+          {/* Title */}
+          <h3 className="font-bold text-lg text-gray-900 mb-2">{title}</h3>
+
+          {/* Details row */}
+          <div className="space-y-1.5 mb-3">
+            <div className="flex items-center gap-2 text-sm text-gray-600">
+              <MapPin className="w-4 h-4 text-gray-400" />
+              {club_id && onOpenClub ? (
+                <button
+                  onClick={() => onOpenClub(club_id)}
+                  className="text-red-600 hover:text-red-700 hover:underline font-medium"
+                >
+                  {club}
+                </button>
+              ) : (
+                <span>{club}</span>
+              )}
+            </div>
+            <div className="flex items-center gap-2 text-sm text-gray-600">
+              <TrendingUp className="w-4 h-4 text-gray-400" />
+              <span className="font-medium">Nível: {level || 'Todos os níveis'}</span>
+            </div>
+            <div className="flex items-center gap-2 text-sm text-gray-600">
+              <Users className="w-4 h-4 text-gray-400" />
+              <span className="font-medium">{getGenderIcon(gender)} {getGenderLabel(gender)}</span>
+            </div>
+            <div className="flex items-center gap-2 text-sm text-gray-600">
+              <User className="w-4 h-4 text-gray-400" />
+              {professor_phone && onOpenPlayerProfile ? (
+                <button
+                  onClick={async () => {
+                    const { findPlayerUserIdByPhone } = await import('./lib/classes')
+                    const userId = await findPlayerUserIdByPhone(professor_phone)
+                    if (userId) {
+                      onOpenPlayerProfile(userId)
+                    }
+                  }}
+                  className="flex items-center gap-2 hover:opacity-80 transition-opacity"
+                >
+                  {professor_avatar ? (
+                    <img
+                      src={professor_avatar}
+                      alt={professor}
+                      className="w-6 h-6 rounded-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-6 h-6 rounded-full bg-gradient-to-br from-red-400 to-red-600 flex items-center justify-center text-white text-xs font-semibold">
+                      {professor.charAt(0).toUpperCase()}
+                    </div>
+                  )}
+                  <span className="text-red-600 hover:text-red-700 hover:underline font-medium">Prof. {professor}</span>
+                </button>
+              ) : (
+                <span>Prof. {professor}</span>
+              )}
+            </div>
+          </div>
+
+          {/* Players row */}
+          <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-100">
+            <div className="flex items-center gap-2">
+              {/* Player slots */}
+              <div className="flex items-center gap-1.5">
+                {participants.map((participant, idx) => (
+                  <div
+                    key={participant.id}
+                    className="w-8 h-8 rounded-full bg-gradient-to-br from-red-400 to-red-600 flex items-center justify-center text-white text-xs font-semibold border-2 border-white shadow-sm"
+                    title={participant.name}
+                  >
+                    {participant.avatar_url ? (
+                      <img
+                        src={participant.avatar_url}
+                        alt={participant.name}
+                        className="w-full h-full rounded-full object-cover"
+                      />
+                    ) : (
+                      <span>{participant.name.charAt(0).toUpperCase()}</span>
+                    )}
+                  </div>
+                ))}
+                {Array.from({ length: emptySlots }).map((_, idx) => (
+                  <div
+                    key={`empty-${idx}`}
+                    className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center border-2 border-white"
+                  >
+                    <Plus className="w-4 h-4 text-gray-400" />
+                  </div>
+                ))}
+              </div>
+              {/* Counter */}
+              <span className="text-sm font-medium text-gray-600 ml-1">
+                {filledSlots}/{maxPlayers}
+              </span>
+            </div>
+
+            {/* Sign up button */}
+            {isMyClass ? (
+              <div className="px-4 py-2 bg-emerald-100 text-emerald-700 text-sm font-semibold rounded-lg text-center">
+                Inscrito
+              </div>
+            ) : (
+              <button 
+                onClick={() => onEnroll?.(classItem.id)}
+                disabled={isEnrolling || isFull}
+                className={`px-4 py-2 text-white text-sm font-semibold rounded-lg transition-colors ${
+                  isFull 
+                    ? 'bg-gray-400 cursor-not-allowed' 
+                    : isEnrolling
+                    ? 'bg-blue-400 cursor-wait'
+                    : 'bg-blue-600 hover:bg-blue-700'
+                }`}
+              >
+                {isEnrolling ? 'A inscrever...' : isFull ? 'Aula cheia' : `Inscrever-me - ${price}€`}
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function GamesScreen({
   player,
   dashboardData,
   onRefresh,
+  onBack,
+  onOpenPlayerProfile,
 }: {
   player: PlayerAccount | null
   dashboardData: PlayerDashboardData | null
   onRefresh: () => Promise<void>
+  onBack: () => void
+  onOpenPlayerProfile: (userId: string) => void
 }) {
   void onRefresh
   const [activeTab, setActiveTab] = useState<'upcoming' | 'history'>('upcoming')
@@ -2784,6 +4283,14 @@ function GamesScreen({
   const upcoming = d?.upcomingMatches ?? []
   const recent = d?.recentMatches ?? []
   const list = activeTab === 'upcoming' ? upcoming : recent
+
+  const handlePlayerClick = async (playerName: string) => {
+    const { findPlayerUserIdByName } = await import('./lib/classes')
+    const userId = await findPlayerUserIdByName(playerName)
+    if (userId) {
+      onOpenPlayerProfile(userId)
+    }
+  }
 
   return (
     <div className="space-y-4 animate-fade-in">
@@ -2812,7 +4319,13 @@ function GamesScreen({
         <div className="space-y-3">
           {list.map((match) => (
             <div key={match.id} className="w-full">
-              <GameCardPlaytomic match={match} fullWidth currentPlayerAvatar={player?.avatar_url} currentPlayerName={player?.name} />
+              <GameCardPlaytomic 
+                match={match} 
+                fullWidth 
+                currentPlayerAvatar={player?.avatar_url} 
+                currentPlayerName={player?.name}
+                onPlayerClick={handlePlayerClick}
+              />
             </div>
           ))}
         </div>
@@ -2978,11 +4491,13 @@ function OtherPlayerProfileScreen({
   myUserId,
   onBack,
   onOpenFollowsList,
+  onOpenPlayerProfile,
 }: {
   targetUserId: string
   myUserId: string
   onBack: () => void
   onOpenFollowsList: (userId: string) => void
+  onOpenPlayerProfile: (userId: string) => void
 }) {
   const [profile, setProfile] = useState<PlayerProfile | null>(null)
   const [loading, setLoading] = useState(true)
@@ -3007,6 +4522,14 @@ function OtherPlayerProfileScreen({
       await followUser(myUserId, targetUserId)
       setIsFollowing(true)
       setProfile(prev => prev ? { ...prev, followersCount: prev.followersCount + 1 } : prev)
+    }
+  }
+
+  const handlePlayerClick = async (playerName: string) => {
+    const { findPlayerUserIdByName } = await import('./lib/classes')
+    const foundUserId = await findPlayerUserIdByName(playerName)
+    if (foundUserId) {
+      onOpenPlayerProfile(foundUserId)
     }
   }
 
@@ -3101,28 +4624,41 @@ function OtherPlayerProfileScreen({
       </div>
 
       {/* Nível + Fiabilidade + Categoria + Idade */}
-      <div className="rounded-xl shadow-sm overflow-hidden p-6 bg-gradient-to-br from-red-50 to-red-100">
-        <div className="flex items-center justify-between">
-          <div className="flex-1">
-            <p className="text-5xl font-bold text-red-600">Nível {profile.level?.toFixed(1) || '3.0'}</p>
-            <p className="text-sm text-gray-600 mt-2 flex items-center gap-1.5">
-              <span>📊</span> Fiabilidade {profile.level_reliability_percent?.toFixed(0) ?? '85'}%
-            </p>
-          </div>
-          <div className="flex flex-col gap-2 self-start">
-            {profile.player_category && (
-              <div className={`px-4 py-2 rounded-lg shadow-sm ${colors.bg}`}>
-                <span className={`text-sm font-bold ${colors.text}`}>{profile.player_category}</span>
+      {(() => {
+        const hasGradient = colors && colors.hex !== '#e5e7eb'
+        const bgStyle = hasGradient 
+          ? { background: `linear-gradient(135deg, ${colors.hex} 0%, ${colors.hexTo} 100%)` }
+          : {}
+        return (
+          <div 
+            className={`rounded-xl shadow-sm overflow-hidden p-6 ${!hasGradient ? 'bg-gradient-to-br from-red-50 to-red-100' : ''}`}
+            style={bgStyle}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex-1">
+                <p className={`text-5xl font-bold ${hasGradient ? 'text-white' : 'text-red-600'}`}>
+                  Nível {profile.level?.toFixed(1) || '3.0'}
+                </p>
+                <p className={`text-sm mt-2 flex items-center gap-1.5 ${hasGradient ? 'text-white/90' : 'text-gray-600'}`}>
+                  <span>📊</span> Fiabilidade {profile.level_reliability_percent?.toFixed(0) ?? '85'}%
+                </p>
               </div>
-            )}
-            {ageCategory && (
-              <div className="px-4 py-2 bg-amber-500 rounded-lg shadow-sm">
-                <span className="text-sm font-bold text-white">{ageCategory}</span>
+              <div className="flex flex-col gap-2 self-start">
+                {profile.player_category && hasGradient && (
+                  <div className="px-4 py-2 rounded-lg shadow-sm border-2 bg-white" style={{ borderColor: colors.hex }}>
+                    <span className="text-sm font-bold" style={{ color: colors.hex }}>{profile.player_category}</span>
+                  </div>
+                )}
+                {ageCategory && (
+                  <div className="px-4 py-2 bg-amber-500 rounded-lg shadow-sm">
+                    <span className="text-sm font-bold text-white">{ageCategory}</span>
+                  </div>
+                )}
               </div>
-            )}
+            </div>
           </div>
-        </div>
-      </div>
+        )
+      })()}
 
       {/* Estatísticas */}
       <div className="grid grid-cols-5 gap-2">
@@ -3213,6 +4749,7 @@ function OtherPlayerProfileScreen({
                     }}
                     currentPlayerName={profile.name}
                     currentPlayerAvatar={profile.avatar_url}
+                    onPlayerClick={handlePlayerClick}
                   />
                 </div>
               ))}
@@ -3236,14 +4773,17 @@ function OtherPlayerProfileScreen({
           <div className="overflow-x-auto pb-2 -mx-4 px-4 sm:mx-0 sm:px-0 snap-x snap-mandatory scroll-smooth">
             <div className="flex gap-3" style={{ width: 'max-content' }}>
               {profile.topPlayers.map(({ name, count }) => {
-                const { firstName, lastName } = splitName(name)
+                const { firstName } = splitName(name)
                 return (
-                <div key={name} className="snap-center flex-shrink-0 w-[100px] card p-3 text-center">
+                <div 
+                  key={name} 
+                  className="snap-center flex-shrink-0 w-[100px] card p-3 text-center cursor-pointer hover:shadow-md transition-shadow"
+                  onClick={() => handlePlayerClick(name)}
+                >
                   <div className="w-12 h-12 rounded-full bg-gray-900 flex items-center justify-center mx-auto mb-2">
                     <span className="text-white font-bold text-sm">{getInitials(name)}</span>
                   </div>
                   <p className="font-semibold text-gray-900 text-xs leading-tight">{firstName}</p>
-                  {lastName && <p className="font-semibold text-gray-900 text-xs leading-tight">{lastName}</p>}
                   <p className="text-[10px] text-gray-500 mt-1">{count} jogos</p>
                 </div>
                 )
@@ -3291,12 +4831,14 @@ function ProfileViewScreen({
   userId,
   onOpenGames,
   onOpenFollowsList,
+  onOpenPlayerProfile,
 }: {
   player: PlayerAccount | null
   dashboardData: PlayerDashboardData | null
   userId: string | null
   onOpenGames: () => void
   onOpenFollowsList: (userId: string) => void
+  onOpenPlayerProfile: (userId: string) => void
 }) {
   const d = dashboardData
   const totalMatches = d?.stats?.totalMatches ?? (player?.wins || 0) + (player?.losses || 0)
@@ -3312,6 +4854,14 @@ function ProfileViewScreen({
   }, [userId])
   const truncatedBio = bio.length > 160 ? bio.substring(0, 160) + '...' : bio
   const recentMatches = (d?.recentMatches ?? []).slice(0, 5)
+
+  const handlePlayerClick = async (playerName: string) => {
+    const { findPlayerUserIdByName } = await import('./lib/classes')
+    const foundUserId = await findPlayerUserIdByName(playerName)
+    if (foundUserId) {
+      onOpenPlayerProfile(foundUserId)
+    }
+  }
 
   // Jogadores com quem mais joga (extrair de todos os jogos recentes)
   const allRecentMatches = d?.recentMatches ?? []
@@ -3419,28 +4969,45 @@ function ProfileViewScreen({
       </div>
 
       {/* Nível + Fiabilidade + Categoria + Idade */}
-      <div className="rounded-xl shadow-sm overflow-hidden p-6 bg-gradient-to-br from-red-50 to-red-100">
-        <div className="flex items-center justify-between">
-          <div className="flex-1">
-            <p className="text-5xl font-bold text-red-600">Nível {player?.level?.toFixed(1) || '3.0'}</p>
-            <p className="text-sm text-gray-600 mt-2 flex items-center gap-1.5">
-              <span>📊</span> Fiabilidade {player?.level_reliability_percent?.toFixed(0) ?? '85'}%
-            </p>
-          </div>
-          <div className="flex flex-col gap-2 self-start">
-            {player?.player_category && (
-              <div className="px-4 py-2 bg-blue-500 rounded-lg shadow-sm">
-                <span className="text-sm font-bold text-white">{player.player_category}</span>
+      {(() => {
+        const colors = player?.player_category ? categoryColors(player.player_category) : null
+        const hasGradient = colors && colors.hex !== '#e5e7eb'
+        const bgStyle = hasGradient 
+          ? { background: `linear-gradient(135deg, ${colors.hex} 0%, ${colors.hexTo} 100%)` }
+          : {}
+
+        return (
+          <div 
+            className={`rounded-xl shadow-sm overflow-hidden p-6 ${!hasGradient ? 'bg-gradient-to-br from-red-50 to-red-100' : ''}`}
+            style={bgStyle}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex-1">
+                <p className={`text-5xl font-bold ${hasGradient ? 'text-white' : 'text-red-600'}`}>
+                  Nível {player?.level?.toFixed(1) || '3.0'}
+                </p>
+                <p className={`text-sm mt-2 flex items-center gap-1.5 ${hasGradient ? 'text-white/90' : 'text-gray-600'}`}>
+                  <span>📊</span> Fiabilidade {player?.level_reliability_percent?.toFixed(0) ?? '85'}%
+                </p>
               </div>
-            )}
-            {ageCategory && (
-              <div className="px-4 py-2 bg-amber-500 rounded-lg shadow-sm">
-                <span className="text-sm font-bold text-white">{ageCategory}</span>
+              <div className="flex flex-col gap-2 self-start">
+                {player?.player_category && colors && hasGradient && (
+                  <div className="px-4 py-2 rounded-lg shadow-sm border-2 bg-white" style={{ borderColor: colors.hex }}>
+                    <span className="text-sm font-bold" style={{ color: colors.hex }}>
+                      {player.player_category}
+                    </span>
+                  </div>
+                )}
+                {ageCategory && (
+                  <div className="px-4 py-2 bg-amber-500 rounded-lg shadow-sm">
+                    <span className="text-sm font-bold text-white">{ageCategory}</span>
+                  </div>
+                )}
               </div>
-            )}
+            </div>
           </div>
-        </div>
-      </div>
+        )
+      })()}
 
       {/* Estatísticas - Jogos, Vitórias, Taxa, Seguir, Seguidores */}
       <div className="grid grid-cols-5 gap-2">
@@ -3514,7 +5081,7 @@ function ProfileViewScreen({
             <div className="flex gap-4" style={{ width: 'max-content' }}>
               {recentMatches.map((match) => (
                 <div key={match.id} className="snap-center">
-                  <GameCardPlaytomic match={match} currentPlayerAvatar={player?.avatar_url} currentPlayerName={player?.name} />
+                  <GameCardPlaytomic match={match} currentPlayerAvatar={player?.avatar_url} currentPlayerName={player?.name} onPlayerClick={handlePlayerClick} />
                 </div>
               ))}
             </div>
@@ -3538,14 +5105,17 @@ function ProfileViewScreen({
           <div className="overflow-x-auto pb-2 -mx-4 px-4 sm:mx-0 sm:px-0 snap-x snap-mandatory scroll-smooth">
             <div className="flex gap-3" style={{ width: 'max-content' }}>
               {topPlayers.map(({ name, count }) => {
-                const { firstName, lastName } = splitName(name)
+                const { firstName } = splitName(name)
                 return (
-                <div key={name} className="snap-center flex-shrink-0 w-[100px] card p-3 text-center">
+                <div 
+                  key={name} 
+                  className="snap-center flex-shrink-0 w-[100px] card p-3 text-center cursor-pointer hover:shadow-md transition-shadow"
+                  onClick={() => handlePlayerClick(name)}
+                >
                   <div className="w-12 h-12 rounded-full bg-gray-900 flex items-center justify-center mx-auto mb-2">
                     <span className="text-white font-bold text-sm">{getInitials(name)}</span>
                   </div>
                   <p className="font-semibold text-gray-900 text-xs leading-tight">{firstName}</p>
-                  {lastName && <p className="font-semibold text-gray-900 text-xs leading-tight">{lastName}</p>}
                   <p className="text-[10px] text-gray-500 mt-1">{count} jogos</p>
                 </div>
                 )

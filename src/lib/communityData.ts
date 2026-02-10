@@ -22,24 +22,24 @@ export function getInitials(name?: string): string {
   return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase()
 }
 
-/** Cores oficiais por categoria - retorna { bg, text } para o badge do nível */
-export function categoryColors(category?: string | null): { bg: string; text: string; border: string } {
+/** Cores oficiais por categoria - retorna classes Tailwind + hex para inline styles */
+export function categoryColors(category?: string | null): { bg: string; text: string; border: string; hex: string; hexTo: string } {
   switch (category) {
     // Masculino - do mais forte ao mais fraco
-    case 'M1': return { bg: 'bg-purple-600', text: 'text-white', border: 'border-purple-600' }
-    case 'M2': return { bg: 'bg-blue-600', text: 'text-white', border: 'border-blue-600' }
-    case 'M3': return { bg: 'bg-green-600', text: 'text-white', border: 'border-green-600' }
-    case 'M4': return { bg: 'bg-yellow-500', text: 'text-white', border: 'border-yellow-500' }
-    case 'M5': return { bg: 'bg-orange-500', text: 'text-white', border: 'border-orange-500' }
-    case 'M6': return { bg: 'bg-gray-500', text: 'text-white', border: 'border-gray-500' }
+    case 'M1': return { bg: 'bg-purple-600', text: 'text-white', border: 'border-purple-600', hex: '#9333ea', hexTo: '#7e22ce' }
+    case 'M2': return { bg: 'bg-blue-600', text: 'text-white', border: 'border-blue-600', hex: '#2563eb', hexTo: '#1d4ed8' }
+    case 'M3': return { bg: 'bg-green-600', text: 'text-white', border: 'border-green-600', hex: '#16a34a', hexTo: '#15803d' }
+    case 'M4': return { bg: 'bg-yellow-500', text: 'text-white', border: 'border-yellow-500', hex: '#eab308', hexTo: '#ca8a04' }
+    case 'M5': return { bg: 'bg-orange-500', text: 'text-white', border: 'border-orange-500', hex: '#f97316', hexTo: '#ea580c' }
+    case 'M6': return { bg: 'bg-gray-500', text: 'text-white', border: 'border-gray-500', hex: '#6b7280', hexTo: '#4b5563' }
     // Feminino - mesma escala de cores
-    case 'F1': return { bg: 'bg-purple-500', text: 'text-white', border: 'border-purple-500' }
-    case 'F2': return { bg: 'bg-blue-500', text: 'text-white', border: 'border-blue-500' }
-    case 'F3': return { bg: 'bg-green-500', text: 'text-white', border: 'border-green-500' }
-    case 'F4': return { bg: 'bg-yellow-400', text: 'text-white', border: 'border-yellow-400' }
-    case 'F5': return { bg: 'bg-orange-400', text: 'text-white', border: 'border-orange-400' }
-    case 'F6': return { bg: 'bg-gray-400', text: 'text-white', border: 'border-gray-400' }
-    default:   return { bg: 'bg-gray-200', text: 'text-gray-600', border: 'border-gray-200' }
+    case 'F1': return { bg: 'bg-purple-500', text: 'text-white', border: 'border-purple-500', hex: '#a855f7', hexTo: '#9333ea' }
+    case 'F2': return { bg: 'bg-blue-500', text: 'text-white', border: 'border-blue-500', hex: '#3b82f6', hexTo: '#2563eb' }
+    case 'F3': return { bg: 'bg-green-500', text: 'text-white', border: 'border-green-500', hex: '#22c55e', hexTo: '#16a34a' }
+    case 'F4': return { bg: 'bg-yellow-400', text: 'text-white', border: 'border-yellow-400', hex: '#facc15', hexTo: '#eab308' }
+    case 'F5': return { bg: 'bg-orange-400', text: 'text-white', border: 'border-orange-400', hex: '#fb923c', hexTo: '#f97316' }
+    case 'F6': return { bg: 'bg-gray-400', text: 'text-white', border: 'border-gray-400', hex: '#9ca3af', hexTo: '#6b7280' }
+    default:   return { bg: 'bg-gray-200', text: 'text-gray-600', border: 'border-gray-200', hex: '#e5e7eb', hexTo: '#d1d5db' }
   }
 }
 
