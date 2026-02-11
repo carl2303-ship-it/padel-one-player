@@ -274,7 +274,7 @@ export async function fetchOpenGames(filters?: {
 // Fetch clubs with availability for "Crie um Jogo"
 // ============================
 
-export async function fetchClubsWithAvailability(daysAhead: number = 3): Promise<ClubWithAvailability[]> {
+export async function fetchClubsWithAvailability(): Promise<ClubWithAvailability[]> {
   // 1. Fetch all active clubs
   const { data: clubs, error: clubsError } = await supabase
     .from('clubs')
@@ -300,15 +300,17 @@ export async function fetchClubsWithAvailability(daysAhead: number = 3): Promise
 
     if (!courts || courts.length === 0) continue // Skip clubs without courts
 
-    // 3. Fetch operating hours
+    // 3. Fetch operating hours + slot settings
     const { data: settings } = await supabase
       .from('user_logo_settings')
-      .select('booking_start_time, booking_end_time')
+      .select('booking_start_time, booking_end_time, booking_slot_duration, max_advance_days')
       .eq('user_id', club.owner_id)
       .maybeSingle()
 
     const startTime = settings?.booking_start_time || '08:00'
     const endTime = settings?.booking_end_time || '22:00'
+    const slotDuration = settings?.booking_slot_duration || 90 // minutes
+    const daysAhead = settings?.max_advance_days || 7
 
     // 4. Generate dates
     const dates: string[] = []
@@ -340,78 +342,75 @@ export async function fetchClubsWithAvailability(daysAhead: number = 3): Promise
       .gte('scheduled_at', dateFrom)
       .lte('scheduled_at', dateTo)
 
-    // 7. Generate available time slots
+    // 7. Generate available time slots using club's slot duration
     const availability: { [date: string]: TimeSlot[] } = {}
+    const openH = parseInt(startTime.split(':')[0])
+    const openM = parseInt(startTime.split(':')[1] || '0')
+    const closeH = parseInt(endTime.split(':')[0])
+    const closeM = parseInt(endTime.split(':')[1] || '0')
+    const openMinutes = openH * 60 + openM
+    const closeMinutes = closeH * 60 + closeM
     
     for (const date of dates) {
       const slots: TimeSlot[] = []
-      const startH = parseInt(startTime.split(':')[0])
-      const startM = parseInt(startTime.split(':')[1] || '0')
-      const endH = parseInt(endTime.split(':')[0])
 
-      // For today, start from current time + 1 hour (rounded to 30min)
-      let firstSlotH = startH
-      let firstSlotM = startM
+      // For today, skip slots that already passed (current time + 1 hour buffer)
+      let firstSlotMinutes = openMinutes
       if (date === dates[0]) {
-        const currentH = now.getHours()
-        const currentM = now.getMinutes()
-        firstSlotH = currentM > 30 ? currentH + 2 : currentH + 1
-        firstSlotM = currentM > 30 ? 0 : 30
-        if (firstSlotH < startH) {
-          firstSlotH = startH
-          firstSlotM = startM
+        const currentMinutes = now.getHours() * 60 + now.getMinutes()
+        const minStart = currentMinutes + 60 // at least 1 hour from now
+        // Round up to next slot boundary
+        if (minStart > openMinutes) {
+          const elapsed = minStart - openMinutes
+          const slotsSkipped = Math.ceil(elapsed / slotDuration)
+          firstSlotMinutes = openMinutes + slotsSkipped * slotDuration
         }
       }
 
-      // Generate 30-minute slots
-      for (let h = firstSlotH; h < endH; h++) {
-        for (let m = (h === firstSlotH ? firstSlotM : 0); m < 60; m += 30) {
-          const timeStr = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`
-          const slotStart = new Date(`${date}T${timeStr}:00`)
-          const closingTime = new Date(`${date}T${endTime}:00`)
+      // Generate slots at fixed intervals (e.g. every 90 min: 9:00, 10:30, 12:00, ...)
+      for (let m = firstSlotMinutes; m + slotDuration <= closeMinutes; m += slotDuration) {
+        const h = Math.floor(m / 60)
+        const min = m % 60
+        const timeStr = `${h.toString().padStart(2, '0')}:${min.toString().padStart(2, '0')}`
+        const slotStart = new Date(`${date}T${timeStr}:00`)
+        const slotEnd = new Date(slotStart.getTime() + slotDuration * 60000)
+        const closingTime = new Date(`${date}T${endTime}:00`)
           
-          // Check ALL courts for availability at this time
-          const courtSlots: CourtSlot[] = []
-          for (const court of courts) {
-            const slot90End = new Date(slotStart.getTime() + 90 * 60000)
-            const slot60End = new Date(slotStart.getTime() + 60 * 60000)
+        if (slotEnd > closingTime) continue
 
-            const has90 = slot90End <= closingTime && isSlotAvailable(court.id, slotStart, slot90End, bookings || [], existingGames || [])
-            const has60 = slot60End <= closingTime && isSlotAvailable(court.id, slotStart, slot60End, bookings || [], existingGames || [])
+        // Check ALL courts for availability at this time
+        const courtSlots: CourtSlot[] = []
+        for (const court of courts) {
+          const isAvailable = isSlotAvailable(court.id, slotStart, slotEnd, bookings || [], existingGames || [])
 
-            if (has90 || has60) {
-              const durations: number[] = []
-              if (has90) durations.push(90)
-              if (has60) durations.push(60)
+          if (isAvailable) {
+            // Calculate price (per 4 players)
+            const hourlyRate = parseFloat(court.hourly_rate as any) || 0
+            const priceForSlot = Math.round((hourlyRate * (slotDuration / 60)) / 4 * 100) / 100
+            const price60 = Math.round((hourlyRate * 1) / 4 * 100) / 100
 
-              // Calculate price (per 4 players)
-              const hourlyRate = parseFloat(court.hourly_rate as any) || 0
-              const price90 = Math.round((hourlyRate * 1.5) / 4 * 100) / 100
-              const price60 = Math.round((hourlyRate * 1) / 4 * 100) / 100
-
-              courtSlots.push({
-                court_id: court.id,
-                court_name: court.name,
-                court_type: (court as any).type || null,
-                durations,
-                price_90: price90,
-                price_60: price60,
-              })
-            }
-          }
-
-          if (courtSlots.length > 0) {
-            slots.push({
-              time: timeStr,
-              courts: courtSlots,
-              // Legacy defaults from first court
-              durations: courtSlots[0].durations,
-              court_id: courtSlots[0].court_id,
-              court_name: courtSlots[0].court_name,
-              price_90: courtSlots[0].price_90,
-              price_60: courtSlots[0].price_60,
+            courtSlots.push({
+              court_id: court.id,
+              court_name: court.name,
+              court_type: (court as any).type || null,
+              durations: [slotDuration],
+              price_90: priceForSlot,
+              price_60: price60,
             })
           }
+        }
+
+        if (courtSlots.length > 0) {
+          slots.push({
+            time: timeStr,
+            courts: courtSlots,
+            // Legacy defaults from first court
+            durations: courtSlots[0].durations,
+            court_id: courtSlots[0].court_id,
+            court_name: courtSlots[0].court_name,
+            price_90: courtSlots[0].price_90,
+            price_60: courtSlots[0].price_60,
+          })
         }
       }
       
@@ -576,7 +575,6 @@ export async function createOpenGame(params: {
       const endTime = new Date(new Date(params.scheduledAt).getTime() + params.durationMinutes * 60000)
       const gameTypeLabel = params.gameType === 'competitive' ? 'Competitivo' : 'Amigável'
       const bookingName = resolvedName || 'Jogador'
-      const totalPrice = params.pricePerPlayer * 4
 
       await supabase.from('court_bookings').insert({
         user_id: club.owner_id,
@@ -596,12 +594,13 @@ export async function createOpenGame(params: {
         player4_is_member: false,
         player4_discount: 0,
         status: 'confirmed',
-        price: totalPrice,
+        price: params.pricePerPlayer * 4,
         payment_status: 'pending',
         event_type: 'open_game',
         notes: `Jogo Aberto (${gameTypeLabel}) - Criado pela app Player | ID: ${game.id}`
       })
-      // Court booking created for sync with Manager
+      // Sync player details + member check to the booking
+      await syncBookingPlayers(game.id)
     }
   } catch (syncErr) {
     console.error('[OpenGames] Error syncing court booking:', syncErr)
@@ -609,6 +608,149 @@ export async function createOpenGame(params: {
   }
 
   return { success: true, gameId: game.id }
+}
+
+// ============================
+// Sync open game players → court_booking (names, phones, member discounts)
+// ============================
+
+async function syncBookingPlayers(gameId: string) {
+  try {
+    // 1. Get all confirmed players for this game
+    const { data: gamePlayers } = await supabase
+      .from('open_game_players')
+      .select('player_account_id, user_id, position')
+      .eq('game_id', gameId)
+      .eq('status', 'confirmed')
+      .order('position', { ascending: true })
+
+    if (!gamePlayers) return
+
+    // 2. Get player account details (name, phone)
+    const accountIds = gamePlayers.map(p => p.player_account_id).filter(Boolean)
+    let accountsMap: Record<string, { name: string; phone: string | null }> = {}
+
+    if (accountIds.length > 0) {
+      const { data: accounts } = await supabase
+        .from('player_accounts')
+        .select('id, name, phone_number')
+        .in('id', accountIds)
+
+      if (accounts) {
+        accounts.forEach(a => {
+          accountsMap[a.id] = { name: a.name, phone: a.phone_number }
+        })
+      }
+    }
+
+    // 3. Get the game's club to find club owner
+    const { data: game } = await supabase
+      .from('open_games')
+      .select('club_id, price_per_player')
+      .eq('id', gameId)
+      .single()
+
+    if (!game) return
+
+    const { data: club } = await supabase
+      .from('clubs')
+      .select('owner_id')
+      .eq('id', game.club_id)
+      .single()
+
+    if (!club) return
+
+    // 4. Build player data (up to 4 players)
+    const playerSlots: { name: string | null; phone: string | null; isMember: boolean; discount: number }[] = []
+
+    for (let i = 0; i < 4; i++) {
+      const gp = gamePlayers[i]
+      if (gp && gp.player_account_id && accountsMap[gp.player_account_id]) {
+        const acct = accountsMap[gp.player_account_id]
+        playerSlots.push({ name: acct.name, phone: acct.phone || null, isMember: false, discount: 0 })
+      } else if (gp) {
+        playerSlots.push({ name: null, phone: null, isMember: false, discount: 0 })
+      } else {
+        playerSlots.push({ name: null, phone: null, isMember: false, discount: 0 })
+      }
+    }
+
+    // 5. Check member status for each player
+    for (let i = 0; i < playerSlots.length; i++) {
+      const ps = playerSlots[i]
+      if (!ps.name && !ps.phone) continue
+
+      const normalizedPhone = ps.phone ? ps.phone.replace(/[\s\-\(\)\.]/g, '').replace(/^00/, '+') : ''
+
+      let query = supabase
+        .from('member_subscriptions')
+        .select('member_name, member_phone, plan:membership_plans(name, court_discount_percent)')
+        .eq('club_owner_id', club.owner_id)
+        .eq('status', 'active')
+
+      if (normalizedPhone && normalizedPhone.length >= 6) {
+        query = query.or(`member_phone.ilike.%${normalizedPhone}%`)
+      } else if (ps.name && ps.name.length >= 2) {
+        query = query.ilike('member_name', `%${ps.name}%`)
+      } else {
+        continue
+      }
+
+      const { data: memberData } = await query.limit(1).maybeSingle()
+
+      if (memberData && memberData.plan) {
+        playerSlots[i].isMember = true
+        playerSlots[i].discount = (memberData.plan as any).court_discount_percent || 0
+      }
+    }
+
+    // 6. Calculate price with discounts
+    const pricePerPlayer = parseFloat(game.price_per_player) || 0
+    let totalPrice = 0
+    for (const ps of playerSlots) {
+      if (ps.name) {
+        const playerPrice = pricePerPlayer - (pricePerPlayer * (ps.discount / 100))
+        totalPrice += playerPrice
+      }
+    }
+    // If less than 4 named players, fill remaining with full price
+    const namedCount = playerSlots.filter(p => p.name).length
+    if (namedCount < 4) {
+      totalPrice += pricePerPlayer * (4 - namedCount)
+    }
+
+    // 7. Update the court_booking
+    const updateData: Record<string, any> = {
+      booked_by_name: playerSlots[0].name || 'Jogador',
+      booked_by_phone: playerSlots[0].phone || null,
+      player1_name: playerSlots[0].name || null,
+      player1_phone: playerSlots[0].phone || null,
+      player1_is_member: playerSlots[0].isMember,
+      player1_discount: playerSlots[0].discount,
+      player2_name: playerSlots[1].name || null,
+      player2_phone: playerSlots[1].phone || null,
+      player2_is_member: playerSlots[1].isMember,
+      player2_discount: playerSlots[1].discount,
+      player3_name: playerSlots[2].name || null,
+      player3_phone: playerSlots[2].phone || null,
+      player3_is_member: playerSlots[2].isMember,
+      player3_discount: playerSlots[2].discount,
+      player4_name: playerSlots[3].name || null,
+      player4_phone: playerSlots[3].phone || null,
+      player4_is_member: playerSlots[3].isMember,
+      player4_discount: playerSlots[3].discount,
+      price: totalPrice,
+    }
+
+    await supabase
+      .from('court_bookings')
+      .update(updateData)
+      .like('notes', `%ID: ${gameId}%`)
+      .eq('event_type', 'open_game')
+
+  } catch (err) {
+    console.error('[OpenGames] Error syncing booking players:', err)
+  }
 }
 
 // ============================
@@ -698,6 +840,9 @@ export async function joinOpenGame(params: {
     }
   }
 
+  // Sync player details to court_booking
+  await syncBookingPlayers(params.gameId)
+
   return { success: true, status: joinStatus }
 }
 
@@ -727,6 +872,9 @@ export async function leaveOpenGame(gameId: string, userId: string): Promise<boo
     .update({ status: 'open' })
     .eq('id', gameId)
     .eq('status', 'full')
+
+  // Sync player details to court_booking
+  await syncBookingPlayers(gameId)
 
   return true
 }
@@ -847,6 +995,9 @@ export async function addPlayerToOpenGame(params: {
       .update({ status: 'full' })
       .eq('id', params.gameId)
   }
+
+  // Sync player details to court_booking
+  await syncBookingPlayers(params.gameId)
 
   return { success: true }
 }

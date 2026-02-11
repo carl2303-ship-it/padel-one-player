@@ -113,7 +113,42 @@ function App() {
   const checkAuth = async () => {
     setIsLoading(true)
     const { data: { session } } = await supabase.auth.getSession()
+    const authUid = session?.user?.id || null
 
+    // If no valid Supabase session, clear local state and force re-login
+    if (!session) {
+      const savedPhone = localStorage.getItem('padel_one_player_phone')
+      if (savedPhone) {
+        // Session expired but phone is saved - user needs to re-login
+        console.log('[Auth] Session expired, clearing local state for re-login')
+      }
+      setIsLoading(false)
+      return
+    }
+
+    // Priority 1: Find player by saved phone (most reliable - user's actual phone)
+    const savedPhone = localStorage.getItem('padel_one_player_phone')
+    if (savedPhone) {
+      const { data } = await supabase
+        .from('player_accounts')
+        .select('*')
+        .eq('phone_number', savedPhone)
+        .maybeSingle()
+
+      if (data) {
+        setPlayer(data as any)
+        setIsAuthenticated(true)
+        setAuthUserId(authUid || data.user_id || null)
+        if (data.user_id) {
+          const dash = await fetchPlayerDashboardData(data.user_id)
+          setDashboardData(dash)
+        }
+        setIsLoading(false)
+        return
+      }
+    }
+
+    // Priority 2: Find player by auth session user_id (only if phone lookup failed)
     if (session?.user) {
       const { data: playerAccount } = await supabase
         .from('player_accounts')
@@ -132,26 +167,6 @@ function App() {
       }
     }
 
-    const savedPhone = localStorage.getItem('padel_one_player_phone')
-    if (savedPhone) {
-      const { data } = await supabase
-        .from('player_accounts')
-        .select('*')
-        .eq('phone_number', savedPhone)
-        .maybeSingle()
-
-      if (data) {
-        setPlayer(data as any)
-        setIsAuthenticated(true)
-        // Try to get real auth uid, fallback to player_accounts.user_id
-        const { data: { session: s2 } } = await supabase.auth.getSession()
-        setAuthUserId(s2?.user?.id || data.user_id || null)
-        if (data.user_id) {
-          const dash = await fetchPlayerDashboardData(data.user_id)
-          setDashboardData(dash)
-        }
-      }
-    }
     setIsLoading(false)
   }
 
@@ -254,24 +269,32 @@ function App() {
         return
       }
 
-      // Buscar player_account agora que estamos autenticados
-      if (authData?.user) {
-        const { data: account } = await supabase
+      // Buscar player_account pelo telefone (mais fiável que auth user_id)
+      const { data: phoneAccount } = await supabase
+        .from('player_accounts')
+        .select('*')
+        .eq('phone_number', normalizedPhone)
+        .maybeSingle()
+      
+      playerAccount = phoneAccount
+
+      // Fallback: buscar pelo auth user_id se telefone não encontrou
+      if (!playerAccount && authData?.user) {
+        const { data: authAccount } = await supabase
           .from('player_accounts')
           .select('*')
           .eq('user_id', authData.user.id)
           .maybeSingle()
-        
-        playerAccount = account
+        playerAccount = authAccount
       }
 
       localStorage.setItem('padel_one_player_phone', normalizedPhone)
 
       if (playerAccount) {
         setPlayer(playerAccount as any)
-        if (authData?.user) {
-          setAuthUserId(authData.user.id)
-          const data = await fetchPlayerDashboardData(authData.user.id)
+        setAuthUserId(authData?.user?.id || playerAccount.user_id || null)
+        if (playerAccount.user_id) {
+          const data = await fetchPlayerDashboardData(playerAccount.user_id)
           setDashboardData(data)
         }
       }
@@ -2999,7 +3022,7 @@ function FindGameScreen({
       const loadAvailability = async () => {
         setLoadingClubs(true)
         const { fetchClubsWithAvailability } = await import('./lib/openGames')
-        const data = await fetchClubsWithAvailability(3)
+        const data = await fetchClubsWithAvailability()
         setClubsAvailability(data)
         setLoadingClubs(false)
       }
@@ -3008,11 +3031,16 @@ function FindGameScreen({
   }, [activeSection])
 
   // Separate games: within level (existing) vs out of level (request)
+  // Show open games + full games where user is already in
   const existingGames = games.filter(g => {
-    return playerLevel >= g.level_min && playerLevel <= g.level_max && g.status === 'open'
+    const inMyLevel = playerLevel >= g.level_min && playerLevel <= g.level_max
+    const imInGame = g.players.some(p => p.user_id === userId || (player?.id && p.player_account_id === player.id))
+    return inMyLevel && (g.status === 'open' || (g.status === 'full' && imInGame))
   })
   const requestGames = games.filter(g => {
-    return (playerLevel < g.level_min || playerLevel > g.level_max) && g.status === 'open'
+    const outOfLevel = playerLevel < g.level_min || playerLevel > g.level_max
+    const imInGame = g.players.some(p => p.user_id === userId || (player?.id && p.player_account_id === player.id))
+    return outOfLevel && (g.status === 'open' || (g.status === 'full' && imInGame))
   })
 
   // Join a game
