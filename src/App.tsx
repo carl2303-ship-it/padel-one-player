@@ -2674,7 +2674,12 @@ function CompeteScreen({
           ) : d?.pastTournaments && d.pastTournaments.length > 0 ? (
             <div className="space-y-4">
               <p className="text-sm text-gray-600">Torneios concluídos</p>
-              {d.pastTournaments.map((t) => {
+              {d.pastTournaments.filter((t) => {
+                // Filtrar apenas concluídos, não cancelados
+                const isCompleted = t.status === 'completed' || t.status === 'finished'
+                const isCanceled = t.status === 'canceled' || t.status === 'cancelled'
+                return isCompleted && !isCanceled
+              }).map((t) => {
                 const details = pastTournamentDetails[t.id]
                 const wins = details?.myMatches?.filter((m) => m.is_winner).length ?? 0
                 const losses = details?.myMatches?.filter((m) => m.is_winner === false).length ?? 0

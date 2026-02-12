@@ -188,9 +188,11 @@ export async function fetchPlayerDashboardData(userId: string): Promise<PlayerDa
     const row = { ...t, enrolled_count }
     const isOngoing = t.status === 'in_progress' || t.status === 'active'
     const isCompleted = t.status === 'completed' || t.status === 'finished'
-    if (isCompleted) past.push(row)
-    else if (isOngoing) upcoming.push(row)
-    else {
+    const isCanceled = t.status === 'canceled' || t.status === 'cancelled'
+    // Apenas incluir concluídos, não cancelados
+    if (isCompleted && !isCanceled) past.push(row)
+    else if (isOngoing && !isCanceled) upcoming.push(row)
+    else if (!isCanceled) {
       const endDate = new Date(t.end_date + 'T23:59:59')
       if (endDate >= now) upcoming.push(row)
       else past.push(row)
@@ -473,15 +475,26 @@ export async function fetchTournamentStandingsAndMatches(
       )
       .eq('tournament_id', tournamentId)
       .eq('status', 'completed'),
-    supabase.from('teams').select('id, name, group_name, final_position, player1_id, player2_id').eq('tournament_id', tournamentId),
+    supabase.from('teams').select('id, name, group_name, final_position, player1_id, player2_id, player1:players!teams_player1_id_fkey(id, name), player2:players!teams_player2_id_fkey(id, name)').eq('tournament_id', tournamentId),
     supabase.from('players').select('id, name, group_name').eq('tournament_id', tournamentId),
   ])
 
-  // Create a map of player names by id
+  // Create a map of player names by id (from players table and from teams relations)
   const playerNamesMap = new Map<string, string>()
   if (players) {
     players.forEach((p: any) => {
       playerNamesMap.set(p.id, p.name)
+    })
+  }
+  // Also add player names from teams relations
+  if (teams) {
+    teams.forEach((t: any) => {
+      if (t.player1?.id && t.player1?.name) {
+        playerNamesMap.set(t.player1.id, t.player1.name)
+      }
+      if (t.player2?.id && t.player2?.name) {
+        playerNamesMap.set(t.player2.id, t.player2.name)
+      }
     })
   }
 
@@ -545,8 +558,9 @@ export async function fetchTournamentStandingsAndMatches(
   } else if (teams) {
     console.log('[fetchTournamentStandingsAndMatches] Processing teams, playerNamesMap size:', playerNamesMap.size)
     teams.forEach((t: any) => {
-      const player1Name = t.player1_id ? playerNamesMap.get(t.player1_id) : undefined
-      const player2Name = t.player2_id ? playerNamesMap.get(t.player2_id) : undefined
+      // Prefer names from team relations, fallback to map
+      const player1Name = t.player1?.name || (t.player1_id ? playerNamesMap.get(t.player1_id) : undefined)
+      const player2Name = t.player2?.name || (t.player2_id ? playerNamesMap.get(t.player2_id) : undefined)
       console.log('[fetchTournamentStandingsAndMatches] Team:', t.name, 'Player1ID:', t.player1_id, 'Player1Name:', player1Name, 'Player2ID:', t.player2_id, 'Player2Name:', player2Name)
       standingsMap.set(t.id, {
         id: t.id,
