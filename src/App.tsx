@@ -1188,25 +1188,6 @@ function HomeScreen({
                 <p className={`text-sm mt-2 flex items-center gap-1.5 ${hasGradient ? 'text-white/90' : 'text-gray-600'}`}>
                   <span>📊</span> Fiabilidade {player?.level_reliability_percent?.toFixed(0) ?? '85'}%
                 </p>
-                <button
-                  onClick={async () => {
-                    try {
-                      const { processAllUnratedMatches } = await import('./lib/ratingEngine')
-                      const yesterday = new Date()
-                      yesterday.setDate(yesterday.getDate() - 7)
-                      const since = yesterday.toISOString().split('T')[0]
-                      const res = await processAllUnratedMatches(since)
-                      alert(`Processados ${res.processed} jogos. ${res.skipped > 0 ? `${res.skipped} saltados.` : ''} Atualiza a página para veres as mudanças.`)
-                      // Recarregar dados do jogador
-                      window.location.reload()
-                    } catch (err: any) {
-                      alert(`Erro ao processar ratings: ${err.message}`)
-                    }
-                  }}
-                  className={`mt-2 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${hasGradient ? 'bg-white/20 hover:bg-white/30 text-white' : 'bg-red-600 hover:bg-red-700 text-white'}`}
-                >
-                  Atualizar Nível
-                </button>
               </div>
               {player?.player_category && colors && hasGradient && (
                 <div className="px-4 py-2 rounded-lg shadow-sm self-start border-2 bg-white" style={{ borderColor: colors.hex }}>

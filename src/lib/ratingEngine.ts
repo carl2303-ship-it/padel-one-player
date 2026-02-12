@@ -382,18 +382,24 @@ export async function processMatchRating(matchId: string, cache?: PlayerCache): 
         })
       }
 
-      // Atualizar na BD
-      const { error } = await supabase
-        .from('player_accounts')
-        .update({
-          level: rp.rating,
-          level_reliability_percent: newReliability,
-        })
-        .eq('id', rp.id)
+      // Atualizar na BD via SECURITY DEFINER function (bypassa RLS)
+      const { error } = await supabase.rpc('update_player_rating', {
+        p_player_account_id: rp.id,
+        p_new_level: rp.rating,
+        p_new_reliability: newReliability,
+      })
 
       if (error) {
         console.error('[RatingEngine] Error updating player:', rp.id, error)
       }
+    }
+
+    // Marcar jogo como processado via SECURITY DEFINER function
+    const { error: markError } = await supabase.rpc('mark_match_rating_processed', {
+      p_match_id: matchId,
+    })
+    if (markError) {
+      console.error('[RatingEngine] Error marking match as processed:', matchId, markError)
     }
 
     console.log('[RatingEngine] Updated ratings for match:', matchId)
@@ -423,11 +429,12 @@ export async function processAllUnratedMatches(
   since?: string,
   onProgress?: (current: number, total: number, info: string) => void
 ): Promise<{ processed: number; skipped: number; errors: number; total: number }> {
-  // Buscar jogos completados, ordenados cronologicamente
+  // Buscar jogos completados E não processados, ordenados cronologicamente
   let query = supabase
     .from('matches')
     .select('id, scheduled_time, tournament_id')
     .eq('status', 'completed')
+    .or('rating_processed.is.null,rating_processed.eq.false')
     .order('scheduled_time', { ascending: true })
 
   if (since) {
