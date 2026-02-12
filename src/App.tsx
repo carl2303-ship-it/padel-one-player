@@ -4656,6 +4656,8 @@ function OtherPlayerProfileScreen({
   const [profile, setProfile] = useState<PlayerProfile | null>(null)
   const [loading, setLoading] = useState(true)
   const [isFollowing, setIsFollowing] = useState(false)
+  const [myAvatar, setMyAvatar] = useState<string | null>(null)
+  const [myName, setMyName] = useState<string | null>(null)
 
   useEffect(() => {
     setLoading(true)
@@ -4665,6 +4667,25 @@ function OtherPlayerProfileScreen({
       setLoading(false)
     })
   }, [targetUserId, myUserId])
+  
+  // Buscar avatar e nome do utilizador atual
+  useEffect(() => {
+    if (!myUserId) return
+    let active = true
+    ;(async () => {
+      const { supabase } = await import('./lib/supabase')
+      const { data: account } = await supabase
+        .from('player_accounts')
+        .select('avatar_url, name')
+        .eq('user_id', myUserId)
+        .maybeSingle()
+      if (active && account) {
+        setMyAvatar(account.avatar_url || null)
+        setMyName(account.name || null)
+      }
+    })()
+    return () => { active = false }
+  }, [myUserId])
 
   const handleToggleFollow = async () => {
     if (!profile) return
@@ -4924,8 +4945,8 @@ function OtherPlayerProfileScreen({
                       set2: match.set2,
                       set3: match.set3,
                     }}
-                    currentPlayerName={profile.name}
-                    currentPlayerAvatar={profile.avatar_url}
+                    currentPlayerName={myName || profile.name}
+                    currentPlayerAvatar={myAvatar || profile.avatar_url}
                     onPlayerClick={handlePlayerClick}
                   />
                 </div>
