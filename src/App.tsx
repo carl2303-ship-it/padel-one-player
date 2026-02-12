@@ -806,7 +806,8 @@ function PlayerCircle({ name, bgClass, textClass, avatarUrl, currentPlayerName, 
   currentPlayerName?: string
   onClick?: () => void
 }) {
-  const showAvatar = avatarUrl && isCurrentPlayer(name, currentPlayerName)
+  // Sempre mostrar avatar se existir, independentemente de ser o jogador atual
+  const showAvatar = !!avatarUrl
   return (
     <div 
       className={`w-11 h-11 rounded-full flex items-center justify-center shadow-sm flex-shrink-0 overflow-hidden ${!showAvatar ? bgClass : ''} ${onClick ? 'cursor-pointer hover:opacity-80 transition-opacity' : ''}`}
@@ -814,7 +815,7 @@ function PlayerCircle({ name, bgClass, textClass, avatarUrl, currentPlayerName, 
       onClick={onClick}
     >
       {showAvatar ? (
-        <img src={avatarUrl} alt={name} className="w-full h-full object-cover" />
+        <img src={avatarUrl!} alt={name} className="w-full h-full object-cover" />
       ) : (
         <span className={textClass}>{initialFor(name)}</span>
       )}
@@ -841,23 +842,37 @@ function GameCardPlaytomic({
   const p3 = match.player3_name ?? twoPlayersPerTeam(match.team2_name)[0]
   const p4 = match.player4_name ?? twoPlayersPerTeam(match.team2_name)[1]
   
-  // Estados para armazenar níveis e categorias dos jogadores
-  const [playersData, setPlayersData] = useState<{ [name: string]: { level?: number; category?: string } }>({})
+  // Estados para armazenar níveis, categorias e avatares dos jogadores
+  const [playersData, setPlayersData] = useState<{ [name: string]: { level?: number; category?: string; avatar_url?: string | null } }>({})
   
-  // Buscar níveis dos jogadores usando a função robusta findPlayerDataByName
+  // Buscar níveis, categorias e avatares dos jogadores
   useEffect(() => {
-    const fetchPlayerLevels = async () => {
+    const fetchPlayerData = async () => {
       const { findPlayerDataByName } = await import('./lib/classes')
+      const { supabase } = await import('./lib/supabase')
       const names = [p1, p2, p3, p4].filter(n => n && n !== 'TBD')
-      const data: { [name: string]: { level?: number; category?: string } } = {}
+      const data: { [name: string]: { level?: number; category?: string; avatar_url?: string | null } } = {}
       
       for (const name of names) {
         const playerData = await findPlayerDataByName(name)
         if (playerData) {
           const level = playerData.level ?? (playerData.player_category ? categoryToLevel(playerData.player_category) : undefined)
+          
+          // Buscar avatar do player_account
+          let avatarUrl: string | null = null
+          if (playerData.player_account_id) {
+            const { data: account } = await supabase
+              .from('player_accounts')
+              .select('avatar_url')
+              .eq('id', playerData.player_account_id)
+              .maybeSingle()
+            avatarUrl = account?.avatar_url || null
+          }
+          
           data[name] = {
             level,
-            category: playerData.player_category ?? undefined
+            category: playerData.player_category ?? undefined,
+            avatar_url: avatarUrl
           }
         } else {
           console.warn(`[GameCard] Player not found: ${name}`)
@@ -867,7 +882,7 @@ function GameCardPlaytomic({
       setPlayersData(data)
     }
     
-    fetchPlayerLevels()
+    fetchPlayerData()
   }, [p1, p2, p3, p4])
   
   const setStrings = [match.set1, match.set2, match.set3].filter(Boolean) as string[]
@@ -889,6 +904,8 @@ function GameCardPlaytomic({
     const firstName = getFirstName(name)
     const playerData = playersData[name]
     const colors = playerData?.category ? categoryColors(playerData.category) : null
+    // Usar avatar do playerData se disponível, senão usar currentPlayerAvatar se for o jogador atual
+    const avatarUrl = playerData?.avatar_url ?? (isCurrentPlayer(name, currentPlayerName) ? currentPlayerAvatar : null)
     
     return (
       <div className="flex flex-col items-center min-h-[78px]">
@@ -896,7 +913,7 @@ function GameCardPlaytomic({
           name={name} 
           bgClass={bgClass} 
           textClass={textClass} 
-          avatarUrl={currentPlayerAvatar} 
+          avatarUrl={avatarUrl} 
           currentPlayerName={currentPlayerName}
           onClick={onPlayerClick ? () => onPlayerClick(name) : undefined}
         />
@@ -2722,17 +2739,26 @@ function CompeteScreen({
                               const scoreDisplay = setScores.length > 0 ? setScores.join(' ') : '-'
                               return (
                               <div key={m.id} className="flex justify-between items-center text-sm py-2 px-3 bg-gray-50 rounded-lg">
-                                <span className="text-gray-700 truncate flex-1 mr-2">
-                                  {m.team1_name} vs {m.team2_name}
-                                </span>
-                                <span className="font-semibold text-gray-900 flex-shrink-0">
-                                  {scoreDisplay}
-                                </span>
-                                {m.is_winner !== undefined && (
-                                  <span className={`ml-2 text-xs font-medium flex-shrink-0 ${m.is_winner ? 'text-green-600' : 'text-red-600'}`}>
-                                    {m.is_winner ? 'V' : 'D'}
+                                <div className="flex-1 mr-2 min-w-0">
+                                  <div className="text-gray-700 truncate">
+                                    {m.team1_name} vs {m.team2_name}
+                                  </div>
+                                  {m.team1_score !== undefined && m.team2_score !== undefined && (
+                                    <div className="text-xs text-gray-500 mt-0.5">
+                                      {m.team1_score} jogos ganhos / {m.team2_score} jogos perdidos
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-2 flex-shrink-0">
+                                  <span className="font-semibold text-gray-900">
+                                    {scoreDisplay}
                                   </span>
-                                )}
+                                  {m.is_winner !== undefined && (
+                                    <span className={`text-xs font-medium ${m.is_winner ? 'text-green-600' : 'text-red-600'}`}>
+                                      {m.is_winner ? 'V' : 'D'}
+                                    </span>
+                                  )}
+                                </div>
                               </div>
                             )})}
                           </div>
@@ -2764,10 +2790,11 @@ function CompeteScreen({
                                     <td className="py-1.5 px-1">{i + 1}</td>
                                     <td className="py-1.5 px-1">
                                       <div className="font-medium truncate max-w-[120px]">{row.name}</div>
-                                      {hasPlayers && (
-                                        <div className="text-xs text-gray-500 truncate max-w-[120px]">
-                                          {[row.player1_name, row.player2_name].filter(Boolean).join(' / ')}
-                                        </div>
+                                      {row.player1_name && (
+                                        <div className="text-xs text-gray-500 truncate max-w-[120px]">{row.player1_name}</div>
+                                      )}
+                                      {row.player2_name && (
+                                        <div className="text-xs text-gray-500 truncate max-w-[120px]">{row.player2_name}</div>
                                       )}
                                     </td>
                                     <td className="py-1.5 px-1 text-center text-green-600">{row.wins}</td>
@@ -4907,8 +4934,12 @@ function OtherPlayerProfileScreen({
                   className="snap-center flex-shrink-0 w-[100px] card p-3 text-center cursor-pointer hover:shadow-md transition-shadow"
                   onClick={() => handlePlayerClick(name)}
                 >
-                  <div className="w-12 h-12 rounded-full bg-gray-900 flex items-center justify-center mx-auto mb-2">
-                    <span className="text-white font-bold text-sm">{getInitials(name)}</span>
+                  <div className="w-12 h-12 rounded-full bg-gray-900 flex items-center justify-center mx-auto mb-2 overflow-hidden">
+                    {topPlayersAvatars[name] ? (
+                      <img src={topPlayersAvatars[name]!} alt={name} className="w-full h-full object-cover" />
+                    ) : (
+                      <span className="text-white font-bold text-sm">{getInitials(name)}</span>
+                    )}
                   </div>
                   <p className="font-semibold text-gray-900 text-xs leading-tight">{firstName}</p>
                   <p className="text-[10px] text-gray-500 mt-1">{count} jogos</p>
@@ -5002,6 +5033,29 @@ function ProfileViewScreen({
     .sort((a, b) => b[1] - a[1])
     .slice(0, 10)
     .map(([name, count]) => ({ name, count }))
+  
+  // Buscar avatares dos top players
+  const [topPlayersAvatars, setTopPlayersAvatars] = useState<Record<string, string | null>>({})
+  useEffect(() => {
+    if (topPlayers.length === 0) return
+    let active = true
+    ;(async () => {
+      const { supabase } = await import('./lib/supabase')
+      const avatars: Record<string, string | null> = {}
+      for (const { name } of topPlayers) {
+        const { data: account } = await supabase
+          .from('player_accounts')
+          .select('avatar_url')
+          .ilike('name', name)
+          .maybeSingle()
+        if (active && account) {
+          avatars[name] = account.avatar_url || null
+        }
+      }
+      if (active) setTopPlayersAvatars(avatars)
+    })()
+    return () => { active = false }
+  }, [topPlayers.map(p => p.name).join(',')])
 
   // Clubes onde joga (favorito + dos torneios)
   const [clubsWherePlays, setClubsWherePlays] = useState<ClubDetail[]>([])
@@ -5239,8 +5293,12 @@ function ProfileViewScreen({
                   className="snap-center flex-shrink-0 w-[100px] card p-3 text-center cursor-pointer hover:shadow-md transition-shadow"
                   onClick={() => handlePlayerClick(name)}
                 >
-                  <div className="w-12 h-12 rounded-full bg-gray-900 flex items-center justify-center mx-auto mb-2">
-                    <span className="text-white font-bold text-sm">{getInitials(name)}</span>
+                  <div className="w-12 h-12 rounded-full bg-gray-900 flex items-center justify-center mx-auto mb-2 overflow-hidden">
+                    {topPlayersAvatars[name] ? (
+                      <img src={topPlayersAvatars[name]!} alt={name} className="w-full h-full object-cover" />
+                    ) : (
+                      <span className="text-white font-bold text-sm">{getInitials(name)}</span>
+                    )}
                   </div>
                   <p className="font-semibold text-gray-900 text-xs leading-tight">{firstName}</p>
                   <p className="text-[10px] text-gray-500 mt-1">{count} jogos</p>
