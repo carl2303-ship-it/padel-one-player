@@ -4686,6 +4686,29 @@ function OtherPlayerProfileScreen({
       onOpenPlayerProfile(foundUserId)
     }
   }
+  
+  // Buscar avatares dos top players
+  const [topPlayersAvatars, setTopPlayersAvatars] = useState<Record<string, string | null>>({})
+  useEffect(() => {
+    if (!profile?.topPlayers?.length) return
+    let active = true
+    ;(async () => {
+      const { supabase } = await import('./lib/supabase')
+      const avatars: Record<string, string | null> = {}
+      for (const { name } of profile.topPlayers) {
+        const { data: account } = await supabase
+          .from('player_accounts')
+          .select('avatar_url')
+          .ilike('name', name)
+          .maybeSingle()
+        if (active && account) {
+          avatars[name] = account.avatar_url || null
+        }
+      }
+      if (active) setTopPlayersAvatars(avatars)
+    })()
+    return () => { active = false }
+  }, [profile?.topPlayers?.map(p => p.name).join(',')])
 
   const getHandLabel = (h?: string) => ({ right: 'Direita', left: 'Esquerda', ambidextrous: 'Ambidestro' }[h || ''] || '—')
   const getPositionLabel = (p?: string) => ({ right: 'Direita', left: 'Esquerda', both: 'Ambas' }[p || ''] || '—')
