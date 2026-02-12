@@ -1080,6 +1080,23 @@ function HomeScreen({
   const points = d?.leagueStandings?.[0]?.points ?? player?.points ?? 0
   const upcomingMatches = d?.upcomingMatches ?? []
   const upcomingTournaments = d?.upcomingTournaments ?? []
+  const [availableTournaments, setAvailableTournaments] = useState<UpcomingTournamentFromTour[]>([])
+  const [loadingAvailable, setLoadingAvailable] = useState(false)
+
+  // Buscar torneios disponíveis (apenas ativos, não rascunho, onde jogador NÃO está inscrito)
+  useEffect(() => {
+    const clubId = player?.favorite_club_id || localStorage.getItem('padel_one_player_favorite_club_id')
+    setLoadingAvailable(true)
+    fetchUpcomingTournaments(clubId || undefined).then((list) => {
+      // Filtrar apenas ativos (não rascunho) e onde jogador NÃO está inscrito
+      const enrolledIds = new Set(upcomingTournaments.map((t) => t.id))
+      const available = list.filter((t) => t.status === 'active' && !enrolledIds.has(t.id))
+      setAvailableTournaments(available.slice(0, 3)) // Mostrar apenas 3
+      setLoadingAvailable(false)
+    }).catch(() => {
+      setLoadingAvailable(false)
+    })
+  }, [player?.favorite_club_id, upcomingTournaments])
 
   const viewTournament = async (tournamentId: string, tournamentName: string) => {
     const { fetchTournamentStandingsAndMatches } = await import('./lib/playerDashboardData')
@@ -1288,6 +1305,66 @@ function HomeScreen({
               <span className="text-4xl mb-2 block">🏆</span>
               <p className="text-gray-700 font-medium">Nenhum torneio em que estejas inscrito</p>
               <p className="text-sm text-gray-500 mt-1">Entra na Padel One Tour e compete 🔥</p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Torneios Disponíveis */}
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+            <span>🎯</span> Torneios Disponíveis
+          </h2>
+        </div>
+        <div className="space-y-3">
+          {loadingAvailable ? (
+            <div className="card p-6 text-center">
+              <div className="w-6 h-6 border-2 border-red-600 border-t-transparent rounded-full animate-spin mx-auto" />
+            </div>
+          ) : availableTournaments.length > 0 ? (
+            availableTournaments.map((tournament) => (
+              <div key={tournament.id} className="card overflow-hidden p-0 flex">
+                <div className="w-24 sm:w-32 flex-shrink-0">
+                  {tournament.image_url ? (
+                    <img src={tournament.image_url} alt={tournament.name} className="w-full h-full min-h-[140px] object-cover rounded-l-xl" />
+                  ) : (
+                    <div className="w-full h-full min-h-[140px] bg-gradient-to-br from-red-100 to-amber-100 flex items-center justify-center rounded-l-xl">
+                      <Trophy className="w-12 h-12 text-red-400/70" />
+                    </div>
+                  )}
+                </div>
+                <div className="flex-1 p-4 sm:p-5 min-w-0 flex flex-col">
+                  <div className="flex items-start justify-between gap-2">
+                    <h3 className="font-bold text-gray-900 text-base sm:text-lg line-clamp-2">{tournament.name}</h3>
+                    <span className="px-2 py-1 rounded-lg text-xs font-medium bg-green-100 text-green-700 flex-shrink-0">
+                      Aberto
+                    </span>
+                  </div>
+                  <p className="text-sm text-gray-500 mt-1 flex items-center gap-1">
+                    <Calendar className="w-4 h-4 flex-shrink-0" />
+                    {formatDate(tournament.start_date)}
+                  </p>
+                  {tournament.description && (
+                    <div className="text-sm text-gray-600 mt-2 line-clamp-3 flex-1 [&_p]:my-0 [&_p]:last:mb-0" dangerouslySetInnerHTML={{ __html: tournament.description }} />
+                  )}
+                  <a
+                    href={getTournamentRegistrationUrl(tournament.id)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-3 inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-xl transition-colors w-fit"
+                  >
+                    Link de inscrição
+                    <ExternalLink className="w-4 h-4" />
+                  </a>
+                </div>
+              </div>
+            ))
+          ) : (
+            <div className="card p-6 text-center">
+              <span className="text-4xl mb-2 block">🎯</span>
+              <p className="text-gray-700 font-medium">Nenhum torneio disponível no momento</p>
+              <p className="text-sm text-gray-500 mt-1">Consulta a Padel One Tour para mais torneios</p>
             </div>
           )}
         </div>
@@ -2499,38 +2576,15 @@ function CompeteScreen({
                 </div>
               </div>
             )
-            return (enrolledList.length > 0 || openList.length > 0) ? (
-              <div className="space-y-6">
-                {enrolledList.length > 0 && (
-                  <div>
-                    <h2 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
-                      <span className="w-2 h-2 rounded-full bg-green-500" />
-                      Torneios onde já estás inscrito
-                    </h2>
-                    <div className="space-y-4">
-                      {enrolledList.map((t) => (
-                        <TournamentCard key={t.id} t={t} isEnrolled={true} />
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {openList.length > 0 && (
-                  <div>
-                    <h2 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
-                      <span className="w-2 h-2 rounded-full bg-blue-500" />
-                      Torneios abertos à inscrição
-                    </h2>
-                    <div className="space-y-4">
-                      {openList.map((t) => (
-                        <TournamentCard key={t.id} t={t} isEnrolled={false} />
-                      ))}
-                    </div>
-                  </div>
-                )}
+            return enrolledList.length > 0 ? (
+              <div className="space-y-4">
+                {enrolledList.map((t) => (
+                  <TournamentCard key={t.id} t={t} isEnrolled={true} />
+                ))}
               </div>
             ) : (
               <div className="card p-8 text-center text-gray-500">
-                Nenhum torneio próximo do clube. Consulta a Padel One Tour para mais torneios.
+                Nenhum torneio onde estejas inscrito. Consulta a Padel One Tour para mais torneios.
               </div>
             )
           })()}
