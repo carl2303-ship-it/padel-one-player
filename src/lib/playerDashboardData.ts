@@ -462,7 +462,7 @@ export async function fetchPlayerDashboardData(userId: string): Promise<PlayerDa
 
             if (filteredGames.length > 0) {
 
-              // Buscar dados dos clubes separadamente
+              // Buscar dados dos clubes e courts separadamente (no else block sem matches de torneios)
               let clubsMap = new Map<string, { name: string; city: string | null }>()
               const clubIds = [...new Set(filteredGames.map((g: any) => g.club_id).filter(Boolean))]
               if (clubIds.length > 0) {
@@ -473,6 +473,19 @@ export async function fetchPlayerDashboardData(userId: string): Promise<PlayerDa
                 
                 clubsData?.forEach((club: any) => {
                   clubsMap.set(club.id, { name: club.name, city: club.city })
+                })
+              }
+
+              let courtsMap = new Map<string, string>()
+              const courtIds = [...new Set(filteredGames.map((g: any) => g.court_id).filter(Boolean))]
+              if (courtIds.length > 0) {
+                const { data: courtsData } = await supabase
+                  .from('courts')
+                  .select('id, name')
+                  .in('id', courtIds)
+                
+                courtsData?.forEach((court: any) => {
+                  courtsMap.set(court.id, court.name)
                 })
               }
 
