@@ -339,19 +339,26 @@ export async function fetchPlayerDashboardData(userId: string): Promise<PlayerDa
         // Depois buscar os jogos abertos com os filtros corretos
         const { data: openGames } = await supabase
           .from('open_games')
-          .select(`
-            id,
-            scheduled_at,
-            status,
-            club_id,
-            clubs!inner(name, city),
-            court_name,
-            duration_minutes,
-            max_players
-          `)
+          .select('id, scheduled_at, status, club_id, court_name, duration_minutes, max_players')
           .in('id', gameIds)
           .gte('scheduled_at', new Date().toISOString())
           .in('status', ['open', 'full'])
+
+        // Buscar dados dos clubes separadamente
+        let clubsMap = new Map<string, { name: string; city: string | null }>()
+        if (openGames && openGames.length > 0) {
+          const clubIds = [...new Set(openGames.map((g: any) => g.club_id).filter(Boolean))]
+          if (clubIds.length > 0) {
+            const { data: clubsData } = await supabase
+              .from('clubs')
+              .select('id, name, city')
+              .in('id', clubIds)
+            
+            clubsData?.forEach((club: any) => {
+              clubsMap.set(club.id, { name: club.name, city: club.city })
+            })
+          }
+        }
 
         // Contar jogadores em cada jogo
         if (openGames && openGames.length > 0) {
@@ -369,6 +376,7 @@ export async function fetchPlayerDashboardData(userId: string): Promise<PlayerDa
           // Converter jogos abertos para PlayerMatch
           const openGameMatches: PlayerMatch[] = openGames.map((game: any) => {
             const playersCount = countMap.get(game.id) || 0
+            const club = clubsMap.get(game.club_id)
             return {
               id: `open_${game.id}`,
               tournament_id: '',
@@ -376,14 +384,14 @@ export async function fetchPlayerDashboardData(userId: string): Promise<PlayerDa
               court: game.court_name || '',
               start_time: game.scheduled_at,
               team1_name: `${playersCount}/${game.max_players} jogadores`,
-              team2_name: game.clubs?.name || '',
+              team2_name: club?.name || '',
               status: game.status,
               round: '',
               score1: null,
               score2: null,
               is_open_game: true,
               open_game_id: game.id,
-              club_name: game.clubs?.name || '',
+              club_name: club?.name || '',
             }
           })
 
@@ -418,19 +426,26 @@ export async function fetchPlayerDashboardData(userId: string): Promise<PlayerDa
         const gameIds = playerGames.map((pg: any) => pg.game_id)
         const { data: openGames } = await supabase
           .from('open_games')
-          .select(`
-            id,
-            scheduled_at,
-            status,
-            club_id,
-            clubs!inner(name, city),
-            court_name,
-            duration_minutes,
-            max_players
-          `)
+          .select('id, scheduled_at, status, club_id, court_name, duration_minutes, max_players')
           .in('id', gameIds)
           .gte('scheduled_at', new Date().toISOString())
           .in('status', ['open', 'full'])
+
+        // Buscar dados dos clubes separadamente
+        let clubsMap = new Map<string, { name: string; city: string | null }>()
+        if (openGames && openGames.length > 0) {
+          const clubIds = [...new Set(openGames.map((g: any) => g.club_id).filter(Boolean))]
+          if (clubIds.length > 0) {
+            const { data: clubsData } = await supabase
+              .from('clubs')
+              .select('id, name, city')
+              .in('id', clubIds)
+            
+            clubsData?.forEach((club: any) => {
+              clubsMap.set(club.id, { name: club.name, city: club.city })
+            })
+          }
+        }
 
         if (openGames && openGames.length > 0) {
           const gameIdsForCount = openGames.map((g: any) => g.id)
@@ -446,6 +461,7 @@ export async function fetchPlayerDashboardData(userId: string): Promise<PlayerDa
 
           const openGameMatches: PlayerMatch[] = openGames.map((game: any) => {
             const playersCount = countMap.get(game.id) || 0
+            const club = clubsMap.get(game.club_id)
             return {
               id: `open_${game.id}`,
               tournament_id: '',
@@ -453,14 +469,14 @@ export async function fetchPlayerDashboardData(userId: string): Promise<PlayerDa
               court: game.court_name || '',
               start_time: game.scheduled_at,
               team1_name: `${playersCount}/${game.max_players} jogadores`,
-              team2_name: game.clubs?.name || '',
+              team2_name: club?.name || '',
               status: game.status,
               round: '',
               score1: null,
               score2: null,
               is_open_game: true,
               open_game_id: game.id,
-              club_name: game.clubs?.name || '',
+              club_name: club?.name || '',
             }
           })
 
