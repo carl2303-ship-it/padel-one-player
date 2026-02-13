@@ -1043,6 +1043,273 @@ function TournamentCard({
   )
 }
 
+// ==================== OPEN GAME CARD (for upcoming matches) ====================
+
+function OpenGameCard({ 
+  gameId, 
+  match, 
+  userId, 
+  playerAccountId, 
+  onRefresh 
+}: { 
+  gameId: string
+  match: PlayerMatchForCard
+  userId?: string | null
+  playerAccountId?: string | null
+  onRefresh: () => Promise<void>
+}) {
+  const [game, setGame] = useState<import('./lib/openGames').OpenGame | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    const fetchGame = async () => {
+      const { supabase } = await import('./lib/supabase')
+      const { data } = await supabase
+        .from('open_games')
+        .select('*')
+        .eq('id', gameId)
+        .single()
+
+      if (data) {
+        // Fetch players
+        const { data: playersData } = await supabase
+          .from('open_game_players')
+          .select('id, user_id, player_account_id, status, position, name, avatar_url, level, player_category')
+          .eq('game_id', gameId)
+          .eq('status', 'confirmed')
+          .order('position')
+
+        // Fetch club data
+        const { data: clubData } = await supabase
+          .from('clubs')
+          .select('name, logo_url, city')
+          .eq('id', data.club_id)
+          .single()
+
+        // Fetch court data
+        let courtData = null
+        if (data.court_id) {
+          const { data: courtResult } = await supabase
+            .from('courts')
+            .select('name, type')
+            .eq('id', data.court_id)
+            .single()
+          courtData = courtResult
+        }
+
+        setGame({
+          ...data,
+          club_name: clubData?.name || '',
+          club_logo_url: clubData?.logo_url || null,
+          club_city: clubData?.city || null,
+          court_name: courtData?.name || null,
+          court_type: courtData?.type || null,
+          players: playersData || [],
+        })
+      }
+      setLoading(false)
+    }
+
+    fetchGame()
+  }, [gameId])
+
+  if (loading || !game) {
+    return (
+      <div className="border border-gray-200 rounded-2xl overflow-hidden bg-white shadow-sm w-[280px]">
+        <div className="p-4 animate-pulse">
+          <div className="h-4 bg-gray-200 rounded w-3/4 mb-2"></div>
+          <div className="h-3 bg-gray-200 rounded w-1/2 mb-3"></div>
+          <div className="flex gap-3 justify-center mb-3">
+            {[1, 2, 3, 4].map(i => (
+              <div key={i} className="w-14 h-14 bg-gray-200 rounded-full"></div>
+            ))}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  const confirmedPlayers = game.players.filter(p => p.status === 'confirmed')
+  const isInGame = game.players.some(p => p.user_id === userId || p.player_account_id === playerAccountId)
+  const isCreator = game.creator_user_id === userId || game.players.some(p => p.position === 1 && (p.user_id === userId || p.player_account_id === playerAccountId))
+
+  const handleLeaveGame = async () => {
+    if (!confirm('Tens a certeza que queres sair deste jogo?')) return
+    const { leaveOpenGame } = await import('./lib/openGames')
+    const success = await leaveOpenGame(game.id, userId || '')
+    if (success) {
+      await onRefresh()
+      alert('Saíste do jogo com sucesso!')
+    } else {
+      alert('Erro ao sair do jogo')
+    }
+  }
+
+  const handleCancelGame = async () => {
+    if (!confirm('Tens a certeza que queres cancelar este jogo?')) return
+    const { cancelOpenGame } = await import('./lib/openGames')
+    const success = await cancelOpenGame(game.id)
+    if (success) {
+      await onRefresh()
+      alert('Jogo cancelado com sucesso!')
+    } else {
+      alert('Erro ao cancelar jogo')
+    }
+  }
+
+  const formatGameDate = (dateStr: string) => {
+    const d = new Date(dateStr)
+    const now = new Date()
+    const isToday = d.toDateString() === now.toDateString()
+    const isTomorrow = d.toDateString() === new Date(now.getTime() + 86400000).toDateString()
+
+    const dayStr = isToday ? 'Hoje' : isTomorrow ? 'Amanhã' : d.toLocaleDateString('pt-PT', { day: 'numeric', month: 'short' })
+    const timeStr = d.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' })
+    return `${dayStr}, ${timeStr}`
+  }
+
+  return (
+    <div className="border border-gray-200 rounded-2xl overflow-hidden bg-white shadow-sm w-[280px]">
+      <div className="p-4">
+        {/* Date & Time */}
+        <p className="font-bold text-gray-900 text-sm mb-1">
+          {formatGameDate(game.scheduled_at)}
+        </p>
+        
+        {/* Game Type & Level Range */}
+        <div className="flex items-center gap-2 text-xs text-gray-500 mb-3 flex-wrap">
+          <span className="flex items-center gap-1">
+            {game.game_type === 'competitive' ? '🏆' : '🤝'}
+          </span>
+          <span className="flex items-center gap-1">
+            📊 {game.level_min.toFixed(1)}-{game.level_max.toFixed(1)}
+          </span>
+        </div>
+
+        {/* Player circles */}
+        <div className="flex items-start gap-2 mb-3">
+          {/* Left team */}
+          <div className="flex gap-2 flex-1 justify-center">
+            {[0, 1].map(i => {
+              const p = confirmedPlayers[i]
+              if (p) {
+                const pColors = p.player_category ? categoryColors(p.player_category) : null
+                return (
+                  <div key={p.id} className="flex flex-col items-center">
+                    <div className="w-12 h-12 rounded-full overflow-hidden bg-gray-200 flex items-center justify-center">
+                      {p.avatar_url ? (
+                        <img src={p.avatar_url} alt={p.name} className="w-full h-full object-cover" />
+                      ) : (
+                        <span className="text-sm font-bold text-gray-600">{(p.name || '?').charAt(0).toUpperCase()}</span>
+                      )}
+                    </div>
+                    <span className="text-[9px] text-gray-700 font-medium mt-1 truncate max-w-[50px] text-center">{(p.name || '').split(' ')[0]}</span>
+                    {p.level != null && (
+                      <div className="mt-0.5 px-1.5 py-0.5 rounded-full text-[8px] font-bold text-white" style={{ backgroundColor: pColors?.hex || '#9ca3af' }}>
+                        {p.level.toFixed(1)}
+                      </div>
+                    )}
+                  </div>
+                )
+              } else {
+                return (
+                  <div key={`empty-${i}`} className="flex flex-col items-center">
+                    <div className="w-12 h-12 rounded-full border-2 border-dashed border-gray-300 flex items-center justify-center">
+                      <Plus className="w-5 h-5 text-gray-400" />
+                    </div>
+                    <span className="text-[9px] text-blue-600 font-medium mt-1">Livre</span>
+                  </div>
+                )
+              }
+            })}
+          </div>
+          
+          {/* Divider */}
+          <div className="w-px h-16 bg-gray-200 self-center" />
+          
+          {/* Right team */}
+          <div className="flex gap-2 flex-1 justify-center">
+            {[2, 3].map(i => {
+              const p = confirmedPlayers[i]
+              if (p) {
+                const pColors = p.player_category ? categoryColors(p.player_category) : null
+                return (
+                  <div key={p.id} className="flex flex-col items-center">
+                    <div className="w-12 h-12 rounded-full overflow-hidden bg-gray-200 flex items-center justify-center">
+                      {p.avatar_url ? (
+                        <img src={p.avatar_url} alt={p.name} className="w-full h-full object-cover" />
+                      ) : (
+                        <span className="text-sm font-bold text-gray-600">{(p.name || '?').charAt(0).toUpperCase()}</span>
+                      )}
+                    </div>
+                    <span className="text-[9px] text-gray-700 font-medium mt-1 truncate max-w-[50px] text-center">{(p.name || '').split(' ')[0]}</span>
+                    {p.level != null && (
+                      <div className="mt-0.5 px-1.5 py-0.5 rounded-full text-[8px] font-bold text-white" style={{ backgroundColor: pColors?.hex || '#9ca3af' }}>
+                        {p.level.toFixed(1)}
+                      </div>
+                    )}
+                  </div>
+                )
+              } else {
+                return (
+                  <div key={`empty-${i}`} className="flex flex-col items-center">
+                    <div className="w-12 h-12 rounded-full border-2 border-dashed border-gray-300 flex items-center justify-center">
+                      <Plus className="w-5 h-5 text-gray-400" />
+                    </div>
+                    <span className="text-[9px] text-blue-600 font-medium mt-1">Livre</span>
+                  </div>
+                )
+              }
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* Club & Price footer */}
+      <div className="border-t border-gray-100 px-4 py-2 flex items-center justify-between bg-gray-50/50">
+        <div className="flex items-center gap-2">
+          {game.club_logo_url ? (
+            <img src={game.club_logo_url} alt="" className="w-6 h-6 rounded-lg object-cover" />
+          ) : (
+            <div className="w-6 h-6 rounded-lg bg-gray-200 flex items-center justify-center">
+              <Building2 className="w-3 h-3 text-gray-400" />
+            </div>
+          )}
+          <div>
+            <p className="text-xs font-medium text-gray-900 truncate max-w-[120px]">{game.club_name}</p>
+          </div>
+        </div>
+        {game.price_per_player > 0 && (
+          <p className="text-sm font-bold text-blue-600">{game.price_per_player.toFixed(2)}€</p>
+        )}
+      </div>
+
+      {/* Actions */}
+      {isInGame && (
+        <div className="px-4 pb-3 pt-0 bg-gray-50/50 space-y-2">
+          {isCreator ? (
+            <button
+              onClick={handleCancelGame}
+              className="w-full py-2 rounded-xl text-sm font-semibold text-red-600 bg-red-50 border border-red-200 hover:bg-red-100 transition-colors"
+            >
+              ❌ Cancelar jogo
+            </button>
+          ) : (
+            <button
+              onClick={handleLeaveGame}
+              className="w-full py-2 rounded-xl text-sm font-semibold text-orange-600 bg-orange-50 border border-orange-200 hover:bg-orange-100 transition-colors"
+            >
+              🚪 Sair do jogo
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ==================== HOME SCREEN ====================
+
 function HomeScreen({
   player,
   dashboardData,
@@ -1263,12 +1530,27 @@ function HomeScreen({
             <div className="flex gap-4" style={{ width: 'max-content' }}>
               {upcomingMatches.map((match) => (
                 <div key={match.id} className="snap-center">
-                  <GameCardPlaytomic 
-                    match={match} 
-                    currentPlayerAvatar={player?.avatar_url} 
-                    currentPlayerName={player?.name}
-                    onPlayerClick={handlePlayerClick}
-                  />
+                  {match.is_open_game && match.open_game_id ? (
+                    <OpenGameCard
+                      gameId={match.open_game_id}
+                      match={match}
+                      userId={player?.user_id}
+                      playerAccountId={player?.id}
+                      onRefresh={async () => {
+                        // Refresh dashboard data
+                        const { fetchPlayerDashboardData } = await import('./lib/playerDashboardData')
+                        const newData = await fetchPlayerDashboardData(player?.user_id || '')
+                        setDashboardData(newData)
+                      }}
+                    />
+                  ) : (
+                    <GameCardPlaytomic 
+                      match={match} 
+                      currentPlayerAvatar={player?.avatar_url} 
+                      currentPlayerName={player?.name}
+                      onPlayerClick={handlePlayerClick}
+                    />
+                  )}
                 </div>
               ))}
             </div>
