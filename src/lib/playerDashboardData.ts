@@ -340,46 +340,55 @@ export async function fetchPlayerDashboardData(userId: string): Promise<PlayerDa
           result.upcomingMatches = upcomingMatches
         } else {
           // Depois buscar os jogos abertos com os filtros corretos
-          const { data: openGames, error: openGamesError } = await supabase
+          // Usar uma query mais simples para evitar erros 400
+          let query = supabase
             .from('open_games')
             .select('id, scheduled_at, status, club_id, court_name, duration_minutes, max_players')
             .in('id', gameIds)
             .gte('scheduled_at', new Date().toISOString())
-            .in('status', ['open', 'full'])
+          
+          // Aplicar filtro de status de forma diferente para evitar problemas
+          const { data: openGames, error: openGamesError } = await query
 
           if (openGamesError) {
             console.error('[PlayerDashboard] Error fetching open games:', openGamesError)
             result.upcomingMatches = upcomingMatches
-          } else if (openGames && openGames.length > 0) {
+          } else {
+            // Filtrar por status manualmente
+            const filteredGames = (openGames || []).filter((g: any) => 
+              g.status === 'open' || g.status === 'full'
+            )
 
-            // Buscar dados dos clubes separadamente
-            let clubsMap = new Map<string, { name: string; city: string | null }>()
-            const clubIds = [...new Set(openGames.map((g: any) => g.club_id).filter(Boolean))]
-            if (clubIds.length > 0) {
-              const { data: clubsData } = await supabase
-                .from('clubs')
-                .select('id, name, city')
-                .in('id', clubIds)
-              
-              clubsData?.forEach((club: any) => {
-                clubsMap.set(club.id, { name: club.name, city: club.city })
-              })
-            }
+            if (filteredGames.length > 0) {
 
-            // Contar jogadores em cada jogo
-          const gameIds = openGames.map((g: any) => g.id)
-          const { data: playersCount } = await supabase
-            .from('open_game_players')
-            .select('game_id')
-            .in('game_id', gameIds)
+              // Buscar dados dos clubes separadamente
+              let clubsMap = new Map<string, { name: string; city: string | null }>()
+              const clubIds = [...new Set(filteredGames.map((g: any) => g.club_id).filter(Boolean))]
+              if (clubIds.length > 0) {
+                const { data: clubsData } = await supabase
+                  .from('clubs')
+                  .select('id, name, city')
+                  .in('id', clubIds)
+                
+                clubsData?.forEach((club: any) => {
+                  clubsMap.set(club.id, { name: club.name, city: club.city })
+                })
+              }
+
+              // Contar jogadores em cada jogo
+              const gameIdsForCount = filteredGames.map((g: any) => g.id)
+              const { data: playersCount } = await supabase
+                .from('open_game_players')
+                .select('game_id')
+                .in('game_id', gameIdsForCount)
 
           const countMap = new Map<string, number>()
           playersCount?.forEach((p: any) => {
             countMap.set(p.game_id, (countMap.get(p.game_id) || 0) + 1)
           })
 
-          // Converter jogos abertos para PlayerMatch
-          const openGameMatches: PlayerMatch[] = openGames.map((game: any) => {
+              // Converter jogos abertos para PlayerMatch
+              const openGameMatches: PlayerMatch[] = filteredGames.map((game: any) => {
             const playersCount = countMap.get(game.id) || 0
             const club = clubsMap.get(game.club_id)
             return {
@@ -400,12 +409,13 @@ export async function fetchPlayerDashboardData(userId: string): Promise<PlayerDa
             }
           })
 
-            // Combinar jogos de torneios com jogos abertos e ordenar por data
-            result.upcomingMatches = [...upcomingMatches, ...openGameMatches].sort((a, b) => 
-              new Date(a.start_time).getTime() - new Date(b.start_time).getTime()
-            )
-          } else {
-            result.upcomingMatches = upcomingMatches
+              // Combinar jogos de torneios com jogos abertos e ordenar por data
+              result.upcomingMatches = [...upcomingMatches, ...openGameMatches].sort((a, b) => 
+                new Date(a.start_time).getTime() - new Date(b.start_time).getTime()
+              )
+            } else {
+              result.upcomingMatches = upcomingMatches
+            }
           }
         }
       } else {
@@ -434,33 +444,39 @@ export async function fetchPlayerDashboardData(userId: string): Promise<PlayerDa
         if (gameIds.length === 0) {
           // Não há gameIds válidos, não fazer nada
         } else {
+          // Usar uma query mais simples para evitar erros 400
           const { data: openGames, error: openGamesError } = await supabase
             .from('open_games')
             .select('id, scheduled_at, status, club_id, court_name, duration_minutes, max_players')
             .in('id', gameIds)
             .gte('scheduled_at', new Date().toISOString())
-            .in('status', ['open', 'full'])
 
           if (openGamesError) {
             console.error('[PlayerDashboard] Error fetching open games (else block):', openGamesError)
-          } else if (openGames && openGames.length > 0) {
+          } else {
+            // Filtrar por status manualmente
+            const filteredGames = (openGames || []).filter((g: any) => 
+              g.status === 'open' || g.status === 'full'
+            )
 
-            // Buscar dados dos clubes separadamente
-            let clubsMap = new Map<string, { name: string; city: string | null }>()
-            const clubIds = [...new Set(openGames.map((g: any) => g.club_id).filter(Boolean))]
-            if (clubIds.length > 0) {
-              const { data: clubsData } = await supabase
-                .from('clubs')
-                .select('id, name, city')
-                .in('id', clubIds)
-              
-              clubsData?.forEach((club: any) => {
-                clubsMap.set(club.id, { name: club.name, city: club.city })
-              })
-            }
+            if (filteredGames.length > 0) {
 
-            // Contar jogadores em cada jogo
-          const gameIdsForCount = openGames.map((g: any) => g.id)
+              // Buscar dados dos clubes separadamente
+              let clubsMap = new Map<string, { name: string; city: string | null }>()
+              const clubIds = [...new Set(filteredGames.map((g: any) => g.club_id).filter(Boolean))]
+              if (clubIds.length > 0) {
+                const { data: clubsData } = await supabase
+                  .from('clubs')
+                  .select('id, name, city')
+                  .in('id', clubIds)
+                
+                clubsData?.forEach((club: any) => {
+                  clubsMap.set(club.id, { name: club.name, city: club.city })
+                })
+              }
+
+              // Contar jogadores em cada jogo
+              const gameIdsForCount = filteredGames.map((g: any) => g.id)
           const { data: playersCount } = await supabase
             .from('open_game_players')
             .select('game_id')
@@ -471,7 +487,7 @@ export async function fetchPlayerDashboardData(userId: string): Promise<PlayerDa
             countMap.set(p.game_id, (countMap.get(p.game_id) || 0) + 1)
           })
 
-            const openGameMatches: PlayerMatch[] = openGames.map((game: any) => {
+              const openGameMatches: PlayerMatch[] = filteredGames.map((game: any) => {
               const playersCount = countMap.get(game.id) || 0
               const club = clubsMap.get(game.club_id)
               return {
@@ -492,9 +508,10 @@ export async function fetchPlayerDashboardData(userId: string): Promise<PlayerDa
               }
             })
 
-            result.upcomingMatches = openGameMatches.sort((a, b) => 
-              new Date(a.start_time).getTime() - new Date(b.start_time).getTime()
-            )
+              result.upcomingMatches = openGameMatches.sort((a, b) => 
+                new Date(a.start_time).getTime() - new Date(b.start_time).getTime()
+              )
+            }
           }
         }
       }
