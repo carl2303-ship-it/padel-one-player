@@ -34,6 +34,9 @@ export interface PlayerMatch {
   set1?: string
   set2?: string
   set3?: string
+  is_open_game?: boolean // Indica se é um jogo aberto
+  open_game_id?: string // ID do jogo aberto
+  club_name?: string // Nome do clube (para jogos abertos)
 }
 
 export interface LeagueStanding {
@@ -321,7 +324,54 @@ export async function fetchPlayerDashboardData(userId: string): Promise<PlayerDa
     })
     const upcomingMatches = matches.filter((m) => new Date(m.start_time) >= now && m.status === 'scheduled')
     const recentMatches = matches.filter((m) => m.status === 'completed').reverse()
-    result.upcomingMatches = upcomingMatches
+    
+    // Buscar jogos abertos onde o jogador está inscrito
+    const { data: openGamePlayers } = await supabase
+      .from('open_game_players')
+      .select(`
+        game_id,
+        open_games!inner(
+          id,
+          scheduled_at,
+          status,
+          club_id,
+          clubs!inner(name, city),
+          court_name,
+          duration_minutes,
+          max_players,
+          players:open_game_players(count)
+        )
+      `)
+      .eq('player_account_id', playerAccount.id)
+      .gte('open_games.scheduled_at', new Date().toISOString())
+      .in('open_games.status', ['open', 'full'])
+
+    // Converter jogos abertos para PlayerMatch
+    const openGameMatches: PlayerMatch[] = (openGamePlayers || []).map((ogp: any) => {
+      const game = ogp.open_games
+      const playersCount = game.players?.[0]?.count || 0
+      return {
+        id: `open_${game.id}`,
+        tournament_id: '',
+        tournament_name: 'Jogo Aberto',
+        court: game.court_name || '',
+        start_time: game.scheduled_at,
+        team1_name: `${playersCount}/${game.max_players} jogadores`,
+        team2_name: game.clubs?.name || '',
+        status: game.status,
+        round: '',
+        score1: 0,
+        score2: 0,
+        is_open_game: true,
+        open_game_id: game.id,
+        club_name: game.clubs?.name || '',
+      }
+    })
+
+    // Combinar jogos de torneios com jogos abertos
+    result.upcomingMatches = [...upcomingMatches, ...openGameMatches].sort((a, b) => 
+      new Date(a.start_time).getTime() - new Date(b.start_time).getTime()
+    )
     result.recentMatches = recentMatches
     const totalMatches = wins + losses
     result.stats.totalMatches = totalMatches

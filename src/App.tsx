@@ -3524,9 +3524,38 @@ function FindGameScreen({
         )}
         {isInGame && (
           <div className="px-4 pb-3 pt-0 bg-gray-50/50 space-y-2">
-            <div className="w-full py-2 rounded-xl text-sm font-semibold text-center text-green-600 bg-green-50 border border-green-200">
-              ✅ Já estás neste jogo
-            </div>
+            {!isCreator && (
+              <button
+                onClick={async () => {
+                  if (!userId) return
+                  const { leaveOpenGame } = await import('./lib/openGames')
+                  const success = await leaveOpenGame(game.id, userId)
+                  if (success) {
+                    // Refresh games
+                    const { fetchOpenGames } = await import('./lib/openGames')
+                    const dateStr = dates[selectedDay]?.dateStr
+                    const data = await fetchOpenGames({
+                      clubId: selectedClubId || undefined,
+                      dateFrom: dateStr ? dateStr + 'T00:00:00' : undefined,
+                      dateTo: dateStr ? dateStr + 'T23:59:59' : undefined,
+                    })
+                    setGames(data)
+                    // Refresh dashboard data
+                    if (setDashboardData) {
+                      const { fetchPlayerDashboardData } = await import('./lib/playerDashboardData')
+                      const newData = await fetchPlayerDashboardData(userId)
+                      setDashboardData(newData)
+                    }
+                    alert('Saíste do jogo com sucesso!')
+                  } else {
+                    alert('Erro ao sair do jogo')
+                  }
+                }}
+                className="w-full py-2 rounded-xl text-sm font-semibold text-orange-600 bg-orange-50 border border-orange-200 hover:bg-orange-100 transition-colors"
+              >
+                🚪 Sair do jogo
+              </button>
+            )}
             {isCreator && (
               <button
                 onClick={() => handleCancelGame(game)}
