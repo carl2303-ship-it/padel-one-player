@@ -3524,7 +3524,14 @@ function FindGameScreen({
         )}
         {isInGame && (
           <div className="px-4 pb-3 pt-0 bg-gray-50/50 space-y-2">
-            {!isCreator && (
+            {isCreator ? (
+              <button
+                onClick={() => handleCancelGame(game)}
+                className="w-full py-2 rounded-xl text-sm font-semibold text-red-600 bg-red-50 border border-red-200 hover:bg-red-100 transition-colors"
+              >
+                ❌ Cancelar jogo
+              </button>
+            ) : (
               <button
                 onClick={async () => {
                   if (!userId) return
@@ -3554,14 +3561,6 @@ function FindGameScreen({
                 className="w-full py-2 rounded-xl text-sm font-semibold text-orange-600 bg-orange-50 border border-orange-200 hover:bg-orange-100 transition-colors"
               >
                 🚪 Sair do jogo
-              </button>
-            )}
-            {isCreator && (
-              <button
-                onClick={() => handleCancelGame(game)}
-                className="w-full py-2 rounded-xl text-sm font-semibold text-red-600 bg-red-50 border border-red-200 hover:bg-red-100 transition-colors"
-              >
-                ❌ Cancelar jogo
               </button>
             )}
           </div>
