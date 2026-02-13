@@ -326,52 +326,71 @@ export async function fetchPlayerDashboardData(userId: string): Promise<PlayerDa
     const recentMatches = matches.filter((m) => m.status === 'completed').reverse()
     
     // Buscar jogos abertos onde o jogador está inscrito
-    const { data: openGamePlayers } = await supabase
-      .from('open_game_players')
-      .select(`
-        game_id,
-        open_games!inner(
-          id,
-          scheduled_at,
-          status,
-          club_id,
-          clubs!inner(name, city),
-          court_name,
-          duration_minutes,
-          max_players,
-          players:open_game_players(count)
+    if (playerAccount.id) {
+      const { data: openGamePlayers } = await supabase
+        .from('open_game_players')
+        .select(`
+          game_id,
+          open_games!inner(
+            id,
+            scheduled_at,
+            status,
+            club_id,
+            clubs!inner(name, city),
+            court_name,
+            duration_minutes,
+            max_players
+          )
+        `)
+        .eq('player_account_id', playerAccount.id)
+        .gte('open_games.scheduled_at', new Date().toISOString())
+        .in('open_games.status', ['open', 'full'])
+
+      // Contar jogadores em cada jogo
+      if (openGamePlayers && openGamePlayers.length > 0) {
+        const gameIds = openGamePlayers.map((ogp: any) => ogp.open_games.id)
+        const { data: playersCount } = await supabase
+          .from('open_game_players')
+          .select('game_id')
+          .in('game_id', gameIds)
+
+        const countMap = new Map<string, number>()
+        playersCount?.forEach((p: any) => {
+          countMap.set(p.game_id, (countMap.get(p.game_id) || 0) + 1)
+        })
+
+        // Converter jogos abertos para PlayerMatch
+        const openGameMatches: PlayerMatch[] = openGamePlayers.map((ogp: any) => {
+          const game = ogp.open_games
+          const playersCount = countMap.get(game.id) || 0
+          return {
+            id: `open_${game.id}`,
+            tournament_id: '',
+            tournament_name: 'Jogo Aberto',
+            court: game.court_name || '',
+            start_time: game.scheduled_at,
+            team1_name: `${playersCount}/${game.max_players} jogadores`,
+            team2_name: game.clubs?.name || '',
+            status: game.status,
+            round: '',
+            score1: null,
+            score2: null,
+            is_open_game: true,
+            open_game_id: game.id,
+            club_name: game.clubs?.name || '',
+          }
+        })
+
+        // Combinar jogos de torneios com jogos abertos e ordenar por data
+        result.upcomingMatches = [...upcomingMatches, ...openGameMatches].sort((a, b) => 
+          new Date(a.start_time).getTime() - new Date(b.start_time).getTime()
         )
-      `)
-      .eq('player_account_id', playerAccount.id)
-      .gte('open_games.scheduled_at', new Date().toISOString())
-      .in('open_games.status', ['open', 'full'])
-
-    // Converter jogos abertos para PlayerMatch
-    const openGameMatches: PlayerMatch[] = (openGamePlayers || []).map((ogp: any) => {
-      const game = ogp.open_games
-      const playersCount = game.players?.[0]?.count || 0
-      return {
-        id: `open_${game.id}`,
-        tournament_id: '',
-        tournament_name: 'Jogo Aberto',
-        court: game.court_name || '',
-        start_time: game.scheduled_at,
-        team1_name: `${playersCount}/${game.max_players} jogadores`,
-        team2_name: game.clubs?.name || '',
-        status: game.status,
-        round: '',
-        score1: 0,
-        score2: 0,
-        is_open_game: true,
-        open_game_id: game.id,
-        club_name: game.clubs?.name || '',
+      } else {
+        result.upcomingMatches = upcomingMatches
       }
-    })
-
-    // Combinar jogos de torneios com jogos abertos
-    result.upcomingMatches = [...upcomingMatches, ...openGameMatches].sort((a, b) => 
-      new Date(a.start_time).getTime() - new Date(b.start_time).getTime()
-    )
+    } else {
+      result.upcomingMatches = upcomingMatches
+    }
     result.recentMatches = recentMatches
     const totalMatches = wins + losses
     result.stats.totalMatches = totalMatches
