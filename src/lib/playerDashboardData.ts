@@ -387,10 +387,13 @@ export async function fetchPlayerDashboardData(userId: string): Promise<PlayerDa
             }
           })
 
-        // Combinar jogos de torneios com jogos abertos e ordenar por data
-        result.upcomingMatches = [...upcomingMatches, ...openGameMatches].sort((a, b) => 
-          new Date(a.start_time).getTime() - new Date(b.start_time).getTime()
-        )
+          // Combinar jogos de torneios com jogos abertos e ordenar por data
+          result.upcomingMatches = [...upcomingMatches, ...openGameMatches].sort((a, b) => 
+            new Date(a.start_time).getTime() - new Date(b.start_time).getTime()
+          )
+        } else {
+          result.upcomingMatches = upcomingMatches
+        }
       } else {
         result.upcomingMatches = upcomingMatches
       }
@@ -403,6 +406,70 @@ export async function fetchPlayerDashboardData(userId: string): Promise<PlayerDa
     result.stats.wins = wins
     result.stats.losses = losses
     result.stats.winRate = totalMatches > 0 ? Math.round((wins / totalMatches) * 100) : 0
+  } else {
+    // Se não há matches de torneios, ainda podemos ter jogos abertos
+    if (playerAccount.id) {
+      const { data: playerGames } = await supabase
+        .from('open_game_players')
+        .select('game_id')
+        .eq('player_account_id', playerAccount.id)
+
+      if (playerGames && playerGames.length > 0) {
+        const gameIds = playerGames.map((pg: any) => pg.game_id)
+        const { data: openGames } = await supabase
+          .from('open_games')
+          .select(`
+            id,
+            scheduled_at,
+            status,
+            club_id,
+            clubs!inner(name, city),
+            court_name,
+            duration_minutes,
+            max_players
+          `)
+          .in('id', gameIds)
+          .gte('scheduled_at', new Date().toISOString())
+          .in('status', ['open', 'full'])
+
+        if (openGames && openGames.length > 0) {
+          const gameIdsForCount = openGames.map((g: any) => g.id)
+          const { data: playersCount } = await supabase
+            .from('open_game_players')
+            .select('game_id')
+            .in('game_id', gameIdsForCount)
+
+          const countMap = new Map<string, number>()
+          playersCount?.forEach((p: any) => {
+            countMap.set(p.game_id, (countMap.get(p.game_id) || 0) + 1)
+          })
+
+          const openGameMatches: PlayerMatch[] = openGames.map((game: any) => {
+            const playersCount = countMap.get(game.id) || 0
+            return {
+              id: `open_${game.id}`,
+              tournament_id: '',
+              tournament_name: 'Jogo Aberto',
+              court: game.court_name || '',
+              start_time: game.scheduled_at,
+              team1_name: `${playersCount}/${game.max_players} jogadores`,
+              team2_name: game.clubs?.name || '',
+              status: game.status,
+              round: '',
+              score1: null,
+              score2: null,
+              is_open_game: true,
+              open_game_id: game.id,
+              club_name: game.clubs?.name || '',
+            }
+          })
+
+          result.upcomingMatches = openGameMatches.sort((a, b) => 
+            new Date(a.start_time).getTime() - new Date(b.start_time).getTime()
+          )
+        }
+      }
+    }
   }
 
   await fetchLeagueStandingsOnly(playerAccount.id, name || '', result, playerIds, teamIds)
