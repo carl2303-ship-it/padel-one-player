@@ -1090,7 +1090,7 @@ function OpenGameCard({
         let courtData = null
         if (data.court_id) {
           const { data: courtResult } = await supabase
-            .from('courts')
+            .from('club_courts')
             .select('name, type')
             .eq('id', data.court_id)
             .single()

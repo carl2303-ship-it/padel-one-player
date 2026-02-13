@@ -379,7 +379,7 @@ export async function fetchPlayerDashboardData(userId: string): Promise<PlayerDa
               const courtIds = [...new Set(filteredGames.map((g: any) => g.court_id).filter(Boolean))]
               if (courtIds.length > 0) {
                 const { data: courtsData } = await supabase
-                  .from('courts')
+                  .from('club_courts')
                   .select('id, name')
                   .in('id', courtIds)
                 
@@ -493,7 +493,7 @@ export async function fetchPlayerDashboardData(userId: string): Promise<PlayerDa
               const courtIds = [...new Set(filteredGames.map((g: any) => g.court_id).filter(Boolean))]
               if (courtIds.length > 0) {
                 const { data: courtsData } = await supabase
-                  .from('courts')
+                  .from('club_courts')
                   .select('id, name')
                   .in('id', courtIds)
                 
