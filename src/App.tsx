@@ -1074,10 +1074,48 @@ function OpenGameCard({
         // Fetch players
         const { data: playersData } = await supabase
           .from('open_game_players')
-          .select('id, user_id, player_account_id, status, position, name, avatar_url, level, player_category')
+          .select('*')
           .eq('game_id', gameId)
           .eq('status', 'confirmed')
           .order('position')
+
+        // Fetch player account details
+        const userIds = [...new Set((playersData || []).map((p: any) => p.user_id).filter(Boolean))]
+        const playerAccountIds = [...new Set((playersData || []).map((p: any) => p.player_account_id).filter(Boolean))]
+        let playerAccountsMap: { [key: string]: any } = {}
+
+        if (userIds.length > 0 || playerAccountIds.length > 0) {
+          let query = supabase
+            .from('player_accounts')
+            .select('id, user_id, name, avatar_url, level, player_category')
+
+          if (userIds.length > 0) {
+            query = query.in('user_id', userIds)
+          } else if (playerAccountIds.length > 0) {
+            query = query.in('id', playerAccountIds)
+          }
+
+          const { data: accounts } = await query
+
+          if (accounts) {
+            accounts.forEach((a: any) => {
+              if (a.user_id) playerAccountsMap[a.user_id] = a
+              playerAccountsMap[a.id] = a
+            })
+          }
+        }
+
+        // Enrich players data
+        const enrichedPlayers = (playersData || []).map((p: any) => {
+          const account = playerAccountsMap[p.user_id] || playerAccountsMap[p.player_account_id]
+          return {
+            ...p,
+            name: account?.name || p.name || 'Jogador',
+            avatar_url: account?.avatar_url || null,
+            level: account?.level || null,
+            player_category: account?.player_category || null,
+          }
+        })
 
         // Fetch club data
         const { data: clubData } = await supabase
@@ -1104,7 +1142,7 @@ function OpenGameCard({
           club_city: clubData?.city || null,
           court_name: courtData?.name || null,
           court_type: courtData?.type || null,
-          players: playersData || [],
+          players: enrichedPlayers,
         })
       }
       setLoading(false)
