@@ -874,9 +874,9 @@ function GameCardPlaytomic({
             category: playerData.player_category ?? undefined,
             avatar_url: avatarUrl
           }
-        } else {
-          console.warn(`[GameCard] Player not found: ${name}`)
         }
+        // Note: If player not found, they simply won't have level/category/avatar data
+        // This is normal for old matches with players no longer in the database
       }
       
       setPlayersData(data)
@@ -3057,19 +3057,21 @@ function CompeteScreen({
                               const setScores = [m.set1, m.set2, m.set3].filter(Boolean)
                               // Mostrar sempre os jogos de cada set, nunca o resultado 1-0/0-1
                               const scoreDisplay = setScores.length > 0 ? setScores.join(' ') : '-'
+                              // Determinar qual equipa ganhou baseado no score
+                              const team1Won = m.team1_score !== undefined && m.team2_score !== undefined && m.team1_score > m.team2_score
                               return (
-                              <div key={m.id} className="flex justify-between items-center text-sm py-2 px-3 bg-gray-50 rounded-lg">
+                              <div key={m.id} className="flex justify-between items-start text-sm py-2 px-3 bg-gray-50 rounded-lg">
                                 <div className="flex-1 mr-2 min-w-0">
-                                  <div className="text-gray-700 truncate">
-                                    {m.team1_name} vs {m.team2_name}
+                                  {/* Equipa 1 */}
+                                  <div className={`text-gray-700 ${team1Won ? 'font-semibold' : ''}`}>
+                                    {m.team1_name}
                                   </div>
-                                  {m.team1_score !== undefined && m.team2_score !== undefined && (
-                                    <div className="text-xs text-gray-500 mt-0.5">
-                                      {m.team1_score} jogos ganhos / {m.team2_score} jogos perdidos
-                                    </div>
-                                  )}
+                                  {/* Equipa 2 */}
+                                  <div className={`text-gray-700 mt-1 ${!team1Won && m.team1_score !== undefined && m.team2_score !== undefined ? 'font-semibold' : ''}`}>
+                                    {m.team2_name}
+                                  </div>
                                 </div>
-                                <div className="flex items-center gap-2 flex-shrink-0">
+                                <div className="flex flex-col items-end gap-1 flex-shrink-0">
                                   <span className="font-semibold text-gray-900">
                                     {scoreDisplay}
                                   </span>
@@ -3092,13 +3094,13 @@ function CompeteScreen({
                           <table className="w-full text-sm">
                             <thead>
                               <tr className="text-gray-500 border-b">
-                                <th className="py-1.5 px-1 text-left font-medium w-6">#</th>
-                                <th className="py-1.5 px-1 text-left font-medium">Nome</th>
-                                <th className="py-1.5 px-1 text-center font-medium w-6">V</th>
-                                <th className="py-1.5 px-1 text-center font-medium w-6">E</th>
-                                <th className="py-1.5 px-1 text-center font-medium w-6">D</th>
-                                <th className="py-1.5 px-1 text-center font-medium w-8">+/-</th>
-                                <th className="py-1.5 px-1 text-center font-semibold w-7">Pts</th>
+                                <th className="py-1.5 px-2 text-left font-medium w-8">#</th>
+                                <th className="py-1.5 px-2 text-left font-medium min-w-0">Nome</th>
+                                <th className="py-1.5 px-1 text-center font-medium w-8">V</th>
+                                <th className="py-1.5 px-1 text-center font-medium w-8">E</th>
+                                <th className="py-1.5 px-1 text-center font-medium w-8">D</th>
+                                <th className="py-1.5 px-1 text-center font-medium w-10">+/-</th>
+                                <th className="py-1.5 px-1 text-center font-semibold w-10">Pts</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -3107,14 +3109,14 @@ function CompeteScreen({
                                 const hasPlayers = row.player1_name || row.player2_name
                                 return (
                                   <tr key={row.id} className={`border-b border-gray-50 ${details.playerPosition === i + 1 ? 'bg-red-50 font-semibold' : ''}`}>
-                                    <td className="py-1.5 px-1">{i + 1}</td>
-                                    <td className="py-1.5 px-1">
-                                      <div className="font-medium truncate max-w-[120px]">{row.name}</div>
+                                    <td className="py-1.5 px-2">{i + 1}</td>
+                                    <td className="py-1.5 px-2 min-w-0">
+                                      <div className="font-medium break-words">{row.name}</div>
                                       {row.player1_name && (
-                                        <div className="text-xs text-gray-500 truncate max-w-[120px]">{row.player1_name}</div>
+                                        <div className="text-xs text-gray-500 break-words">{row.player1_name}</div>
                                       )}
                                       {row.player2_name && (
-                                        <div className="text-xs text-gray-500 truncate max-w-[120px]">{row.player2_name}</div>
+                                        <div className="text-xs text-gray-500 break-words">{row.player2_name}</div>
                                       )}
                                     </td>
                                     <td className="py-1.5 px-1 text-center text-green-600">{row.wins}</td>
@@ -3478,15 +3480,20 @@ function FindGameScreen({
 
   // Separate games: within level (existing) vs out of level (request)
   // Show open games + full games where user is already in
+  // Also show games where user is already a player, regardless of status (except cancelled)
   const existingGames = games.filter(g => {
     const inMyLevel = playerLevel >= g.level_min && playerLevel <= g.level_max
     const imInGame = g.players.some(p => p.user_id === userId || (player?.id && p.player_account_id === player.id))
-    return inMyLevel && (g.status === 'open' || (g.status === 'full' && imInGame))
+    // Show if: (1) I'm already in the game (any status except cancelled), OR (2) in my level and open/full/pending
+    return (imInGame && g.status !== 'cancelled') || 
+           (inMyLevel && (g.status === 'open' || g.status === 'full' || g.status === 'pending'))
   })
   const requestGames = games.filter(g => {
     const outOfLevel = playerLevel < g.level_min || playerLevel > g.level_max
     const imInGame = g.players.some(p => p.user_id === userId || (player?.id && p.player_account_id === player.id))
-    return outOfLevel && (g.status === 'open' || (g.status === 'full' && imInGame))
+    // Show if: (1) I'm already in the game (any status except cancelled), OR (2) out of level and open/full/pending
+    return (imInGame && g.status !== 'cancelled') || 
+           (outOfLevel && (g.status === 'open' || g.status === 'full' || g.status === 'pending'))
   })
 
   // Join a game

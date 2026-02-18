@@ -120,17 +120,21 @@ export async function fetchPlayerDashboardData(userId: string): Promise<PlayerDa
   const phone = (playerAccount as any).phone_number
   const name = playerAccount.name
 
-  const [playersByPhone, playersByName] = await Promise.all([
+  const [playersByPhone, playersByName, playersByNamePartial] = await Promise.all([
     phone
       ? supabase.from('players').select('id, tournament_id').eq('phone_number', phone)
       : { data: [] },
     name
       ? supabase.from('players').select('id, tournament_id').ilike('name', name)
       : { data: [] },
+    // Also try partial match in case of name variations (e.g., "Jordi Oviedo" vs "Jordi")
+    name
+      ? supabase.from('players').select('id, tournament_id').ilike('name', `%${name}%`)
+      : { data: [] },
   ])
 
   const allPlayersMap = new Map<string, { id: string; tournament_id: string | null }>()
-  ;[...(playersByPhone.data || []), ...(playersByName.data || [])].forEach((p: any) => {
+  ;[...(playersByPhone.data || []), ...(playersByName.data || []), ...(playersByNamePartial.data || [])].forEach((p: any) => {
     allPlayersMap.set(p.id, p)
   })
   const allPlayers = Array.from(allPlayersMap.values())
@@ -217,44 +221,97 @@ export async function fetchPlayerDashboardData(userId: string): Promise<PlayerDa
         .or(playerConditions)
     ).data?.map((t: any) => t.id) || []
 
-  const teamMatchConditions =
-    teamIds.length > 0
-      ? `team1_id.in.(${teamIds.join(',')}),team2_id.in.(${teamIds.join(',')})`
-      : ''
-  const individualMatchConditions = playerIds
-    .map(
-      (id) =>
-        `player1_individual_id.eq.${id},player2_individual_id.eq.${id},player3_individual_id.eq.${id},player4_individual_id.eq.${id}`
-    )
-    .join(',')
-  const allConditions = [teamMatchConditions, individualMatchConditions].filter((c) => c.length > 0).join(',')
+  // Build queries separately to avoid timeout errors
+  // Limit playerIds to avoid very complex queries (use most recent tournaments)
+  const MAX_PLAYER_IDS = 50 // Limit to avoid timeout
+  const MAX_TEAM_IDS = 50
+  const limitedPlayerIds = playerIds.slice(0, MAX_PLAYER_IDS)
+  const limitedTeamIds = teamIds.slice(0, MAX_TEAM_IDS)
 
-  if (!allConditions) {
+  if (limitedPlayerIds.length === 0 && limitedTeamIds.length === 0) {
     await fetchLeagueStandingsOnly(playerAccount.id, name || '', result, playerIds, teamIds)
     return result
   }
 
-  const { data: matchesData } = await supabase
-    .from('matches')
-    .select(
-      `
-      id, tournament_id, court, scheduled_time,
-      team1_score_set1, team2_score_set1, team1_score_set2, team2_score_set2, team1_score_set3, team2_score_set3,
-      status, round, team1_id, team2_id,
-      player1_individual_id, player2_individual_id, player3_individual_id, player4_individual_id,
-      tournaments!inner(name),
-      team1:teams!matches_team1_id_fkey(id, name, t1p1:players!teams_player1_id_fkey(name), t1p2:players!teams_player2_id_fkey(name)),
-      team2:teams!matches_team2_id_fkey(id, name, t2p1:players!teams_player1_id_fkey(name), t2p2:players!teams_player2_id_fkey(name)),
-      p1:players!matches_player1_individual_id_fkey(id, name),
-      p2:players!matches_player2_individual_id_fkey(id, name),
-      p3:players!matches_player3_individual_id_fkey(id, name),
-      p4:players!matches_player4_individual_id_fkey(id, name)
-    `
-    )
-    .or(allConditions)
-    .order('scheduled_time', { ascending: true })
+  // Fetch matches in separate queries and combine to avoid timeout
+  const allMatches: any[] = []
+  const selectFields = `
+    id, tournament_id, court, scheduled_time,
+    team1_score_set1, team2_score_set1, team1_score_set2, team2_score_set2, team1_score_set3, team2_score_set3,
+    status, round, team1_id, team2_id,
+    player1_individual_id, player2_individual_id, player3_individual_id, player4_individual_id,
+    tournaments!inner(name),
+    team1:teams!matches_team1_id_fkey(id, name, t1p1:players!teams_player1_id_fkey(name), t1p2:players!teams_player2_id_fkey(name)),
+    team2:teams!matches_team2_id_fkey(id, name, t2p1:players!teams_player1_id_fkey(name), t2p2:players!teams_player2_id_fkey(name)),
+    p1:players!matches_player1_individual_id_fkey(id, name),
+    p2:players!matches_player2_individual_id_fkey(id, name),
+    p3:players!matches_player3_individual_id_fkey(id, name),
+    p4:players!matches_player4_individual_id_fkey(id, name)
+  `
 
-  if (matchesData) {
+  try {
+    // Query 1: Team matches
+    if (limitedTeamIds.length > 0) {
+      const { data: teamMatches, error: teamError } = await supabase
+        .from('matches')
+        .select(selectFields)
+        .or(`team1_id.in.(${limitedTeamIds.join(',')}),team2_id.in.(${limitedTeamIds.join(',')})`)
+        .order('scheduled_time', { ascending: true })
+        .limit(1000) // Limit results to avoid timeout
+      
+      if (teamError) {
+        console.warn('[PlayerDashboard] Team matches error:', teamError)
+      } else if (teamMatches) {
+        allMatches.push(...teamMatches)
+      }
+    }
+
+    // Query 2-5: Individual matches (one query per position to avoid complex .or())
+    if (limitedPlayerIds.length > 0) {
+      const positions = [
+        'player1_individual_id',
+        'player2_individual_id', 
+        'player3_individual_id',
+        'player4_individual_id'
+      ]
+
+      // Split into smaller chunks if needed
+      const chunkSize = 20
+      for (let i = 0; i < limitedPlayerIds.length; i += chunkSize) {
+        const chunk = limitedPlayerIds.slice(i, i + chunkSize)
+        
+        for (const position of positions) {
+          const { data: posMatches, error: posError } = await supabase
+            .from('matches')
+            .select(selectFields)
+            .in(position, chunk)
+            .order('scheduled_time', { ascending: true })
+            .limit(500) // Limit per query
+          
+          if (posError) {
+            console.warn(`[PlayerDashboard] ${position} matches error:`, posError)
+          } else if (posMatches) {
+            allMatches.push(...posMatches)
+          }
+        }
+      }
+    }
+
+    // Remove duplicates by match id
+    const uniqueMatches = Array.from(
+      new Map(allMatches.map(m => [m.id, m])).values()
+    )
+
+    const matchesData = uniqueMatches.sort((a, b) => 
+      new Date(a.scheduled_time || 0).getTime() - new Date(b.scheduled_time || 0).getTime()
+    )
+
+    if (matchesData.length === 0) {
+      await fetchLeagueStandingsOnly(playerAccount.id, name || '', result, playerIds, teamIds)
+      return result
+    }
+
+    // Process matchesData from the combined queries above
     let wins = 0
     let losses = 0
     const matches: PlayerMatch[] = (matchesData as any[]).map((m) => {
@@ -444,8 +501,15 @@ export async function fetchPlayerDashboardData(userId: string): Promise<PlayerDa
     result.stats.wins = wins
     result.stats.losses = losses
     result.stats.winRate = totalMatches > 0 ? Math.round((wins / totalMatches) * 100) : 0
-  } else {
-    // Se não há matches de torneios, ainda podemos ter jogos abertos
+  } catch (err) {
+    console.error('[PlayerDashboard] Error fetching matches:', err)
+    // Fallback: continue with empty matches but still fetch league standings
+    await fetchLeagueStandingsOnly(playerAccount.id, name || '', result, playerIds, teamIds)
+    return result
+  }
+  
+  // Se não há matches de torneios, ainda podemos ter jogos abertos (fallback caso o try não tenha encontrado matches)
+  if (!result.upcomingMatches || result.upcomingMatches.length === 0) {
     if (playerAccount.id) {
       const { data: playerGames } = await supabase
         .from('open_game_players')
