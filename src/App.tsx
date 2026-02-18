@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { supabase, PlayerAccount } from './lib/supabase'
 import {
   fetchPlayerDashboardData,
+  enrichDashboardWithEdgeFunction,
   type PlayerDashboardData,
 } from './lib/playerDashboardData'
 import { 
@@ -140,8 +141,17 @@ function App() {
         setIsAuthenticated(true)
         setAuthUserId(authUid || data.user_id || null)
         if (data.user_id) {
-          const dash = await fetchPlayerDashboardData(data.user_id)
+          // Pass playerAccount to avoid duplicate query (saves ~150ms)
+          const dash = await fetchPlayerDashboardData(data.user_id, {
+            id: data.id,
+            name: data.name,
+            phone_number: data.phone_number,
+          })
           setDashboardData(dash)
+          // Enrich with Edge Function in background (progressive loading)
+          enrichDashboardWithEdgeFunction().then(enriched => {
+            if (enriched) setDashboardData(prev => prev ? { ...prev, ...enriched } : prev)
+          })
         }
         setIsLoading(false)
         return
@@ -160,8 +170,17 @@ function App() {
         setPlayer(playerAccount as any)
         setAuthUserId(session.user.id)
         setIsAuthenticated(true)
-        const data = await fetchPlayerDashboardData(session.user.id)
+        // Pass playerAccount to avoid duplicate query (saves ~150ms)
+        const data = await fetchPlayerDashboardData(session.user.id, {
+          id: playerAccount.id,
+          name: playerAccount.name,
+          phone_number: playerAccount.phone_number,
+        })
         setDashboardData(data)
+        // Enrich with Edge Function in background (progressive loading)
+        enrichDashboardWithEdgeFunction().then(enriched => {
+          if (enriched) setDashboardData(prev => prev ? { ...prev, ...enriched } : prev)
+        })
         setIsLoading(false)
         return
       }
@@ -175,6 +194,10 @@ function App() {
     if (session?.user) {
       const data = await fetchPlayerDashboardData(session.user.id)
       setDashboardData(data)
+      // Enrich with Edge Function in background
+      enrichDashboardWithEdgeFunction().then(enriched => {
+        if (enriched) setDashboardData(prev => prev ? { ...prev, ...enriched } : prev)
+      })
     }
   }
 
@@ -294,8 +317,17 @@ function App() {
         setPlayer(playerAccount as any)
         setAuthUserId(authData?.user?.id || playerAccount.user_id || null)
         if (playerAccount.user_id) {
-          const data = await fetchPlayerDashboardData(playerAccount.user_id)
+          // Pass playerAccount to avoid duplicate query (saves ~150ms)
+          const data = await fetchPlayerDashboardData(playerAccount.user_id, {
+            id: playerAccount.id,
+            name: playerAccount.name,
+            phone_number: playerAccount.phone_number,
+          })
           setDashboardData(data)
+          // Enrich with Edge Function in background (progressive loading)
+          enrichDashboardWithEdgeFunction().then(enriched => {
+            if (enriched) setDashboardData(prev => prev ? { ...prev, ...enriched } : prev)
+          })
         }
       }
       setIsAuthenticated(true)

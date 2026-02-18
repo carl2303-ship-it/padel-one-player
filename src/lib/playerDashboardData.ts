@@ -94,7 +94,96 @@ const emptyStats: PlayerStats = {
   bestFinish: '-',
 }
 
-export async function fetchPlayerDashboardData(userId: string): Promise<PlayerDashboardData> {
+/**
+ * Helper: Fetch open games where the player is enrolled (consolidated from duplicate code)
+ */
+async function fetchOpenGameMatches(playerAccountId: string): Promise<PlayerMatch[]> {
+  if (!playerAccountId) return []
+
+  try {
+    const { data: playerGames } = await supabase
+      .from('open_game_players')
+      .select('game_id')
+      .eq('player_account_id', playerAccountId)
+
+    if (!playerGames || playerGames.length === 0) return []
+
+    const gameIds = playerGames.map((pg: any) => pg.game_id).filter(Boolean)
+    if (gameIds.length === 0) return []
+
+    const { data: openGames, error: openGamesError } = await supabase
+      .from('open_games')
+      .select('id, scheduled_at, status, club_id, court_id, duration_minutes, max_players')
+      .in('id', gameIds)
+      .gte('scheduled_at', new Date().toISOString())
+
+    if (openGamesError || !openGames) return []
+
+    const filteredGames = openGames.filter((g: any) => g.status === 'open' || g.status === 'full')
+    if (filteredGames.length === 0) return []
+
+    // Fetch clubs, courts, and player counts in PARALLEL (was sequential)
+    const clubIds = [...new Set(filteredGames.map((g: any) => g.club_id).filter(Boolean))]
+    const courtIds = [...new Set(filteredGames.map((g: any) => g.court_id).filter(Boolean))]
+    const gameIdsForCount = filteredGames.map((g: any) => g.id)
+
+    const [clubsResult, courtsResult, playersCountResult] = await Promise.all([
+      clubIds.length > 0
+        ? supabase.from('clubs').select('id, name, city').in('id', clubIds)
+        : { data: [] },
+      courtIds.length > 0
+        ? supabase.from('club_courts').select('id, name').in('id', courtIds)
+        : { data: [] },
+      supabase.from('open_game_players').select('game_id').in('game_id', gameIdsForCount),
+    ])
+
+    const clubsMap = new Map<string, { name: string; city: string | null }>()
+    ;(clubsResult.data || []).forEach((club: any) => {
+      clubsMap.set(club.id, { name: club.name, city: club.city })
+    })
+
+    const courtsMap = new Map<string, string>()
+    ;(courtsResult.data || []).forEach((court: any) => {
+      courtsMap.set(court.id, court.name)
+    })
+
+    const countMap = new Map<string, number>()
+    ;(playersCountResult.data || []).forEach((p: any) => {
+      countMap.set(p.game_id, (countMap.get(p.game_id) || 0) + 1)
+    })
+
+    return filteredGames.map((game: any) => {
+      const count = countMap.get(game.id) || 0
+      const club = clubsMap.get(game.club_id)
+      const courtName = courtsMap.get(game.court_id) || 'Campo'
+      return {
+        id: `open_${game.id}`,
+        tournament_id: '',
+        tournament_name: 'Jogo Aberto',
+        court: courtName,
+        start_time: game.scheduled_at,
+        team1_name: `${count}/${game.max_players} jogadores`,
+        team2_name: club?.name || '',
+        status: game.status,
+        round: '',
+        score1: null,
+        score2: null,
+        is_open_game: true,
+        open_game_id: game.id,
+        club_name: club?.name || '',
+      }
+    })
+  } catch (err) {
+    console.error('[PlayerDashboard] Error fetching open games:', err)
+    return []
+  }
+}
+
+export async function fetchPlayerDashboardData(
+  userId: string,
+  existingPlayerAccount?: { id: string; name: string | null; phone_number: string | null }
+): Promise<PlayerDashboardData> {
+  console.time('[Dashboard] Total load time')
   const result: PlayerDashboardData = {
     playerName: '',
     playerAccountId: null,
@@ -106,13 +195,17 @@ export async function fetchPlayerDashboardData(userId: string): Promise<PlayerDa
     stats: { ...emptyStats },
   }
 
-  const { data: playerAccount } = await supabase
-    .from('player_accounts')
-    .select('id, name, phone_number')
-    .eq('user_id', userId)
-    .maybeSingle()
-
-  if (!playerAccount) return result
+  // Use existing playerAccount if passed (avoids duplicate query)
+  let playerAccount = existingPlayerAccount
+  if (!playerAccount) {
+    const { data } = await supabase
+      .from('player_accounts')
+      .select('id, name, phone_number')
+      .eq('user_id', userId)
+      .maybeSingle()
+    if (!data) { console.timeEnd('[Dashboard] Total load time'); return result }
+    playerAccount = data
+  }
 
   result.playerAccountId = playerAccount.id
   result.playerName = playerAccount.name || ''
@@ -143,6 +236,7 @@ export async function fetchPlayerDashboardData(userId: string): Promise<PlayerDa
 
   if (allPlayers.length === 0) {
     await fetchLeagueStandingsOnly(playerAccount.id, name || '', result)
+    console.timeEnd('[Dashboard] Total load time')
     return result
   }
 
@@ -158,7 +252,7 @@ export async function fetchPlayerDashboardData(userId: string): Promise<PlayerDa
     playerIds.length > 0
       ? supabase
           .from('teams')
-          .select('tournament_id, tournaments!inner(id, name, start_date, end_date, status)')
+          .select('id, tournament_id, tournaments!inner(id, name, start_date, end_date, status)')
           .or(playerConditions)
       : { data: [] },
   ])
@@ -213,28 +307,15 @@ export async function fetchPlayerDashboardData(userId: string): Promise<PlayerDa
   result.pastTournaments = past
   result.stats.tournamentsPlayed = past.length
 
-  const teamIds =
-    (
-      await supabase
-        .from('teams')
-        .select('id')
-        .or(playerConditions)
-    ).data?.map((t: any) => t.id) || []
+  // Extract team IDs from teamsRes (avoids separate query)
+  const teamIds = (teamsRes.data || []).map((t: any) => t.id)
 
-  // Build queries separately to avoid timeout errors
-  // Limit playerIds to avoid very complex queries (use most recent tournaments)
-  const MAX_PLAYER_IDS = 50 // Limit to avoid timeout
-  const MAX_TEAM_IDS = 50
-  const limitedPlayerIds = playerIds.slice(0, MAX_PLAYER_IDS)
-  const limitedTeamIds = teamIds.slice(0, MAX_TEAM_IDS)
-
-  if (limitedPlayerIds.length === 0 && limitedTeamIds.length === 0) {
+  if (playerIds.length === 0 && teamIds.length === 0) {
     await fetchLeagueStandingsOnly(playerAccount.id, name || '', result, playerIds, teamIds)
+    console.timeEnd('[Dashboard] Total load time')
     return result
   }
 
-  // Fetch matches in separate queries and combine to avoid timeout
-  const allMatches: any[] = []
   const selectFields = `
     id, tournament_id, court, scheduled_time,
     team1_score_set1, team2_score_set1, team1_score_set2, team2_score_set2, team1_score_set3, team2_score_set3,
@@ -250,64 +331,40 @@ export async function fetchPlayerDashboardData(userId: string): Promise<PlayerDa
   `
 
   try {
-    // Query 1: Team matches
-    if (limitedTeamIds.length > 0) {
-      const { data: teamMatches, error: teamError } = await supabase
+    // OPTIMIZED: Single combined query instead of sequential loop (was 4*N queries!)
+    console.time('[Dashboard] Fetch matches (single query)')
+    const matchConditions: string[] = []
+    if (teamIds.length > 0) {
+      matchConditions.push(`team1_id.in.(${teamIds.join(',')})`)
+      matchConditions.push(`team2_id.in.(${teamIds.join(',')})`)
+    }
+    if (playerIds.length > 0) {
+      matchConditions.push(`player1_individual_id.in.(${playerIds.join(',')})`)
+      matchConditions.push(`player2_individual_id.in.(${playerIds.join(',')})`)
+      matchConditions.push(`player3_individual_id.in.(${playerIds.join(',')})`)
+      matchConditions.push(`player4_individual_id.in.(${playerIds.join(',')})`)
+    }
+
+    let matchesData: any[] = []
+    if (matchConditions.length > 0) {
+      const { data: fetchedMatches, error: matchError } = await supabase
         .from('matches')
         .select(selectFields)
-        .or(`team1_id.in.(${limitedTeamIds.join(',')}),team2_id.in.(${limitedTeamIds.join(',')})`)
+        .or(matchConditions.join(','))
         .order('scheduled_time', { ascending: true })
-        .limit(1000) // Limit results to avoid timeout
-      
-      if (teamError) {
-        console.warn('[PlayerDashboard] Team matches error:', teamError)
-      } else if (teamMatches) {
-        allMatches.push(...teamMatches)
+        .limit(500)
+
+      if (matchError) {
+        console.warn('[PlayerDashboard] Matches query error:', matchError)
+      } else {
+        matchesData = fetchedMatches || []
       }
     }
-
-    // Query 2-5: Individual matches (one query per position to avoid complex .or())
-    if (limitedPlayerIds.length > 0) {
-      const positions = [
-        'player1_individual_id',
-        'player2_individual_id', 
-        'player3_individual_id',
-        'player4_individual_id'
-      ]
-
-      // Split into smaller chunks if needed
-      const chunkSize = 20
-      for (let i = 0; i < limitedPlayerIds.length; i += chunkSize) {
-        const chunk = limitedPlayerIds.slice(i, i + chunkSize)
-        
-        for (const position of positions) {
-          const { data: posMatches, error: posError } = await supabase
-            .from('matches')
-            .select(selectFields)
-            .in(position, chunk)
-            .order('scheduled_time', { ascending: true })
-            .limit(500) // Limit per query
-          
-          if (posError) {
-            console.warn(`[PlayerDashboard] ${position} matches error:`, posError)
-          } else if (posMatches) {
-            allMatches.push(...posMatches)
-          }
-        }
-      }
-    }
-
-    // Remove duplicates by match id
-    const uniqueMatches = Array.from(
-      new Map(allMatches.map(m => [m.id, m])).values()
-    )
-
-    const matchesData = uniqueMatches.sort((a, b) => 
-      new Date(a.scheduled_time || 0).getTime() - new Date(b.scheduled_time || 0).getTime()
-    )
+    console.timeEnd('[Dashboard] Fetch matches (single query)')
 
     if (matchesData.length === 0) {
       await fetchLeagueStandingsOnly(playerAccount.id, name || '', result, playerIds, teamIds)
+      console.timeEnd('[Dashboard] Total load time')
       return result
     }
 
@@ -382,119 +439,12 @@ export async function fetchPlayerDashboardData(userId: string): Promise<PlayerDa
     const upcomingMatches = matches.filter((m) => new Date(m.start_time) >= now && m.status === 'scheduled')
     const recentMatches = matches.filter((m) => m.status === 'completed').reverse()
     
-    // Buscar jogos abertos onde o jogador está inscrito
-    if (playerAccount.id) {
-      // Primeiro buscar os game_ids onde o jogador está inscrito
-      const { data: playerGames } = await supabase
-        .from('open_game_players')
-        .select('game_id')
-        .eq('player_account_id', playerAccount.id)
+    // Fetch open games and combine with tournament matches (consolidated, was duplicated)
+    const openGameMatches = await fetchOpenGameMatches(playerAccount.id)
+    result.upcomingMatches = [...upcomingMatches, ...openGameMatches].sort((a, b) =>
+      new Date(a.start_time).getTime() - new Date(b.start_time).getTime()
+    )
 
-      if (playerGames && playerGames.length > 0) {
-        const gameIds = playerGames.map((pg: any) => pg.game_id).filter(Boolean)
-        
-        if (gameIds.length === 0) {
-          result.upcomingMatches = upcomingMatches
-        } else {
-          // Depois buscar os jogos abertos com os filtros corretos
-          // Usar uma query mais simples para evitar erros 400
-          let query = supabase
-            .from('open_games')
-            .select('id, scheduled_at, status, club_id, court_id, duration_minutes, max_players')
-            .in('id', gameIds)
-            .gte('scheduled_at', new Date().toISOString())
-          
-          // Aplicar filtro de status de forma diferente para evitar problemas
-          const { data: openGames, error: openGamesError } = await query
-
-          if (openGamesError) {
-            console.error('[PlayerDashboard] Error fetching open games:', openGamesError)
-            result.upcomingMatches = upcomingMatches
-          } else {
-            // Filtrar por status manualmente
-            const filteredGames = (openGames || []).filter((g: any) => 
-              g.status === 'open' || g.status === 'full'
-            )
-
-            if (filteredGames.length > 0) {
-
-              // Buscar dados dos clubes e courts separadamente
-              let clubsMap = new Map<string, { name: string; city: string | null }>()
-              const clubIds = [...new Set(filteredGames.map((g: any) => g.club_id).filter(Boolean))]
-              if (clubIds.length > 0) {
-                const { data: clubsData } = await supabase
-                  .from('clubs')
-                  .select('id, name, city')
-                  .in('id', clubIds)
-                
-                clubsData?.forEach((club: any) => {
-                  clubsMap.set(club.id, { name: club.name, city: club.city })
-                })
-              }
-
-              let courtsMap = new Map<string, string>()
-              const courtIds = [...new Set(filteredGames.map((g: any) => g.court_id).filter(Boolean))]
-              if (courtIds.length > 0) {
-                const { data: courtsData } = await supabase
-                  .from('club_courts')
-                  .select('id, name')
-                  .in('id', courtIds)
-                
-                courtsData?.forEach((court: any) => {
-                  courtsMap.set(court.id, court.name)
-                })
-              }
-
-              // Contar jogadores em cada jogo
-              const gameIdsForCount = filteredGames.map((g: any) => g.id)
-              const { data: playersCount } = await supabase
-                .from('open_game_players')
-                .select('game_id')
-                .in('game_id', gameIdsForCount)
-
-          const countMap = new Map<string, number>()
-          playersCount?.forEach((p: any) => {
-            countMap.set(p.game_id, (countMap.get(p.game_id) || 0) + 1)
-          })
-
-              // Converter jogos abertos para PlayerMatch
-              const openGameMatches: PlayerMatch[] = filteredGames.map((game: any) => {
-                const playersCount = countMap.get(game.id) || 0
-                const club = clubsMap.get(game.club_id)
-                const courtName = courtsMap.get(game.court_id) || 'Campo'
-                return {
-                  id: `open_${game.id}`,
-                  tournament_id: '',
-                  tournament_name: 'Jogo Aberto',
-                  court: courtName,
-                  start_time: game.scheduled_at,
-                  team1_name: `${playersCount}/${game.max_players} jogadores`,
-                  team2_name: club?.name || '',
-                  status: game.status,
-                  round: '',
-                  score1: null,
-                  score2: null,
-                  is_open_game: true,
-                  open_game_id: game.id,
-                  club_name: club?.name || '',
-                }
-              })
-
-              // Combinar jogos de torneios com jogos abertos e ordenar por data
-              result.upcomingMatches = [...upcomingMatches, ...openGameMatches].sort((a, b) => 
-                new Date(a.start_time).getTime() - new Date(b.start_time).getTime()
-              )
-            } else {
-              result.upcomingMatches = upcomingMatches
-            }
-          }
-        }
-      } else {
-        result.upcomingMatches = upcomingMatches
-      }
-    } else {
-      result.upcomingMatches = upcomingMatches
-    }
     result.recentMatches = recentMatches
     const totalMatches = wins + losses
     result.stats.totalMatches = totalMatches
@@ -505,135 +455,52 @@ export async function fetchPlayerDashboardData(userId: string): Promise<PlayerDa
     console.error('[PlayerDashboard] Error fetching matches:', err)
     // Fallback: continue with empty matches but still fetch league standings
     await fetchLeagueStandingsOnly(playerAccount.id, name || '', result, playerIds, teamIds)
+    console.timeEnd('[Dashboard] Total load time')
     return result
-  }
-  
-  // Se não há matches de torneios, ainda podemos ter jogos abertos (fallback caso o try não tenha encontrado matches)
-  if (!result.upcomingMatches || result.upcomingMatches.length === 0) {
-    if (playerAccount.id) {
-      const { data: playerGames } = await supabase
-        .from('open_game_players')
-        .select('game_id')
-        .eq('player_account_id', playerAccount.id)
-
-      if (playerGames && playerGames.length > 0) {
-        const gameIds = playerGames.map((pg: any) => pg.game_id).filter(Boolean)
-        
-        if (gameIds.length === 0) {
-          // Não há gameIds válidos, não fazer nada
-        } else {
-          // Usar uma query mais simples para evitar erros 400
-          const { data: openGames, error: openGamesError } = await supabase
-            .from('open_games')
-            .select('id, scheduled_at, status, club_id, court_id, duration_minutes, max_players')
-            .in('id', gameIds)
-            .gte('scheduled_at', new Date().toISOString())
-
-          if (openGamesError) {
-            console.error('[PlayerDashboard] Error fetching open games (else block):', openGamesError)
-          } else {
-            // Filtrar por status manualmente
-            const filteredGames = (openGames || []).filter((g: any) => 
-              g.status === 'open' || g.status === 'full'
-            )
-
-            if (filteredGames.length > 0) {
-
-              // Buscar dados dos clubes e courts separadamente (no else block sem matches de torneios)
-              let clubsMap = new Map<string, { name: string; city: string | null }>()
-              const clubIds = [...new Set(filteredGames.map((g: any) => g.club_id).filter(Boolean))]
-              if (clubIds.length > 0) {
-                const { data: clubsData } = await supabase
-                  .from('clubs')
-                  .select('id, name, city')
-                  .in('id', clubIds)
-                
-                clubsData?.forEach((club: any) => {
-                  clubsMap.set(club.id, { name: club.name, city: club.city })
-                })
-              }
-
-              let courtsMap = new Map<string, string>()
-              const courtIds = [...new Set(filteredGames.map((g: any) => g.court_id).filter(Boolean))]
-              if (courtIds.length > 0) {
-                const { data: courtsData } = await supabase
-                  .from('club_courts')
-                  .select('id, name')
-                  .in('id', courtIds)
-                
-                courtsData?.forEach((court: any) => {
-                  courtsMap.set(court.id, court.name)
-                })
-              }
-
-              // Contar jogadores em cada jogo
-              const gameIdsForCount = filteredGames.map((g: any) => g.id)
-          const { data: playersCount } = await supabase
-            .from('open_game_players')
-            .select('game_id')
-            .in('game_id', gameIdsForCount)
-
-          const countMap = new Map<string, number>()
-          playersCount?.forEach((p: any) => {
-            countMap.set(p.game_id, (countMap.get(p.game_id) || 0) + 1)
-          })
-
-              const openGameMatches: PlayerMatch[] = filteredGames.map((game: any) => {
-                const playersCount = countMap.get(game.id) || 0
-                const club = clubsMap.get(game.club_id)
-                const courtName = courtsMap.get(game.court_id) || 'Campo'
-                return {
-                  id: `open_${game.id}`,
-                  tournament_id: '',
-                  tournament_name: 'Jogo Aberto',
-                  court: courtName,
-                  start_time: game.scheduled_at,
-                  team1_name: `${playersCount}/${game.max_players} jogadores`,
-                  team2_name: club?.name || '',
-                  status: game.status,
-                  round: '',
-                  score1: null,
-                  score2: null,
-                  is_open_game: true,
-                  open_game_id: game.id,
-                  club_name: club?.name || '',
-                }
-              })
-
-              result.upcomingMatches = openGameMatches.sort((a, b) => 
-                new Date(a.start_time).getTime() - new Date(b.start_time).getTime()
-              )
-            }
-          }
-        }
-      }
-    }
   }
 
   await fetchLeagueStandingsOnly(playerAccount.id, name || '', result, playerIds, teamIds)
 
-  // Enriquecer com Edge Function (usa service role, ignora RLS) – ligas e histórico
+  // Edge Function is now called separately via enrichDashboardWithEdgeFunction()
+  // This allows the dashboard to render immediately with direct query data
+
+  console.timeEnd('[Dashboard] Total load time')
+  return result
+}
+
+/**
+ * Enrich dashboard data with Edge Function (uses service role, bypasses RLS).
+ * Call this AFTER the initial dashboard is displayed for progressive loading.
+ * Returns partial data to merge, or null if failed.
+ */
+export async function enrichDashboardWithEdgeFunction(): Promise<Partial<PlayerDashboardData> | null> {
   try {
+    console.time('[Dashboard] Edge Function enrichment')
     const { data: { session } } = await supabase.auth.getSession()
-    if (session?.access_token) {
-      const { data: edgeData, error: edgeError } = await supabase.functions.invoke('get-player-dashboard', {
-        headers: { Authorization: `Bearer ${session.access_token}` },
-      })
-      if (edgeError) console.warn('[Dashboard] Edge Function error:', edgeError)
-      if (edgeData && !edgeData.error) {
-        if (edgeData.leagueStandings?.length) result.leagueStandings = edgeData.leagueStandings
-        if (edgeData.pastTournaments?.length) result.pastTournaments = edgeData.pastTournaments
-        if (edgeData.pastTournamentDetails && Object.keys(edgeData.pastTournamentDetails).length > 0) {
-          result.pastTournamentDetails = edgeData.pastTournamentDetails
-        }
-      }
+    if (!session?.access_token) return null
+
+    const { data: edgeData, error: edgeError } = await supabase.functions.invoke('get-player-dashboard', {
+      headers: { Authorization: `Bearer ${session.access_token}` },
+    })
+    console.timeEnd('[Dashboard] Edge Function enrichment')
+
+    if (edgeError) {
+      console.warn('[Dashboard] Edge Function error:', edgeError)
+      return null
     }
+    if (!edgeData || edgeData.error) return null
+
+    const enriched: Partial<PlayerDashboardData> = {}
+    if (edgeData.leagueStandings?.length) enriched.leagueStandings = edgeData.leagueStandings
+    if (edgeData.pastTournaments?.length) enriched.pastTournaments = edgeData.pastTournaments
+    if (edgeData.pastTournamentDetails && Object.keys(edgeData.pastTournamentDetails).length > 0) {
+      enriched.pastTournamentDetails = edgeData.pastTournamentDetails
+    }
+    return Object.keys(enriched).length > 0 ? enriched : null
   } catch (err) {
     console.error('[Dashboard] Edge Function error:', err)
-    // Fallback: manter dados das queries diretas
+    return null
   }
-
-  return result
 }
 
 async function fetchLeagueStandingsOnly(
@@ -643,21 +510,36 @@ async function fetchLeagueStandingsOnly(
   playerIds: string[] = [],
   teamIds: string[] = []
 ): Promise<void> {
-  const conditions: string[] = [`player_account_id.eq.${playerAccountId}`]
-  if (playerName) {
-    conditions.push(`entity_name.ilike.%${(playerName || '').trim()}%`)
+  // Priority: player_account_id (most reliable) > entity_id > entity_name (fallback)
+  const conditions: string[] = []
+  
+  // First priority: use player_account_id if available
+  if (playerAccountId) {
+    conditions.push(`player_account_id.eq.${playerAccountId}`)
   }
+  
+  // Second priority: use entity_id (player IDs from tournaments)
   if (playerIds.length > 0) {
     conditions.push(`entity_id.in.(${playerIds.join(',')})`)
   }
+  
+  // Third priority: use entity_name as fallback (only if no player_account_id or entity_id)
+  if (playerName && (!playerAccountId || conditions.length === 0)) {
+    conditions.push(`entity_name.ilike.%${(playerName || '').trim()}%`)
+  }
+  
+  // Team IDs (for team-based leagues)
   if (teamIds.length > 0) {
     conditions.push(`entity_id.in.(${teamIds.join(',')})`)
   }
+  
+  if (conditions.length === 0) return
+  
   const { data: standings, error: standingsError } = await supabase
     .from('league_standings')
     .select(
       `
-      id, league_id, total_points, tournaments_played, entity_name,
+      id, league_id, total_points, tournaments_played, entity_name, player_account_id,
       leagues!inner(id, name)
     `
     )
@@ -666,25 +548,37 @@ async function fetchLeagueStandingsOnly(
   if (standingsError) console.warn('[LeagueStandings] Error:', standingsError)
   if (!standings || standings.length === 0) return
 
-  const leagueData = await Promise.all(
-    (standings as any[]).map(async (s) => {
-      const leagueId = s.leagues?.id
-      const { data: allStandings } = await supabase
+  // OPTIMIZED: Batch fetch all league standings (was N+1 queries, now 1 query)
+  const leagueIds = [...new Set((standings as any[]).map((s: any) => s.leagues?.id).filter(Boolean))]
+  const { data: allLeagueStandings } = leagueIds.length > 0
+    ? await supabase
         .from('league_standings')
-        .select('id, total_points')
-        .eq('league_id', leagueId)
+        .select('id, league_id, total_points')
+        .in('league_id', leagueIds)
         .order('total_points', { ascending: false })
-      const position = allStandings ? allStandings.findIndex((st: any) => st.id === s.id) + 1 : 0
-      return {
-        league_id: leagueId,
-        league_name: s.leagues?.name || '',
-        position,
-        total_participants: allStandings?.length || 0,
-        points: s.total_points,
-        tournaments_played: s.tournaments_played,
-      }
-    })
-  )
+    : { data: [] }
+
+  // Group by league_id for fast lookup
+  const standingsByLeague = new Map<string, any[]>()
+  ;(allLeagueStandings || []).forEach((s: any) => {
+    const list = standingsByLeague.get(s.league_id) || []
+    list.push(s)
+    standingsByLeague.set(s.league_id, list)
+  })
+
+  const leagueData = (standings as any[]).map((s: any) => {
+    const leagueId = s.leagues?.id
+    const leagueStandings = standingsByLeague.get(leagueId) || []
+    const position = leagueStandings.findIndex((st: any) => st.id === s.id) + 1
+    return {
+      league_id: leagueId,
+      league_name: s.leagues?.name || '',
+      position,
+      total_participants: leagueStandings.length,
+      points: s.total_points,
+      tournaments_played: s.tournaments_played,
+    }
+  })
   result.leagueStandings = leagueData
 }
 
@@ -692,21 +586,41 @@ export async function fetchLeagueFullStandings(
   leagueId: string,
   playerName: string
 ): Promise<LeagueFullStanding[]> {
+  // Fetch standings with player_account info to get consistent names
   const { data: allStandings } = await supabase
     .from('league_standings')
-    .select('entity_name, total_points, tournaments_played, best_position')
+    .select(`
+      entity_name, 
+      total_points, 
+      tournaments_played, 
+      best_position,
+      player_account_id,
+      player_accounts:player_account_id(name)
+    `)
     .eq('league_id', leagueId)
     .order('total_points', { ascending: false })
 
   if (!allStandings) return []
-  return allStandings.map((s: any, index: number) => ({
-    position: index + 1,
-    entity_name: s.entity_name,
-    total_points: s.total_points,
-    tournaments_played: s.tournaments_played,
-    best_position: s.best_position ?? 0,
-    is_current_player: playerName ? s.entity_name?.toLowerCase().trim() === playerName.toLowerCase().trim() : false,
-  }))
+  
+  // Use player_account name if available, otherwise fallback to entity_name
+  return allStandings.map((s: any, index: number) => {
+    const displayName = s.player_accounts?.name || s.entity_name || 'Desconhecido'
+    const normalizedPlayerName = playerName?.toLowerCase().trim() || ''
+    const normalizedDisplayName = displayName.toLowerCase().trim()
+    const normalizedEntityName = s.entity_name?.toLowerCase().trim() || ''
+    
+    return {
+      position: index + 1,
+      entity_name: displayName, // Use player_account name for consistency
+      total_points: s.total_points,
+      tournaments_played: s.tournaments_played,
+      best_position: s.best_position ?? 0,
+      is_current_player: normalizedPlayerName && (
+        normalizedDisplayName === normalizedPlayerName || 
+        normalizedEntityName === normalizedPlayerName
+      ),
+    }
+  })
 }
 
 export interface TournamentStandingRow {
