@@ -916,96 +916,171 @@ export async function cancelOpenGame(gameId: string): Promise<boolean> {
 
 // ============================
 // Add a player (by player_account_id) to an open game
+// Now uses RPC so any confirmed player or club owner can add
 // ============================
 
 export async function addPlayerToOpenGame(params: {
   gameId: string
   playerAccountId: string
 }): Promise<{ success: boolean; error?: string }> {
-  // Get real auth uid for RLS
-  const { data: { user: authUser } } = await supabase.auth.getUser()
-  const realUserId = authUser?.id
-  if (!realUserId) {
-    return { success: false, error: 'Utilizador não autenticado' }
-  }
-
-  // Get the player account to find their user_id
-  const { data: pa } = await supabase
-    .from('player_accounts')
-    .select('id, user_id, name')
-    .eq('id', params.playerAccountId)
-    .single()
-
-  if (!pa) {
-    return { success: false, error: 'Jogador não encontrado' }
-  }
-
-  // Check if already in game
-  const { data: existing } = await supabase
-    .from('open_game_players')
-    .select('id')
-    .eq('game_id', params.gameId)
-    .eq('player_account_id', params.playerAccountId)
-    .maybeSingle()
-
-  if (existing) {
-    return { success: false, error: 'Jogador já está no jogo' }
-  }
-
-  // Get current player count to determine position
-  const { data: existingPlayers } = await supabase
-    .from('open_game_players')
-    .select('position')
-    .eq('game_id', params.gameId)
-    .eq('status', 'confirmed')
-    .order('position', { ascending: false })
-    .limit(1)
-
-  const nextPosition = (existingPlayers && existingPlayers.length > 0)
-    ? (existingPlayers[0].position || 0) + 1
-    : 1
-
-  // Insert the player - use realUserId as the one performing the action (for RLS)
-  // but store the actual player's user_id
-  const { error } = await supabase
-    .from('open_game_players')
-    .insert({
-      game_id: params.gameId,
-      user_id: pa.user_id || realUserId,
-      player_account_id: pa.id,
-      status: 'confirmed',
-      position: nextPosition,
-    })
+  const { data, error } = await supabase.rpc('add_player_to_open_game', {
+    p_game_id: params.gameId,
+    p_player_account_id: params.playerAccountId,
+  })
 
   if (error) {
     console.error('[OpenGames] Error adding player to game:', error)
     return { success: false, error: error.message }
   }
 
-  // Check if game is now full
-  const { data: allPlayers } = await supabase
-    .from('open_game_players')
-    .select('id')
-    .eq('game_id', params.gameId)
-    .eq('status', 'confirmed')
-
-  const { data: game } = await supabase
-    .from('open_games')
-    .select('max_players')
-    .eq('id', params.gameId)
-    .single()
-
-  if (allPlayers && game && allPlayers.length >= game.max_players) {
-    await supabase
-      .from('open_games')
-      .update({ status: 'full' })
-      .eq('id', params.gameId)
+  const result = data as any
+  if (!result?.success) {
+    return { success: false, error: result?.error || 'Erro desconhecido' }
   }
 
   // Sync player details to court_booking
   await syncBookingPlayers(params.gameId)
 
   return { success: true }
+}
+
+// ============================
+// Vote on a join request (accept/reject a pending player)
+// ============================
+
+export async function voteOnJoinRequest(
+  requestPlayerId: string,
+  vote: 'accept' | 'reject'
+): Promise<{ success: boolean; resolved?: boolean; newStatus?: string; votesCount?: number; votesNeeded?: number; error?: string }> {
+  const { data, error } = await supabase.rpc('vote_on_join_request', {
+    p_request_player_id: requestPlayerId,
+    p_vote: vote,
+  })
+
+  if (error) {
+    console.error('[OpenGames] Error voting on request:', error)
+    return { success: false, error: error.message }
+  }
+
+  const result = data as any
+  if (!result?.success) {
+    return { success: false, error: result?.error || 'Erro desconhecido' }
+  }
+
+  return {
+    success: true,
+    resolved: result.resolved,
+    newStatus: result.new_status,
+    votesCount: result.votes_count,
+    votesNeeded: result.votes_needed,
+  }
+}
+
+// ============================
+// Fetch votes for pending players in a game
+// ============================
+
+export async function fetchJoinVotes(gameId: string): Promise<{
+  requestPlayerId: string
+  voterUserId: string
+  vote: 'accept' | 'reject'
+}[]> {
+  const { data, error } = await supabase
+    .from('open_game_join_votes')
+    .select('request_player_id, voter_user_id, vote')
+    .eq('game_id', gameId)
+
+  if (error || !data) return []
+  return data as any[]
+}
+
+// ============================
+// Fetch pending requests for games I'm in
+// ============================
+
+export async function fetchMyGamesPendingRequests(userId: string): Promise<{
+  gameId: string
+  pendingPlayers: OpenGamePlayer[]
+  myVotes: { requestPlayerId: string; vote: string }[]
+}[]> {
+  // 1. Get games where I'm confirmed
+  const { data: myGames } = await supabase
+    .from('open_game_players')
+    .select('game_id')
+    .eq('user_id', userId)
+    .eq('status', 'confirmed')
+
+  if (!myGames || myGames.length === 0) return []
+
+  const gameIds = myGames.map(g => g.game_id)
+
+  // 2. Get all pending players in those games
+  const { data: pendingData } = await supabase
+    .from('open_game_players')
+    .select('*')
+    .in('game_id', gameIds)
+    .eq('status', 'pending')
+
+  if (!pendingData || pendingData.length === 0) return []
+
+  // 3. Get player details
+  const userIds = [...new Set(pendingData.map(p => p.user_id))]
+  const accountIds = [...new Set(pendingData.map(p => p.player_account_id).filter(Boolean))]
+  let detailsMap: Record<string, { name: string; avatar_url: string | null; level: number | null; player_category: string | null }> = {}
+
+  if (userIds.length > 0) {
+    const { data: accounts } = await supabase
+      .from('player_accounts')
+      .select('id, user_id, name, avatar_url, level, player_category')
+      .in('user_id', userIds)
+    if (accounts) {
+      accounts.forEach(a => {
+        detailsMap[a.user_id] = { name: a.name, avatar_url: a.avatar_url, level: a.level, player_category: a.player_category }
+        detailsMap['pa_' + a.id] = detailsMap[a.user_id]
+      })
+    }
+  }
+
+  // 4. Get my votes
+  const pendingIds = pendingData.map(p => p.id)
+  const { data: votesData } = await supabase
+    .from('open_game_join_votes')
+    .select('request_player_id, voter_user_id, vote')
+    .in('request_player_id', pendingIds)
+    .eq('voter_user_id', userId)
+
+  const myVotesMap = new Map<string, string>()
+  ;(votesData || []).forEach((v: any) => myVotesMap.set(v.request_player_id, v.vote))
+
+  // 5. Group by game
+  const gamesMap = new Map<string, { pendingPlayers: OpenGamePlayer[]; myVotes: { requestPlayerId: string; vote: string }[] }>()
+
+  for (const p of pendingData) {
+    if (!gamesMap.has(p.game_id)) {
+      gamesMap.set(p.game_id, { pendingPlayers: [], myVotes: [] })
+    }
+    const entry = gamesMap.get(p.game_id)!
+    const details = detailsMap[p.user_id] || (p.player_account_id ? detailsMap['pa_' + p.player_account_id] : null)
+    entry.pendingPlayers.push({
+      id: p.id,
+      user_id: p.user_id,
+      player_account_id: p.player_account_id,
+      status: p.status,
+      position: p.position,
+      name: details?.name || 'Jogador',
+      avatar_url: details?.avatar_url || null,
+      level: details?.level || null,
+      player_category: details?.player_category || null,
+    })
+    if (myVotesMap.has(p.id)) {
+      entry.myVotes.push({ requestPlayerId: p.id, vote: myVotesMap.get(p.id)! })
+    }
+  }
+
+  return Array.from(gamesMap.entries()).map(([gameId, data]) => ({
+    gameId,
+    ...data,
+  }))
 }
 
 // ============================

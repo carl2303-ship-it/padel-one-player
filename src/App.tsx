@@ -3876,26 +3876,24 @@ function FindGameScreen({
                     <div key={`empty-${i}`} className="flex flex-col items-center">
                       <div 
                         className={`w-14 h-14 rounded-full border-2 border-dashed flex items-center justify-center cursor-pointer transition-colors ${
-                          isCreator 
+                          isInGame 
                             ? 'border-indigo-300 hover:border-indigo-500 hover:bg-indigo-50' 
-                            : !isInGame 
-                              ? 'border-gray-300 hover:border-red-400 hover:bg-red-50' 
-                              : 'border-gray-300'
+                            : 'border-gray-300 hover:border-red-400 hover:bg-red-50'
                         }`}
                         onClick={() => {
-                          if (isCreator) {
+                          if (isInGame) {
                             setAddPlayerModal({ gameId: game.id })
                             setPlayerSearchQuery('')
                             setPlayerSearchResults([])
-                          } else if (!isInGame) {
+                          } else {
                             handleJoinGame(game)
                           }
                         }}
                       >
-                        <Plus className={`w-6 h-6 ${isCreator ? 'text-indigo-400' : 'text-gray-400'}`} />
+                        <Plus className={`w-6 h-6 ${isInGame ? 'text-indigo-400' : 'text-gray-400'}`} />
                       </div>
-                      <span className={`text-[10px] font-medium mt-1 ${isCreator ? 'text-indigo-600' : 'text-blue-600'}`}>
-                        {isCreator ? 'Adicionar' : 'Livre'}
+                      <span className={`text-[10px] font-medium mt-1 ${isInGame ? 'text-indigo-600' : 'text-blue-600'}`}>
+                        {isInGame ? 'Adicionar' : 'Livre'}
                       </span>
                     </div>
                   )
@@ -3937,26 +3935,24 @@ function FindGameScreen({
                     <div key={`empty-${i}`} className="flex flex-col items-center">
                       <div 
                         className={`w-14 h-14 rounded-full border-2 border-dashed flex items-center justify-center cursor-pointer transition-colors ${
-                          isCreator 
+                          isInGame 
                             ? 'border-indigo-300 hover:border-indigo-500 hover:bg-indigo-50' 
-                            : !isInGame 
-                              ? 'border-gray-300 hover:border-red-400 hover:bg-red-50' 
-                              : 'border-gray-300'
+                            : 'border-gray-300 hover:border-red-400 hover:bg-red-50'
                         }`}
                         onClick={() => {
-                          if (isCreator) {
+                          if (isInGame) {
                             setAddPlayerModal({ gameId: game.id })
                             setPlayerSearchQuery('')
                             setPlayerSearchResults([])
-                          } else if (!isInGame) {
+                          } else {
                             handleJoinGame(game)
                           }
                         }}
                       >
-                        <Plus className={`w-6 h-6 ${isCreator ? 'text-indigo-400' : 'text-gray-400'}`} />
+                        <Plus className={`w-6 h-6 ${isInGame ? 'text-indigo-400' : 'text-gray-400'}`} />
                       </div>
-                      <span className={`text-[10px] font-medium mt-1 ${isCreator ? 'text-indigo-600' : 'text-blue-600'}`}>
-                        {isCreator ? 'Adicionar' : 'Livre'}
+                      <span className={`text-[10px] font-medium mt-1 ${isInGame ? 'text-indigo-600' : 'text-blue-600'}`}>
+                        {isInGame ? 'Adicionar' : 'Livre'}
                       </span>
                     </div>
                   )
@@ -3965,6 +3961,137 @@ function FindGameScreen({
             </div>
           </div>
         </div>
+
+        {/* Pending requests section (visible to confirmed players) */}
+        {(() => {
+          const pendingPlayers = game.players.filter(p => p.status === 'pending')
+          const myPendingEntry = game.players.find(p => p.status === 'pending' && (p.user_id === userId || (player?.id && p.player_account_id === player.id)))
+          const isConfirmedPlayer = confirmedPlayers.some(p => p.user_id === userId || (player?.id && p.player_account_id === player.id))
+          
+          return (
+            <>
+              {/* Banner: Pedido pendente (para quem pediu) */}
+              {myPendingEntry && (
+                <div className="mx-4 mb-2 p-3 bg-amber-50 border border-amber-200 rounded-xl">
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">⏳</span>
+                    <div className="flex-1">
+                      <p className="text-sm font-semibold text-amber-800">Pedido pendente</p>
+                      <p className="text-xs text-amber-600">A aguardar aprovação dos jogadores</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Banner: Pedido rejeitado (para quem pediu) */}
+              {game.players.some(p => p.status === 'rejected' && (p.user_id === userId || (player?.id && p.player_account_id === player.id))) && (
+                <div className="mx-4 mb-2 p-3 bg-red-50 border border-red-200 rounded-xl">
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">❌</span>
+                    <div className="flex-1">
+                      <p className="text-sm font-semibold text-red-800">Pedido recusado</p>
+                      <p className="text-xs text-red-600">Os jogadores recusaram o teu pedido</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Pedidos pendentes (visível para jogadores confirmados) */}
+              {isConfirmedPlayer && pendingPlayers.length > 0 && (
+                <div className="mx-4 mb-2">
+                  <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
+                    <p className="text-xs font-semibold text-amber-800 mb-2 flex items-center gap-1">
+                      <span>📩</span> {pendingPlayers.length} pedido{pendingPlayers.length > 1 ? 's' : ''} de adesão
+                    </p>
+                    <div className="space-y-2">
+                      {pendingPlayers.map(pp => {
+                        const ppColors = pp.player_category ? categoryColors(pp.player_category) : null
+                        return (
+                          <div key={pp.id} className="flex items-center gap-2 bg-white rounded-lg p-2 border border-amber-100">
+                            <div className="w-9 h-9 rounded-full overflow-hidden bg-gray-200 flex items-center justify-center flex-shrink-0">
+                              {pp.avatar_url ? (
+                                <img src={pp.avatar_url} className="w-full h-full object-cover" />
+                              ) : (
+                                <span className="text-sm font-bold text-gray-600">{(pp.name || '?').charAt(0).toUpperCase()}</span>
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-gray-900 truncate">{pp.name || 'Jogador'}</p>
+                              <div className="flex items-center gap-1">
+                                {pp.level != null && (
+                                  <span className="text-[9px] font-bold text-white px-1.5 py-0 rounded-full" style={{ backgroundColor: ppColors?.hex || '#9ca3af' }}>
+                                    {pp.level.toFixed(1)}
+                                  </span>
+                                )}
+                                {pp.player_category && <span className="text-[9px] text-gray-500">{pp.player_category}</span>}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1.5 flex-shrink-0">
+                              <button
+                                onClick={async (e) => {
+                                  e.stopPropagation()
+                                  const { voteOnJoinRequest } = await import('./lib/openGames')
+                                  const result = await voteOnJoinRequest(pp.id, 'accept')
+                                  if (result.success) {
+                                    if (result.resolved && result.newStatus === 'confirmed') {
+                                      alert(`${pp.name} foi aceite no jogo!`)
+                                    } else if (!result.resolved) {
+                                      alert(`Voto registado (${result.votesCount}/${result.votesNeeded})`)
+                                    }
+                                    // Refresh games
+                                    const { fetchOpenGames } = await import('./lib/openGames')
+                                    const dateStr = dates[selectedDay]?.dateStr
+                                    const data = await fetchOpenGames({
+                                      clubId: selectedClubId || undefined,
+                                      dateFrom: dateStr ? dateStr + 'T00:00:00' : undefined,
+                                      dateTo: dateStr ? dateStr + 'T23:59:59' : undefined,
+                                    })
+                                    setGames(data)
+                                  } else {
+                                    alert(result.error || 'Erro ao votar')
+                                  }
+                                }}
+                                className="px-2.5 py-1.5 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors text-xs font-semibold"
+                              >
+                                ✓ Aceitar
+                              </button>
+                              <button
+                                onClick={async (e) => {
+                                  e.stopPropagation()
+                                  const { voteOnJoinRequest } = await import('./lib/openGames')
+                                  const result = await voteOnJoinRequest(pp.id, 'reject')
+                                  if (result.success) {
+                                    if (result.resolved && result.newStatus === 'rejected') {
+                                      alert(`${pp.name} foi recusado`)
+                                    }
+                                    // Refresh games
+                                    const { fetchOpenGames } = await import('./lib/openGames')
+                                    const dateStr = dates[selectedDay]?.dateStr
+                                    const data = await fetchOpenGames({
+                                      clubId: selectedClubId || undefined,
+                                      dateFrom: dateStr ? dateStr + 'T00:00:00' : undefined,
+                                      dateTo: dateStr ? dateStr + 'T23:59:59' : undefined,
+                                    })
+                                    setGames(data)
+                                  } else {
+                                    alert(result.error || 'Erro ao votar')
+                                  }
+                                }}
+                                className="px-2.5 py-1.5 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors text-xs font-semibold"
+                              >
+                                ✗ Recusar
+                              </button>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>
+          )
+        })()}
 
         {/* Club & Price footer */}
         <div className="border-t border-gray-100 px-4 py-3 flex items-center justify-between bg-gray-50/50">
@@ -3990,7 +4117,7 @@ function FindGameScreen({
         </div>
 
         {/* Join/Request/Cancel buttons */}
-        {!isInGame && (
+        {!isInGame && !game.players.some(p => (p.status === 'pending' || p.status === 'rejected') && (p.user_id === userId || (player?.id && p.player_account_id === player.id))) && (
           <div className="px-4 pb-3 pt-0 bg-gray-50/50">
             <button
               onClick={() => handleJoinGame(game)}
