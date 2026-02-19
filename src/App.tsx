@@ -5440,6 +5440,7 @@ function ProfileViewScreen({
   }, [userId])
   const truncatedBio = bio.length > 160 ? bio.substring(0, 160) + '...' : bio
   const recentMatches = (d?.recentMatches ?? []).slice(0, 5)
+  const upcomingMatches = (d?.upcomingMatches ?? []).slice(0, 5)
 
   const handlePlayerClick = async (playerName: string) => {
     const { findPlayerUserIdByName } = await import('./lib/classes')
@@ -5462,28 +5463,12 @@ function ProfileViewScreen({
     .slice(0, 10)
     .map(([name, count]) => ({ name, count }))
   
-  // Buscar avatares dos top players
-  const [topPlayersAvatars, setTopPlayersAvatars] = useState<Record<string, string | null>>({})
-  useEffect(() => {
-    if (topPlayers.length === 0) return
-    let active = true
-    ;(async () => {
-      const { supabase } = await import('./lib/supabase')
-      const avatars: Record<string, string | null> = {}
-      for (const { name } of topPlayers) {
-        const { data: account } = await supabase
-          .from('player_accounts')
-          .select('avatar_url')
-          .ilike('name', name)
-          .maybeSingle()
-        if (active && account) {
-          avatars[name] = account.avatar_url || null
-        }
-      }
-      if (active) setTopPlayersAvatars(avatars)
-    })()
-    return () => { active = false }
-  }, [topPlayers.map(p => p.name).join(',')])
+  // Avatares dos top players (do cache global — sem queries adicionais)
+  const topPlayersAvatars: Record<string, string | null> = {}
+  topPlayers.forEach(({ name }) => {
+    const cached = getCachedPlayerData(name)
+    if (cached?.avatar_url) topPlayersAvatars[name] = cached.avatar_url
+  })
 
   // Clubes onde joga (favorito + dos torneios)
   const [clubsWherePlays, setClubsWherePlays] = useState<ClubDetail[]>([])
@@ -5672,6 +5657,31 @@ function ProfileViewScreen({
           </div>
         </div>
       </div>
+
+      {/* Próximos Jogos */}
+      {upcomingMatches.length > 0 && (
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+              <span>📅</span> Próximos Jogos
+            </h2>
+            {upcomingMatches.length > 3 && (
+              <button onClick={onOpenGames} className="text-red-600 text-sm font-medium flex items-center gap-1">
+                Ver todos <ChevronRight className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+          <div className="overflow-x-auto pb-2 -mx-4 px-4 sm:mx-0 sm:px-0 snap-x snap-mandatory scroll-smooth games-horizontal-scroll">
+            <div className="flex gap-4" style={{ width: 'max-content' }}>
+              {upcomingMatches.map((match) => (
+                <div key={match.id} className="snap-center">
+                  <GameCardPlaytomic match={match} currentPlayerAvatar={player?.avatar_url} currentPlayerName={player?.name} onPlayerClick={handlePlayerClick} />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 5 Últimos Jogos - Resultados Recentes (igual à Home) */}
       <div>
