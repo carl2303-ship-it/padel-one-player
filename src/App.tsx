@@ -60,7 +60,6 @@ import {
   getFollowingCount,
   getFollowersCount,
   getSuggestedPlayers,
-  getFeedPosts,
   createPost,
   deletePost,
   getMyGroups,
@@ -80,6 +79,9 @@ import {
   type CommunityPost,
   type CommunityGroup,
   type GroupMember,
+  type FeedItem,
+  type FeedMatchItem,
+  getUnifiedFeed,
 } from './lib/communityData'
 import { fetchAllClubs, fetchClubById, fetchUpcomingTournaments, fetchEnrolledByCategory, getTournamentRegistrationUrl, type ClubDetail, type UpcomingTournamentFromTour, type EnrolledByCategory } from './lib/clubAndTournaments'
 import { fetchAvailableClasses, fetchMyClasses, enrollInClass, type Class as ClassData } from './lib/classes'
@@ -1792,6 +1794,7 @@ function CommunityScreen({ userId, playerAccountId, onOpenPlayerProfile }: { use
   // Feed state
   const [suggestions, setSuggestions] = useState<CommunityPlayer[]>([])
   const [posts, setPosts] = useState<CommunityPost[]>([])
+  const [feedItems, setFeedItems] = useState<FeedItem[]>([])
   const [feedLoading, setFeedLoading] = useState(true)
   const [followingSet, setFollowingSet] = useState<Set<string>>(new Set())
 
@@ -1839,14 +1842,15 @@ function CommunityScreen({ userId, playerAccountId, onOpenPlayerProfile }: { use
   async function loadFeed() {
     setFeedLoading(true)
     try {
-      const [suggestedData, feedData] = await Promise.all([
+      const [suggestedData, unifiedData, ids] = await Promise.all([
         getSuggestedPlayers(userId),
-        getFeedPosts(userId),
+        getUnifiedFeed(userId),
+        getFollowingIds(userId),
       ])
       setSuggestions(suggestedData)
-      setPosts(feedData)
-      // Build following set
-      const ids = await getFollowingIds(userId)
+      setFeedItems(unifiedData)
+      // Also keep posts separate for the new-post refresh
+      setPosts(unifiedData.filter(i => i.type === 'post').map(i => i.data as CommunityPost))
       setFollowingSet(new Set(ids))
     } catch (err) {
       console.error('[Community] Load feed error:', err)
@@ -2262,57 +2266,143 @@ function CommunityScreen({ userId, playerAccountId, onOpenPlayerProfile }: { use
                 </div>
               )}
 
-              {/* Feed de posts */}
-              {posts.length === 0 ? (
+              {/* Feed unificado (posts + jogos dos seguidos) */}
+              {feedItems.length === 0 ? (
                 <div className="text-center py-12">
                   <Users className="w-12 h-12 text-gray-300 mx-auto mb-3" />
                   <p className="text-gray-500 font-medium">O teu feed está vazio</p>
-                  <p className="text-sm text-gray-400 mt-1">Segue jogadores para ver as suas publicações aqui.</p>
+                  <p className="text-sm text-gray-400 mt-1">Segue jogadores para ver as suas publicações e jogos aqui.</p>
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {posts.map(post => (
-                    <div key={post.id} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-                      {/* Post header */}
-                      <div className="flex items-center justify-between p-3 pb-2">
-                        <div className="flex items-center gap-2">
-                          <div className="w-9 h-9 rounded-full bg-gray-900 flex items-center justify-center text-white font-bold text-xs overflow-hidden">
-                            {post.author_avatar
-                              ? <img src={post.author_avatar} className="w-full h-full object-cover" />
-                              : getInitials(post.author_name)
-                            }
+                  {feedItems.map(item => {
+                    if (item.type === 'post') {
+                      const post = item.data as CommunityPost
+                      return (
+                        <div key={`post-${post.id}`} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                          {/* Post header */}
+                          <div className="flex items-center justify-between p-3 pb-2">
+                            <div className="flex items-center gap-2">
+                              <div className="w-9 h-9 rounded-full bg-gray-900 flex items-center justify-center text-white font-bold text-xs overflow-hidden">
+                                {post.author_avatar
+                                  ? <img src={post.author_avatar} className="w-full h-full object-cover" />
+                                  : getInitials(post.author_name)
+                                }
+                              </div>
+                              <div>
+                                <p className="text-sm font-semibold text-gray-900">{post.author_name}</p>
+                                <p className="text-[11px] text-gray-400">{timeAgo(post.created_at)}</p>
+                              </div>
+                            </div>
+                            {post.user_id === userId && (
+                              <button onClick={() => handleDeletePost(post.id)} className="text-gray-300 hover:text-red-500">
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
                           </div>
-                          <div>
-                            <p className="text-sm font-semibold text-gray-900">{post.author_name}</p>
-                            <p className="text-[11px] text-gray-400">{timeAgo(post.created_at)}</p>
+                          {/* Post content */}
+                          {post.content && (
+                            <p className="px-3 pb-2 text-sm text-gray-700">{post.content}</p>
+                          )}
+                          {/* Post image */}
+                          {post.image_url && (
+                            <img src={post.image_url} alt="" className="w-full max-h-80 object-cover" />
+                          )}
+                          {/* Post video */}
+                          {post.video_url && (
+                            <video src={post.video_url} controls className="w-full max-h-80" />
+                          )}
+                          {/* Post footer */}
+                          <div className="px-3 py-2 border-t border-gray-50 flex items-center gap-4">
+                            <button className="flex items-center gap-1 text-gray-400 hover:text-red-500 transition-colors">
+                              <Heart className="w-4 h-4" />
+                            </button>
                           </div>
                         </div>
-                        {post.user_id === userId && (
-                          <button onClick={() => handleDeletePost(post.id)} className="text-gray-300 hover:text-red-500">
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        )}
-                      </div>
-                      {/* Post content */}
-                      {post.content && (
-                        <p className="px-3 pb-2 text-sm text-gray-700">{post.content}</p>
-                      )}
-                      {/* Post image */}
-                      {post.image_url && (
-                        <img src={post.image_url} alt="" className="w-full max-h-80 object-cover" />
-                      )}
-                      {/* Post video */}
-                      {post.video_url && (
-                        <video src={post.video_url} controls className="w-full max-h-80" />
-                      )}
-                      {/* Post footer */}
-                      <div className="px-3 py-2 border-t border-gray-50 flex items-center gap-4">
-                        <button className="flex items-center gap-1 text-gray-400 hover:text-red-500 transition-colors">
-                          <Heart className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
+                      )
+                    } else {
+                      // Match card do jogador seguido
+                      const match = item.data as FeedMatchItem
+                      const p1 = match.player1_name ?? match.team1_name.split(' / ')[0]
+                      const p2 = match.player2_name ?? match.team1_name.split(' / ')[1] ?? ''
+                      const p3 = match.player3_name ?? match.team2_name.split(' / ')[0]
+                      const p4 = match.player4_name ?? match.team2_name.split(' / ')[1] ?? ''
+                      const setStrings = [match.set1, match.set2, match.set3].filter(Boolean) as string[]
+                      const parsedSets = setStrings.map(s => {
+                        const parts = s.split('-')
+                        return parts.length === 2 ? [parts[0], parts[1]] as [string, string] : null
+                      })
+
+                      return (
+                        <div key={`match-${match.id}`} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                          {/* Header: quem jogou */}
+                          <div className="flex items-center gap-2 p-3 pb-2 bg-gradient-to-r from-gray-50 to-white">
+                            <div className="w-8 h-8 rounded-full bg-gray-900 flex items-center justify-center text-white font-bold text-[10px] overflow-hidden flex-shrink-0">
+                              {match.followed_player_avatar
+                                ? <img src={match.followed_player_avatar} className="w-full h-full object-cover" />
+                                : getInitials(match.followed_player_name)
+                              }
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-semibold text-gray-900 truncate">
+                                {match.followed_player_name}
+                                <span className={`ml-1.5 text-xs font-bold ${match.followed_player_won ? 'text-green-600' : 'text-red-500'}`}>
+                                  {match.followed_player_won ? 'ganhou!' : 'perdeu'}
+                                </span>
+                              </p>
+                              <p className="text-[11px] text-gray-400 flex items-center gap-1">
+                                <span>🏆</span> {match.tournament_name} · {timeAgo(match.played_at)}
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* Resultado do jogo estilo compacto */}
+                          <div className="px-3 py-2">
+                            <div className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2">
+                              {/* Equipa 1 */}
+                              <div className="flex-1 text-left">
+                                <p className="text-xs font-semibold text-gray-800 truncate">{p1}</p>
+                                {p2 && <p className="text-xs font-medium text-gray-500 truncate">{p2}</p>}
+                              </div>
+                              {/* Sets */}
+                              <div className="flex items-center gap-1.5 mx-3">
+                                {parsedSets.length > 0 ? parsedSets.map((s, idx) => (
+                                  s && (
+                                    <div key={idx} className="flex flex-col items-center">
+                                      <span className={`text-xs font-bold ${parseInt(s[0]) > parseInt(s[1]) ? 'text-green-600' : 'text-gray-500'}`}>{s[0]}</span>
+                                      <div className="w-3 h-px bg-gray-300 my-0.5" />
+                                      <span className={`text-xs font-bold ${parseInt(s[1]) > parseInt(s[0]) ? 'text-green-600' : 'text-gray-500'}`}>{s[1]}</span>
+                                    </div>
+                                  )
+                                )) : (
+                                  <div className="flex flex-col items-center">
+                                    <span className={`text-sm font-bold ${(match.score1 ?? 0) > (match.score2 ?? 0) ? 'text-green-600' : 'text-gray-500'}`}>{match.score1 ?? '-'}</span>
+                                    <div className="w-4 h-px bg-gray-300 my-0.5" />
+                                    <span className={`text-sm font-bold ${(match.score2 ?? 0) > (match.score1 ?? 0) ? 'text-green-600' : 'text-gray-500'}`}>{match.score2 ?? '-'}</span>
+                                  </div>
+                                )}
+                              </div>
+                              {/* Equipa 2 */}
+                              <div className="flex-1 text-right">
+                                <p className="text-xs font-semibold text-gray-800 truncate">{p3}</p>
+                                {p4 && <p className="text-xs font-medium text-gray-500 truncate">{p4}</p>}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Footer */}
+                          <div className="px-3 py-1.5 border-t border-gray-50 flex items-center justify-between">
+                            <span className="text-[10px] text-gray-400">
+                              {match.round && match.round !== 'null' ? `Ronda ${match.round}` : ''} {match.court ? `· Campo ${match.court}` : ''}
+                            </span>
+                            <button className="flex items-center gap-1 text-gray-400 hover:text-red-500 transition-colors">
+                              <Heart className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    }
+                  })}
                 </div>
               )}
             </>

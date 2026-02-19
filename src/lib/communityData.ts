@@ -82,6 +82,38 @@ export interface CommunityPost {
   author_level?: number
 }
 
+/** Um item de feed pode ser um post OU um jogo recente de um jogador seguido */
+export interface FeedMatchItem {
+  id: string
+  tournament_id: string
+  tournament_name: string
+  court: string
+  start_time: string
+  team1_name: string
+  team2_name: string
+  player1_name?: string
+  player2_name?: string
+  player3_name?: string
+  player4_name?: string
+  score1: number | null
+  score2: number | null
+  status: string
+  round: string
+  set1?: string
+  set2?: string
+  set3?: string
+  // Info do jogador seguido que participou
+  followed_player_name: string
+  followed_player_avatar?: string | null
+  followed_player_level?: number | null
+  followed_player_won: boolean
+  played_at: string
+}
+
+export type FeedItem =
+  | { type: 'post'; data: CommunityPost; date: string }
+  | { type: 'match'; data: FeedMatchItem; date: string }
+
 export interface CommunityGroup {
   id: string
   name: string
@@ -300,6 +332,237 @@ export async function getFeedPosts(userId: string): Promise<CommunityPost[]> {
       author_level: author?.level,
     }
   })
+}
+
+// ============================================
+// Feed: Jogos dos seguidos
+// ============================================
+
+/**
+ * Busca jogos recentes (últimos 30 dias) de jogadores que eu sigo.
+ * Retorna até 30 jogos mais recentes, com info do jogador seguido.
+ */
+export async function getFeedMatches(userId: string): Promise<FeedMatchItem[]> {
+  // 1) Quem eu sigo
+  const followingIds = await getFollowingIds(userId)
+  if (followingIds.length === 0) return []
+
+  // 2) Obter player_accounts dos seguidos (batch)
+  const { data: followedAccounts } = await supabase
+    .from('player_accounts')
+    .select('id, user_id, name, avatar_url, level, phone_number')
+    .in('user_id', followingIds)
+
+  if (!followedAccounts || followedAccounts.length === 0) return []
+
+  // Mapa user_id → player_account info
+  const accountByUserId = new Map<string, typeof followedAccounts[0]>()
+  const accountById = new Map<string, typeof followedAccounts[0]>()
+  followedAccounts.forEach(a => {
+    accountByUserId.set(a.user_id, a)
+    accountById.set(a.id, a)
+  })
+  const playerAccountIds = followedAccounts.map(a => a.id)
+
+  // 3) Obter players ligados a estes player_accounts
+  const { data: playersData } = await supabase
+    .from('players')
+    .select('id, player_account_id')
+    .in('player_account_id', playerAccountIds)
+
+  if (!playersData || playersData.length === 0) return []
+
+  // Mapa player_id → player_account_id
+  const playerToAccount = new Map<string, string>()
+  playersData.forEach(p => {
+    if (p.player_account_id) playerToAccount.set(p.id, p.player_account_id)
+  })
+  const playerIds = playersData.map(p => p.id)
+
+  // 4) Obter teams que contêm estes players
+  const playerConditions = playerIds.map(id => `player1_id.eq.${id},player2_id.eq.${id}`).join(',')
+  const { data: teamsData } = await supabase
+    .from('teams')
+    .select('id, player1_id, player2_id')
+    .or(playerConditions)
+
+  const teamIds = (teamsData || []).map(t => t.id)
+  // Mapa team_id → player_account_id (do jogador seguido nessa equipa)
+  const teamToAccount = new Map<string, string>()
+  ;(teamsData || []).forEach(t => {
+    const p1AccountId = t.player1_id ? playerToAccount.get(t.player1_id) : undefined
+    const p2AccountId = t.player2_id ? playerToAccount.get(t.player2_id) : undefined
+    if (p1AccountId) teamToAccount.set(t.id, p1AccountId)
+    else if (p2AccountId) teamToAccount.set(t.id, p2AccountId)
+  })
+
+  // 5) Construir condições para buscar matches
+  const teamMatchCond = teamIds.length > 0
+    ? `team1_id.in.(${teamIds.join(',')}),team2_id.in.(${teamIds.join(',')})`
+    : ''
+  const individualCond = playerIds
+    .map(id => `player1_individual_id.eq.${id},player2_individual_id.eq.${id},player3_individual_id.eq.${id},player4_individual_id.eq.${id}`)
+    .join(',')
+  const allCond = [teamMatchCond, individualCond].filter(c => c.length > 0).join(',')
+
+  if (!allCond) return []
+
+  // Data limite: últimos 60 dias
+  const since = new Date()
+  since.setDate(since.getDate() - 60)
+
+  const { data: matchesData } = await supabase
+    .from('matches')
+    .select(`
+      id, tournament_id, court, scheduled_time,
+      team1_score_set1, team2_score_set1, team1_score_set2, team2_score_set2, team1_score_set3, team2_score_set3,
+      status, round, team1_id, team2_id,
+      player1_individual_id, player2_individual_id, player3_individual_id, player4_individual_id,
+      tournaments!inner(name),
+      team1:teams!matches_team1_id_fkey(id, name, t1p1:players!teams_player1_id_fkey(name), t1p2:players!teams_player2_id_fkey(name)),
+      team2:teams!matches_team2_id_fkey(id, name, t2p1:players!teams_player1_id_fkey(name), t2p2:players!teams_player2_id_fkey(name)),
+      p1:players!matches_player1_individual_id_fkey(id, name),
+      p2:players!matches_player2_individual_id_fkey(id, name),
+      p3:players!matches_player3_individual_id_fkey(id, name),
+      p4:players!matches_player4_individual_id_fkey(id, name)
+    `)
+    .or(allCond)
+    .eq('status', 'completed')
+    .gte('scheduled_time', since.toISOString())
+    .order('scheduled_time', { ascending: false })
+    .limit(30)
+
+  if (!matchesData || matchesData.length === 0) return []
+
+  const playerIdSet = new Set(playerIds)
+  const teamIdSet = new Set(teamIds)
+  const results: FeedMatchItem[] = []
+
+  for (const m of (matchesData as any[])) {
+    const isIndividual = m.p1 || m.p2 || m.p3 || m.p4
+
+    // Determinar qual jogador seguido estava neste jogo
+    let followedAccountId: string | undefined
+
+    if (isIndividual) {
+      for (const pid of [m.p1?.id, m.p2?.id, m.p3?.id, m.p4?.id]) {
+        if (pid && playerToAccount.has(pid)) {
+          followedAccountId = playerToAccount.get(pid)
+          break
+        }
+      }
+    } else {
+      if (m.team1_id && teamToAccount.has(m.team1_id)) {
+        followedAccountId = teamToAccount.get(m.team1_id)
+      } else if (m.team2_id && teamToAccount.has(m.team2_id)) {
+        followedAccountId = teamToAccount.get(m.team2_id)
+      }
+    }
+
+    if (!followedAccountId) continue
+    const followedAccount = accountById.get(followedAccountId)
+    if (!followedAccount) continue
+
+    const team1Name = isIndividual
+      ? `${m.p1?.name || 'TBD'}${m.p2 ? ' / ' + m.p2.name : ''}`
+      : m.team1?.name || 'TBD'
+    const team2Name = isIndividual
+      ? `${m.p3?.name || 'TBD'}${m.p4 ? ' / ' + m.p4.name : ''}`
+      : m.team2?.name || 'TBD'
+
+    const p1Name = isIndividual ? m.p1?.name : (m.team1 as any)?.t1p1?.name
+    const p2Name = isIndividual ? m.p2?.name : (m.team1 as any)?.t1p2?.name
+    const p3Name = isIndividual ? m.p3?.name : (m.team2 as any)?.t2p1?.name
+    const p4Name = isIndividual ? m.p4?.name : (m.team2 as any)?.t2p2?.name
+
+    // Set scores
+    const team1Sets = [
+      (m.team1_score_set1 || 0) > (m.team2_score_set1 || 0) ? 1 : 0,
+      (m.team1_score_set2 || 0) > (m.team2_score_set2 || 0) ? 1 : 0,
+      (m.team1_score_set3 || 0) > (m.team2_score_set3 || 0) ? 1 : 0,
+    ].reduce((a, b) => a + b, 0)
+    const team2Sets = [
+      (m.team2_score_set1 || 0) > (m.team1_score_set1 || 0) ? 1 : 0,
+      (m.team2_score_set2 || 0) > (m.team1_score_set2 || 0) ? 1 : 0,
+      (m.team2_score_set3 || 0) > (m.team1_score_set3 || 0) ? 1 : 0,
+    ].reduce((a, b) => a + b, 0)
+
+    // O jogador seguido estava na equipa 1 ou 2?
+    let followedInTeam1 = false
+    if (isIndividual) {
+      followedInTeam1 = (m.p1?.id && playerIdSet.has(m.p1.id) && playerToAccount.get(m.p1.id) === followedAccountId) ||
+                        (m.p2?.id && playerIdSet.has(m.p2.id) && playerToAccount.get(m.p2.id) === followedAccountId)
+    } else {
+      followedInTeam1 = m.team1_id && teamToAccount.get(m.team1_id) === followedAccountId
+    }
+
+    const followedWon = followedInTeam1 ? team1Sets > team2Sets : team2Sets > team1Sets
+
+    const set1 = (m.team1_score_set1 != null && m.team2_score_set1 != null)
+      ? `${m.team1_score_set1}-${m.team2_score_set1}` : undefined
+    const set2 = (m.team1_score_set2 != null && m.team2_score_set2 != null && (m.team1_score_set2 > 0 || m.team2_score_set2 > 0))
+      ? `${m.team1_score_set2}-${m.team2_score_set2}` : undefined
+    const set3 = (m.team1_score_set3 != null && m.team2_score_set3 != null && (m.team1_score_set3 > 0 || m.team2_score_set3 > 0))
+      ? `${m.team1_score_set3}-${m.team2_score_set3}` : undefined
+
+    results.push({
+      id: m.id,
+      tournament_id: m.tournament_id,
+      tournament_name: (m.tournaments as any)?.name || '',
+      court: m.court || '',
+      start_time: m.scheduled_time || '',
+      team1_name: team1Name,
+      team2_name: team2Name,
+      player1_name: p1Name,
+      player2_name: p2Name,
+      player3_name: p3Name,
+      player4_name: p4Name,
+      score1: team1Sets,
+      score2: team2Sets,
+      status: m.status,
+      round: m.round || '',
+      set1,
+      set2,
+      set3,
+      followed_player_name: followedAccount.name,
+      followed_player_avatar: followedAccount.avatar_url,
+      followed_player_level: followedAccount.level,
+      followed_player_won: followedWon,
+      played_at: m.scheduled_time || '',
+    })
+  }
+
+  return results
+}
+
+// ============================================
+// Feed Unificado (Posts + Jogos dos Seguidos)
+// ============================================
+
+/**
+ * Retorna um feed unificado com posts e jogos dos seguidos,
+ * ordenado por data (mais recente primeiro).
+ */
+export async function getUnifiedFeed(userId: string): Promise<FeedItem[]> {
+  const [posts, matches] = await Promise.all([
+    getFeedPosts(userId),
+    getFeedMatches(userId),
+  ])
+
+  const items: FeedItem[] = []
+
+  for (const post of posts) {
+    items.push({ type: 'post', data: post, date: post.created_at })
+  }
+
+  for (const match of matches) {
+    items.push({ type: 'match', data: match, date: match.played_at })
+  }
+
+  // Ordenar por data descendente
+  items.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+
+  return items
 }
 
 // ============================================
