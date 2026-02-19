@@ -1468,15 +1468,27 @@ function HomeScreen({
   const totalMatches = d?.stats?.totalMatches ?? 0
   const losses = d?.stats?.losses ?? 0
   const winRate = d?.stats?.winRate ?? 0
-  const rewardPoints = d?.leagueStandings?.[0]?.points ?? points
   const bio = player?.bio || ''
   const truncatedBio = bio.length > 160 ? bio.substring(0, 160) + '...' : bio
 
+  // Reward points - fetch from player_rewards
+  const [rewardData, setRewardData] = useState<{ totalPoints: number; tier: string } | null>(null)
+  useEffect(() => {
+    if (player?.id) {
+      import('./lib/openGames').then(({ fetchPlayerRewards }) => {
+        fetchPlayerRewards(player.id).then(data => setRewardData(data))
+      })
+    }
+  }, [player?.id])
+
+  const rewardPoints = rewardData?.totalPoints ?? player?.total_reward_points ?? 0
+
   // Determinar nível de reward
-  const getRewardTier = (points: number) => {
-    if (points <= 100) return { name: 'Silver', emoji: '🥈', bgColor: 'bg-gradient-to-br from-gray-100 to-gray-200', textColor: 'text-gray-700' }
-    if (points <= 400) return { name: 'Gold', emoji: '🥇', bgColor: 'bg-gradient-to-br from-yellow-50 to-amber-100', textColor: 'text-amber-700' }
-    return { name: 'Platinum', emoji: '💎', bgColor: 'bg-gradient-to-br from-purple-50 to-purple-100', textColor: 'text-purple-700' }
+  const getRewardTier = (pts: number) => {
+    if (pts >= 1000) return { name: 'Diamond', emoji: '💎', bgColor: 'bg-gradient-to-br from-cyan-50 to-cyan-100', textColor: 'text-cyan-700' }
+    if (pts >= 500) return { name: 'Platinum', emoji: '🏅', bgColor: 'bg-gradient-to-br from-purple-50 to-purple-100', textColor: 'text-purple-700' }
+    if (pts >= 200) return { name: 'Gold', emoji: '🥇', bgColor: 'bg-gradient-to-br from-yellow-50 to-amber-100', textColor: 'text-amber-700' }
+    return { name: 'Silver', emoji: '🥈', bgColor: 'bg-gradient-to-br from-gray-100 to-gray-200', textColor: 'text-gray-700' }
   }
 
   const rewardTier = getRewardTier(rewardPoints)
@@ -3513,11 +3525,19 @@ function FindGameScreen({
   onOpenPlayerProfile: (userId: string) => void
   onRefresh?: () => Promise<void>
 }) {
-  const [activeSection, setActiveSection] = useState<'existing' | 'request' | 'create'>('existing')
+  const [activeSection, setActiveSection] = useState<'existing' | 'request' | 'create' | 'results'>('existing')
   const [loading, setLoading] = useState(true)
   const [games, setGames] = useState<import('./lib/openGames').OpenGame[]>([])
   const [clubsAvailability, setClubsAvailability] = useState<import('./lib/openGames').ClubWithAvailability[]>([])
   const [loadingClubs, setLoadingClubs] = useState(false)
+
+  // Result entry state
+  const [pastGames, setPastGames] = useState<(import('./lib/openGames').OpenGame & { _resultStatus?: string | null })[]>([])
+  const [loadingPastGames, setLoadingPastGames] = useState(false)
+  const [resultModal, setResultModal] = useState<{ game: import('./lib/openGames').OpenGame } | null>(null)
+  const [confirmModal, setConfirmModal] = useState<{ game: import('./lib/openGames').OpenGame; result: import('./lib/openGames').OpenGameResult } | null>(null)
+  const [resultScores, setResultScores] = useState({ t1s1: '', t2s1: '', t1s2: '', t2s2: '', t1s3: '', t2s3: '' })
+  const [submittingResult, setSubmittingResult] = useState(false)
   
   // Filtros
   const [selectedClubId, setSelectedClubId] = useState<string>('')
@@ -4256,7 +4276,24 @@ function FindGameScreen({
             activeSection === 'create' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'
           }`}
         >
-          ➕ Criar jogo
+          ➕ Criar
+        </button>
+        <button
+          onClick={async () => {
+            setActiveSection('results')
+            if (pastGames.length === 0 && userId) {
+              setLoadingPastGames(true)
+              const { fetchGamesAwaitingResult } = await import('./lib/openGames')
+              const data = await fetchGamesAwaitingResult(userId)
+              setPastGames(data)
+              setLoadingPastGames(false)
+            }
+          }}
+          className={`flex-1 py-2.5 rounded-lg text-xs font-semibold transition-all ${
+            activeSection === 'results' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'
+          }`}
+        >
+          📊 Resultados
         </button>
       </div>
 
@@ -4399,6 +4436,404 @@ function FindGameScreen({
               <p className="text-sm text-gray-500">Não há clubes com disponibilidade neste momento</p>
             </div>
           )}
+        </div>
+      )}
+
+      {/* === SECTION: Resultados === */}
+      {activeSection === 'results' && (
+        <div className="space-y-3">
+          <div>
+            <h2 className="text-lg font-bold text-gray-900">Resultados</h2>
+            <p className="text-xs text-gray-500">Introduza resultados de jogos terminados ou confirme resultados submetidos</p>
+          </div>
+          
+          {loadingPastGames ? (
+            <div className="text-center py-10">
+              <div className="animate-spin w-8 h-8 border-2 border-red-600 border-t-transparent rounded-full mx-auto mb-3" />
+              <p className="text-sm text-gray-500">A carregar jogos...</p>
+            </div>
+          ) : pastGames.length > 0 ? (
+            <div className="space-y-3">
+              {pastGames.map(game => {
+                const confirmedPlayers = game.players.filter(p => p.status === 'confirmed')
+                const team1 = confirmedPlayers.filter(p => (p.position || 0) <= 2)
+                const team2 = confirmedPlayers.filter(p => (p.position || 0) > 2)
+                const resultStatus = (game as any)._resultStatus as string | null
+                const hasResult = resultStatus === 'pending' || resultStatus === 'confirmed'
+                const isPending = resultStatus === 'pending'
+                const isConfirmed = resultStatus === 'confirmed'
+                
+                // Determine which team I'm on
+                const myPlayer = confirmedPlayers.find(p => p.user_id === userId || (player?.id && p.player_account_id === player.id))
+                const myTeam = myPlayer ? ((myPlayer.position || 0) <= 2 ? 1 : 2) : 0
+
+                return (
+                  <div key={game.id} className="border border-gray-200 rounded-2xl overflow-hidden bg-white shadow-sm">
+                    <div className="p-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <p className="text-sm font-bold text-gray-900">
+                          {new Date(game.scheduled_at).toLocaleDateString('pt-PT', { weekday: 'short', day: '2-digit', month: '2-digit' })} às {new Date(game.scheduled_at).toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' })}
+                        </p>
+                        {isConfirmed && (
+                          <span className="px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs font-medium">✓ Confirmado</span>
+                        )}
+                        {isPending && (
+                          <span className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full text-xs font-medium">⏳ Aguarda confirmação</span>
+                        )}
+                        {!hasResult && (
+                          <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded-full text-xs font-medium">Sem resultado</span>
+                        )}
+                      </div>
+                      
+                      {/* Teams display */}
+                      <div className="flex items-center gap-3 mb-3">
+                        <div className="flex-1 text-center">
+                          <p className="text-xs font-semibold text-gray-500 mb-1">Equipa 1</p>
+                          <div className="flex justify-center gap-1.5">
+                            {team1.map(p => (
+                              <div key={p.id} className="flex flex-col items-center">
+                                <div className="w-9 h-9 rounded-full overflow-hidden bg-gray-200 flex items-center justify-center">
+                                  {p.avatar_url ? (
+                                    <img src={p.avatar_url} className="w-full h-full object-cover" />
+                                  ) : (
+                                    <span className="text-sm font-bold text-gray-600">{(p.name || '?').charAt(0).toUpperCase()}</span>
+                                  )}
+                                </div>
+                                <span className="text-[9px] text-gray-600 mt-0.5 truncate max-w-[50px]">{(p.name || '').split(' ')[0]}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                        <span className="text-gray-300 text-lg font-bold">VS</span>
+                        <div className="flex-1 text-center">
+                          <p className="text-xs font-semibold text-gray-500 mb-1">Equipa 2</p>
+                          <div className="flex justify-center gap-1.5">
+                            {team2.map(p => (
+                              <div key={p.id} className="flex flex-col items-center">
+                                <div className="w-9 h-9 rounded-full overflow-hidden bg-gray-200 flex items-center justify-center">
+                                  {p.avatar_url ? (
+                                    <img src={p.avatar_url} className="w-full h-full object-cover" />
+                                  ) : (
+                                    <span className="text-sm font-bold text-gray-600">{(p.name || '?').charAt(0).toUpperCase()}</span>
+                                  )}
+                                </div>
+                                <span className="text-[9px] text-gray-600 mt-0.5 truncate max-w-[50px]">{(p.name || '').split(' ')[0]}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                      
+                      {/* Club info */}
+                      <div className="flex items-center gap-2 mb-3">
+                        {game.club_logo_url ? (
+                          <img src={game.club_logo_url} alt="" className="w-6 h-6 rounded-lg object-cover" />
+                        ) : (
+                          <div className="w-6 h-6 rounded-lg bg-gray-200 flex items-center justify-center">
+                            <Building2 className="w-3 h-3 text-gray-400" />
+                          </div>
+                        )}
+                        <span className="text-xs text-gray-600">{game.club_name}</span>
+                        {game.court_name && <span className="text-xs text-gray-400">· {game.court_name}</span>}
+                      </div>
+
+                      {/* Actions */}
+                      {!hasResult && (
+                        <button
+                          onClick={() => {
+                            setResultModal({ game })
+                            setResultScores({ t1s1: '', t2s1: '', t1s2: '', t2s2: '', t1s3: '', t2s3: '' })
+                          }}
+                          className="w-full py-2.5 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 transition-colors"
+                        >
+                          📊 Introduzir resultado
+                        </button>
+                      )}
+                      {isPending && (
+                        <div className="space-y-2">
+                          {/* Show who submitted and what the score is */}
+                          <button
+                            onClick={async () => {
+                              const { fetchGameResult } = await import('./lib/openGames')
+                              const res = await fetchGameResult(game.id)
+                              if (res) {
+                                setConfirmModal({ game, result: res })
+                              } else {
+                                alert('Erro ao carregar resultado')
+                              }
+                            }}
+                            className={`w-full py-2.5 rounded-xl text-sm font-semibold transition-colors ${
+                              myTeam && myTeam !== ((game as any)._submittedByTeam || 0)
+                                ? 'bg-green-600 text-white hover:bg-green-700'
+                                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                            }`}
+                          >
+                            👁️ Ver resultado e confirmar/disputar
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          ) : (
+            <div className="card p-8 text-center">
+              <span className="text-4xl block mb-3">📊</span>
+              <p className="font-semibold text-gray-700 mb-1">Sem jogos para avaliar</p>
+              <p className="text-sm text-gray-500">Os jogos terminados que necessitam de resultado aparecerão aqui</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* === MODAL: Introduzir Resultado === */}
+      {resultModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setResultModal(null)}>
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-fade-in" onClick={e => e.stopPropagation()}>
+            <div className="p-4 border-b border-gray-100 flex items-center justify-between">
+              <h3 className="font-bold text-lg text-gray-900">📊 Introduzir resultado</h3>
+              <button onClick={() => setResultModal(null)} className="p-1">
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+            
+            <div className="p-5 space-y-4">
+              {/* Teams */}
+              {(() => {
+                const cp = resultModal.game.players.filter(p => p.status === 'confirmed')
+                const t1 = cp.filter(p => (p.position || 0) <= 2)
+                const t2 = cp.filter(p => (p.position || 0) > 2)
+                return (
+                  <div className="flex items-center gap-4">
+                    <div className="flex-1 text-center">
+                      <p className="text-xs font-bold text-blue-600 mb-1">Equipa 1</p>
+                      {t1.map(p => <p key={p.id} className="text-xs text-gray-700">{(p.name || '').split(' ')[0]}</p>)}
+                    </div>
+                    <span className="text-gray-300 font-bold">VS</span>
+                    <div className="flex-1 text-center">
+                      <p className="text-xs font-bold text-red-600 mb-1">Equipa 2</p>
+                      {t2.map(p => <p key={p.id} className="text-xs text-gray-700">{(p.name || '').split(' ')[0]}</p>)}
+                    </div>
+                  </div>
+                )
+              })()}
+              
+              {/* Score inputs */}
+              <div className="space-y-3">
+                {['Set 1', 'Set 2', 'Set 3'].map((label, idx) => (
+                  <div key={label} className="flex items-center gap-3">
+                    <span className={`text-sm font-medium w-12 ${idx === 2 ? 'text-gray-400' : 'text-gray-700'}`}>{label}</span>
+                    <input
+                      type="number"
+                      min="0"
+                      max="7"
+                      placeholder="E1"
+                      value={idx === 0 ? resultScores.t1s1 : idx === 1 ? resultScores.t1s2 : resultScores.t1s3}
+                      onChange={e => {
+                        const key = idx === 0 ? 't1s1' : idx === 1 ? 't1s2' : 't1s3'
+                        setResultScores(prev => ({ ...prev, [key]: e.target.value }))
+                      }}
+                      className="flex-1 text-center py-2 border border-gray-200 rounded-lg text-sm font-bold focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                    <span className="text-gray-300">-</span>
+                    <input
+                      type="number"
+                      min="0"
+                      max="7"
+                      placeholder="E2"
+                      value={idx === 0 ? resultScores.t2s1 : idx === 1 ? resultScores.t2s2 : resultScores.t2s3}
+                      onChange={e => {
+                        const key = idx === 0 ? 't2s1' : idx === 1 ? 't2s2' : 't2s3'
+                        setResultScores(prev => ({ ...prev, [key]: e.target.value }))
+                      }}
+                      className="flex-1 text-center py-2 border border-gray-200 rounded-lg text-sm font-bold focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                ))}
+              </div>
+              
+              <p className="text-xs text-gray-400 text-center">O 3° set é opcional (apenas se necessário)</p>
+              
+              <button
+                disabled={submittingResult || !resultScores.t1s1 || !resultScores.t2s1 || !resultScores.t1s2 || !resultScores.t2s2}
+                onClick={async () => {
+                  setSubmittingResult(true)
+                  const { submitGameResult } = await import('./lib/openGames')
+                  const res = await submitGameResult({
+                    gameId: resultModal.game.id,
+                    t1Set1: parseInt(resultScores.t1s1) || 0,
+                    t2Set1: parseInt(resultScores.t2s1) || 0,
+                    t1Set2: parseInt(resultScores.t1s2) || 0,
+                    t2Set2: parseInt(resultScores.t2s2) || 0,
+                    t1Set3: parseInt(resultScores.t1s3) || 0,
+                    t2Set3: parseInt(resultScores.t2s3) || 0,
+                  })
+                  if (res.success) {
+                    alert('Resultado submetido! A equipa adversária precisa confirmar.')
+                    setResultModal(null)
+                    // Award points for submitting
+                    try {
+                      const { awardGameRewardPoints: _aw } = await import('./lib/openGames')
+                    } catch {}
+                    // Refresh past games
+                    if (userId) {
+                      const { fetchGamesAwaitingResult } = await import('./lib/openGames')
+                      const data = await fetchGamesAwaitingResult(userId)
+                      setPastGames(data)
+                    }
+                  } else {
+                    alert(res.error || 'Erro ao submeter resultado')
+                  }
+                  setSubmittingResult(false)
+                }}
+                className="w-full py-3 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {submittingResult ? 'A submeter...' : '✓ Submeter resultado'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* === MODAL: Confirmar/Disputar Resultado === */}
+      {confirmModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setConfirmModal(null)}>
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-fade-in" onClick={e => e.stopPropagation()}>
+            <div className="p-4 border-b border-gray-100 flex items-center justify-between">
+              <h3 className="font-bold text-lg text-gray-900">📊 Resultado submetido</h3>
+              <button onClick={() => setConfirmModal(null)} className="p-1">
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+            
+            <div className="p-5 space-y-4">
+              {/* Teams */}
+              {(() => {
+                const cp = confirmModal.game.players.filter(p => p.status === 'confirmed')
+                const t1 = cp.filter(p => (p.position || 0) <= 2)
+                const t2 = cp.filter(p => (p.position || 0) > 2)
+                const r = confirmModal.result
+                
+                // Determine winner
+                const s1 = [r.team1_score_set1 || 0, r.team2_score_set1 || 0]
+                const s2 = [r.team1_score_set2 || 0, r.team2_score_set2 || 0]
+                const s3 = [r.team1_score_set3 || 0, r.team2_score_set3 || 0]
+                const sets1 = (s1[0] > s1[1] ? 1 : 0) + (s2[0] > s2[1] ? 1 : 0) + (s3[0] > s3[1] ? 1 : 0)
+                const sets2 = (s1[1] > s1[0] ? 1 : 0) + (s2[1] > s2[0] ? 1 : 0) + (s3[1] > s3[0] ? 1 : 0)
+                const team1Won = sets1 > sets2
+                
+                return (
+                  <>
+                    <div className="flex items-center gap-4">
+                      <div className={`flex-1 text-center p-3 rounded-xl ${team1Won ? 'bg-green-50 border border-green-200' : 'bg-gray-50'}`}>
+                        <p className="text-xs font-bold text-blue-600 mb-1">Equipa 1 {team1Won ? '🏆' : ''}</p>
+                        {t1.map(p => <p key={p.id} className="text-xs text-gray-700">{(p.name || '').split(' ')[0]}</p>)}
+                      </div>
+                      <span className="text-gray-300 font-bold">VS</span>
+                      <div className={`flex-1 text-center p-3 rounded-xl ${!team1Won ? 'bg-green-50 border border-green-200' : 'bg-gray-50'}`}>
+                        <p className="text-xs font-bold text-red-600 mb-1">Equipa 2 {!team1Won ? '🏆' : ''}</p>
+                        {t2.map(p => <p key={p.id} className="text-xs text-gray-700">{(p.name || '').split(' ')[0]}</p>)}
+                      </div>
+                    </div>
+                    
+                    {/* Scores display */}
+                    <div className="bg-gray-50 rounded-xl p-4">
+                      <div className="grid grid-cols-3 gap-3 text-center">
+                        <div>
+                          <p className="text-[10px] text-gray-500 mb-1">Set 1</p>
+                          <p className="text-lg font-bold text-gray-900">{r.team1_score_set1} - {r.team2_score_set1}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-gray-500 mb-1">Set 2</p>
+                          <p className="text-lg font-bold text-gray-900">{r.team1_score_set2} - {r.team2_score_set2}</p>
+                        </div>
+                        {(r.team1_score_set3 > 0 || r.team2_score_set3 > 0) && (
+                          <div>
+                            <p className="text-[10px] text-gray-500 mb-1">Set 3</p>
+                            <p className="text-lg font-bold text-gray-900">{r.team1_score_set3} - {r.team2_score_set3}</p>
+                          </div>
+                        )}
+                      </div>
+                      <p className="text-xs text-gray-400 text-center mt-2">
+                        Submetido pela Equipa {r.submitted_by_team}
+                      </p>
+                    </div>
+                  </>
+                )
+              })()}
+              
+              {/* Determine if I can confirm/dispute */}
+              {(() => {
+                const myPlayer = confirmModal.game.players.find(p => p.user_id === userId || (player?.id && p.player_account_id === player.id))
+                const myTeam = myPlayer ? ((myPlayer.position || 0) <= 2 ? 1 : 2) : 0
+                const canConfirm = myTeam !== 0 && myTeam !== confirmModal.result.submitted_by_team
+                
+                if (!canConfirm) {
+                  return (
+                    <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-center">
+                      <p className="text-sm text-amber-700 font-medium">⏳ A aguardar confirmação da equipa adversária</p>
+                    </div>
+                  )
+                }
+                
+                return (
+                  <div className="space-y-2">
+                    <p className="text-xs text-gray-500 text-center">Confirmas este resultado?</p>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={async () => {
+                          setSubmittingResult(true)
+                          const { confirmGameResult } = await import('./lib/openGames')
+                          const res = await confirmGameResult(confirmModal.game.id)
+                          if (res.success) {
+                            alert('Resultado confirmado! Os níveis serão atualizados.')
+                            setConfirmModal(null)
+                            if (userId) {
+                              const { fetchGamesAwaitingResult } = await import('./lib/openGames')
+                              const data = await fetchGamesAwaitingResult(userId)
+                              setPastGames(data)
+                            }
+                          } else {
+                            alert(res.error || 'Erro ao confirmar')
+                          }
+                          setSubmittingResult(false)
+                        }}
+                        disabled={submittingResult}
+                        className="flex-1 py-3 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 transition-colors disabled:opacity-50"
+                      >
+                        ✓ Confirmar
+                      </button>
+                      <button
+                        onClick={async () => {
+                          if (!confirm('Queres disputar este resultado? O resultado será apagado e qualquer jogador pode submeter um novo.')) return
+                          setSubmittingResult(true)
+                          const { disputeGameResult } = await import('./lib/openGames')
+                          const res = await disputeGameResult(confirmModal.game.id)
+                          if (res.success) {
+                            alert('Resultado disputado. Um novo resultado pode ser submetido.')
+                            setConfirmModal(null)
+                            if (userId) {
+                              const { fetchGamesAwaitingResult } = await import('./lib/openGames')
+                              const data = await fetchGamesAwaitingResult(userId)
+                              setPastGames(data)
+                            }
+                          } else {
+                            alert(res.error || 'Erro ao disputar')
+                          }
+                          setSubmittingResult(false)
+                        }}
+                        disabled={submittingResult}
+                        className="flex-1 py-3 bg-red-100 text-red-700 rounded-xl text-sm font-semibold hover:bg-red-200 transition-colors disabled:opacity-50"
+                      >
+                        ✗ Disputar
+                      </button>
+                    </div>
+                  </div>
+                )
+              })()}
+            </div>
+          </div>
         </div>
       )}
 

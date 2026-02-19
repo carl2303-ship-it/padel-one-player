@@ -613,6 +613,13 @@ export async function createOpenGame(params: {
     // Don't fail the game creation if sync fails
   }
 
+  // Award reward points for creating a game
+  if (resolvedAccountId) {
+    try {
+      await awardGameRewardPoints(game.id, 'create_game')
+    } catch {}
+  }
+
   return { success: true, gameId: game.id }
 }
 
@@ -848,6 +855,13 @@ export async function joinOpenGame(params: {
 
   // Sync player details to court_booking
   await syncBookingPlayers(params.gameId)
+
+  // Award reward points for joining
+  if (joinStatus === 'confirmed') {
+    try {
+      await awardGameRewardPoints(params.gameId, 'join_game')
+    } catch {}
+  }
 
   return { success: true, status: joinStatus }
 }
@@ -1106,4 +1120,432 @@ export async function searchPlayerAccounts(query: string): Promise<{
 
   if (error || !data) return []
   return data
+}
+
+// ============================
+// Open Game Results
+// ============================
+
+export interface OpenGameResult {
+  id: string
+  game_id: string
+  submitted_by_user_id: string
+  submitted_by_player_account_id: string | null
+  submitted_by_team: number
+  team1_score_set1: number
+  team2_score_set1: number
+  team1_score_set2: number
+  team2_score_set2: number
+  team1_score_set3: number
+  team2_score_set3: number
+  status: 'pending' | 'confirmed' | 'disputed'
+  confirmed_by_user_id: string | null
+  confirmed_at: string | null
+  rating_processed: boolean
+  created_at: string
+}
+
+export async function fetchGameResult(gameId: string): Promise<OpenGameResult | null> {
+  const { data, error } = await supabase
+    .from('open_game_results')
+    .select('*')
+    .eq('game_id', gameId)
+    .maybeSingle()
+
+  if (error || !data) return null
+  return data as OpenGameResult
+}
+
+export async function submitGameResult(params: {
+  gameId: string
+  t1Set1: number; t2Set1: number
+  t1Set2: number; t2Set2: number
+  t1Set3?: number; t2Set3?: number
+}): Promise<{ success: boolean; submittedByTeam?: number; error?: string }> {
+  const { data, error } = await supabase.rpc('submit_open_game_result', {
+    p_game_id: params.gameId,
+    p_t1_set1: params.t1Set1,
+    p_t2_set1: params.t2Set1,
+    p_t1_set2: params.t1Set2,
+    p_t2_set2: params.t2Set2,
+    p_t1_set3: params.t1Set3 ?? 0,
+    p_t2_set3: params.t2Set3 ?? 0,
+  })
+
+  if (error) {
+    console.error('[OpenGames] Error submitting result:', error)
+    return { success: false, error: error.message }
+  }
+
+  const result = data as any
+  if (!result?.success) {
+    return { success: false, error: result?.error || 'Erro desconhecido' }
+  }
+
+  // Award reward points for submitting result
+  try {
+    await awardGameRewardPoints(params.gameId, 'submit_result')
+  } catch {}
+
+  return { success: true, submittedByTeam: result.submitted_by_team }
+}
+
+export async function confirmGameResult(gameId: string): Promise<{ success: boolean; error?: string }> {
+  const { data, error } = await supabase.rpc('confirm_open_game_result', {
+    p_game_id: gameId,
+  })
+
+  if (error) {
+    console.error('[OpenGames] Error confirming result:', error)
+    return { success: false, error: error.message }
+  }
+
+  const result = data as any
+  if (!result?.success) {
+    return { success: false, error: result?.error || 'Erro desconhecido' }
+  }
+
+  // Process rating after confirmation
+  try {
+    await processOpenGameRating(gameId)
+  } catch (err) {
+    console.error('[OpenGames] Error processing rating after confirmation:', err)
+  }
+
+  // Award reward points
+  try {
+    await awardGameRewardPoints(gameId, 'confirm_result')
+  } catch (err) {
+    console.error('[OpenGames] Error awarding reward points:', err)
+  }
+
+  return { success: true }
+}
+
+export async function disputeGameResult(gameId: string): Promise<{ success: boolean; error?: string }> {
+  const { data, error } = await supabase.rpc('dispute_open_game_result', {
+    p_game_id: gameId,
+  })
+
+  if (error) {
+    console.error('[OpenGames] Error disputing result:', error)
+    return { success: false, error: error.message }
+  }
+
+  const result = data as any
+  if (!result?.success) {
+    return { success: false, error: result?.error || 'Erro desconhecido' }
+  }
+
+  return { success: true }
+}
+
+// ============================
+// Process rating for an open game
+// ============================
+
+async function processOpenGameRating(gameId: string): Promise<void> {
+  // 1. Get the confirmed result
+  const { data: result } = await supabase
+    .from('open_game_results')
+    .select('*')
+    .eq('game_id', gameId)
+    .eq('status', 'confirmed')
+    .single()
+
+  if (!result || result.rating_processed) return
+
+  // 2. Get all confirmed players sorted by position
+  const { data: players } = await supabase
+    .from('open_game_players')
+    .select('player_account_id, position')
+    .eq('game_id', gameId)
+    .eq('status', 'confirmed')
+    .order('position', { ascending: true })
+
+  if (!players || players.length < 4) return
+
+  // 3. Get player accounts
+  const accountIds = players.map(p => p.player_account_id).filter(Boolean) as string[]
+  const { data: accounts } = await supabase
+    .from('player_accounts')
+    .select('id, user_id, name, level, rated_matches, wins, losses')
+    .in('id', accountIds)
+
+  if (!accounts || accounts.length < 4) return
+
+  const accountMap = new Map(accounts.map(a => [a.id, a]))
+
+  // 4. Build ratings (positions 1,2 = team 1; positions 3,4 = team 2)
+  const { calculateNewRatings, calculateReliability } = await import('./ratingEngine')
+
+  const buildPlayerRating = (paId: string) => {
+    const acct = accountMap.get(paId)
+    if (!acct) return null
+    return {
+      id: acct.id,
+      user_id: acct.user_id || '',
+      name: acct.name || '',
+      rating: acct.level ?? 3.0,
+      matches: acct.rated_matches ?? ((acct.wins ?? 0) + (acct.losses ?? 0)),
+    }
+  }
+
+  const p1 = buildPlayerRating(players[0].player_account_id!)
+  const p2 = buildPlayerRating(players[1].player_account_id!)
+  const p3 = buildPlayerRating(players[2].player_account_id!)
+  const p4 = buildPlayerRating(players[3].player_account_id!)
+
+  if (!p1 || !p2 || !p3 || !p4) return
+
+  const s1 = [result.team1_score_set1 ?? 0, result.team2_score_set1 ?? 0] as [number, number]
+  const s2 = [result.team1_score_set2 ?? 0, result.team2_score_set2 ?? 0] as [number, number]
+  const s3 = [result.team1_score_set3 ?? 0, result.team2_score_set3 ?? 0] as [number, number]
+
+  const sets1 = (s1[0] > s1[1] ? 1 : 0) + (s2[0] > s2[1] ? 1 : 0) + (s3[0] > s3[1] ? 1 : 0)
+  const sets2 = (s1[1] > s1[0] ? 1 : 0) + (s2[1] > s2[0] ? 1 : 0) + (s3[1] > s3[0] ? 1 : 0)
+  const gamesTotal1 = s1[0] + s2[0] + s3[0]
+  const gamesTotal2 = s1[1] + s2[1] + s3[1]
+
+  if (sets1 === 0 && sets2 === 0) return
+
+  const ratingResult = calculateNewRatings(
+    { p1, p2 },
+    { p3, p4 },
+    { sets1, sets2, gamesTotal1, gamesTotal2 }
+  )
+
+  if (ratingResult.skipped || !ratingResult.team1 || !ratingResult.team2) return
+
+  // 5. Update ratings
+  const allPlayers = [
+    ratingResult.team1.p1, ratingResult.team1.p2,
+    ratingResult.team2.p3, ratingResult.team2.p4,
+  ]
+
+  for (const rp of allPlayers) {
+    const newReliability = calculateReliability(rp.matches)
+    await supabase.rpc('update_player_rating', {
+      p_player_account_id: rp.id,
+      p_new_level: rp.rating,
+      p_new_reliability: newReliability,
+      p_match_won: rp.won,
+    })
+  }
+
+  // 6. Mark result as processed
+  await supabase
+    .from('open_game_results')
+    .update({ rating_processed: true, updated_at: new Date().toISOString() })
+    .eq('id', result.id)
+
+  console.log('[OpenGames] Rating processed for game:', gameId)
+}
+
+// ============================
+// Award reward points for game actions
+// ============================
+
+export async function awardGameRewardPoints(gameId: string, actionType: string): Promise<void> {
+  // Get the game's club
+  const { data: game } = await supabase
+    .from('open_games')
+    .select('club_id')
+    .eq('id', gameId)
+    .single()
+
+  if (!game) return
+
+  // Get current user's player_account_id
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return
+
+  const { data: pa } = await supabase
+    .from('player_accounts')
+    .select('id')
+    .eq('user_id', user.id)
+    .maybeSingle()
+
+  if (!pa) return
+
+  await supabase.rpc('award_reward_points', {
+    p_player_account_id: pa.id,
+    p_club_id: game.club_id,
+    p_action_type: actionType,
+    p_reference_id: gameId,
+  })
+}
+
+// ============================
+// Fetch player reward points
+// ============================
+
+export async function fetchPlayerRewards(playerAccountId: string): Promise<{
+  totalPoints: number
+  tier: string
+  rewards: { clubId: string; clubName: string; points: number; tier: string }[]
+}> {
+  const { data, error } = await supabase
+    .from('player_rewards')
+    .select('club_id, total_points, tier, club:clubs(name)')
+    .eq('player_account_id', playerAccountId)
+    .order('total_points', { ascending: false })
+
+  if (error || !data) return { totalPoints: 0, tier: 'silver', rewards: [] }
+
+  let totalPoints = 0
+  const rewards = data.map((r: any) => {
+    totalPoints += r.total_points
+    return {
+      clubId: r.club_id,
+      clubName: (r.club as any)?.name || 'Clube',
+      points: r.total_points,
+      tier: r.tier || 'silver',
+    }
+  })
+
+  const tier = totalPoints >= 1000 ? 'diamond' : totalPoints >= 500 ? 'platinum' : totalPoints >= 200 ? 'gold' : 'silver'
+
+  return { totalPoints, tier, rewards }
+}
+
+export async function fetchRewardTransactions(playerAccountId: string, limit: number = 20): Promise<{
+  id: string; actionType: string; points: number; description: string; clubName: string; createdAt: string
+}[]> {
+  const { data, error } = await supabase
+    .from('reward_transactions')
+    .select('id, action_type, points, description, created_at, club:clubs(name)')
+    .eq('player_account_id', playerAccountId)
+    .order('created_at', { ascending: false })
+    .limit(limit)
+
+  if (error || !data) return []
+
+  return data.map((t: any) => ({
+    id: t.id,
+    actionType: t.action_type,
+    points: t.points,
+    description: t.description || '',
+    clubName: (t.club as any)?.name || 'Clube',
+    createdAt: t.created_at,
+  }))
+}
+
+// ============================
+// Fetch games awaiting result (past games with status full/completed but no result)
+// ============================
+
+export async function fetchGamesAwaitingResult(userId: string): Promise<OpenGame[]> {
+  // Get games where user is confirmed
+  const { data: myGames } = await supabase
+    .from('open_game_players')
+    .select('game_id')
+    .eq('user_id', userId)
+    .eq('status', 'confirmed')
+
+  if (!myGames || myGames.length === 0) return []
+
+  const gameIds = myGames.map(g => g.game_id)
+
+  // Fetch games that ended (scheduled_at + duration < now)
+  const now = new Date().toISOString()
+  const { data: gamesData } = await supabase
+    .from('open_games')
+    .select('*')
+    .in('id', gameIds)
+    .in('status', ['full', 'completed'])
+    .lte('scheduled_at', now)
+    .order('scheduled_at', { ascending: false })
+    .limit(20)
+
+  if (!gamesData || gamesData.length === 0) return []
+
+  // Filter: only games whose end time has passed
+  const pastGames = gamesData.filter(g => {
+    const endTime = new Date(new Date(g.scheduled_at).getTime() + (g.duration_minutes || 90) * 60000)
+    return endTime <= new Date()
+  })
+
+  if (pastGames.length === 0) return []
+
+  // Check which games already have results
+  const pastGameIds = pastGames.map(g => g.id)
+  const { data: existingResults } = await supabase
+    .from('open_game_results')
+    .select('game_id, status')
+    .in('game_id', pastGameIds)
+
+  const resultsMap = new Map((existingResults || []).map(r => [r.game_id, r.status]))
+
+  // Fetch full data for these games using fetchOpenGames pattern
+  const gameIdsForFetch = pastGames.map(g => g.id)
+  
+  const { data: playersData } = await supabase
+    .from('open_game_players')
+    .select('*')
+    .in('game_id', gameIdsForFetch)
+    .eq('status', 'confirmed')
+
+  const userIds = [...new Set((playersData || []).map((p: any) => p.user_id))]
+  let playerAccountsMap: { [key: string]: { name: string; avatar_url: string | null; level: number | null; player_category: string | null } } = {}
+  
+  if (userIds.length > 0) {
+    const { data: accounts } = await supabase
+      .from('player_accounts')
+      .select('id, user_id, name, avatar_url, level, player_category')
+      .in('user_id', userIds)
+    
+    if (accounts) {
+      accounts.forEach((a: any) => {
+        playerAccountsMap[a.user_id] = { name: a.name, avatar_url: a.avatar_url, level: a.level, player_category: a.player_category }
+        playerAccountsMap['pa_' + a.id] = playerAccountsMap[a.user_id]
+      })
+    }
+  }
+
+  const clubIds = [...new Set(pastGames.map(g => g.club_id))]
+  let clubsMap: { [id: string]: { name: string; logo_url: string | null; city: string | null } } = {}
+  if (clubIds.length > 0) {
+    const { data: clubs } = await supabase.from('clubs').select('id, name, logo_url, city').in('id', clubIds)
+    if (clubs) clubs.forEach((c: any) => { clubsMap[c.id] = { name: c.name, logo_url: c.logo_url, city: c.city } })
+  }
+
+  const courtIds = [...new Set(pastGames.filter(g => g.court_id).map(g => g.court_id))]
+  let courtsMap: { [id: string]: { name: string; type: string | null } } = {}
+  if (courtIds.length > 0) {
+    const { data: courts } = await supabase.from('club_courts').select('id, name, type').in('id', courtIds)
+    if (courts) courts.forEach((c: any) => { courtsMap[c.id] = { name: c.name, type: c.type || null } })
+  }
+
+  return pastGames.map((g: any) => {
+    const gamePlayers = (playersData || [])
+      .filter((p: any) => p.game_id === g.id)
+      .map((p: any) => {
+        const account = (p.player_account_id ? playerAccountsMap['pa_' + p.player_account_id] : null) || playerAccountsMap[p.user_id]
+        return {
+          id: p.id, user_id: p.user_id, player_account_id: p.player_account_id,
+          status: p.status, position: p.position,
+          name: account?.name || 'Jogador', avatar_url: account?.avatar_url || null,
+          level: account?.level || null, player_category: account?.player_category || null,
+        }
+      })
+
+    const club = clubsMap[g.club_id] || { name: 'Clube', logo_url: null, city: null }
+    const court = g.court_id ? courtsMap[g.court_id] : null
+    const resultStatus = resultsMap.get(g.id) || null
+
+    return {
+      id: g.id, creator_user_id: g.creator_user_id, club_id: g.club_id,
+      club_name: club.name, club_logo_url: club.logo_url, club_city: club.city,
+      court_id: g.court_id, court_name: court?.name || null,
+      court_type: (court?.type as any) || null,
+      scheduled_at: g.scheduled_at, duration_minutes: g.duration_minutes,
+      game_type: g.game_type, gender: g.gender,
+      level_min: parseFloat(g.level_min) || 1.0, level_max: parseFloat(g.level_max) || 7.0,
+      price_per_player: parseFloat(g.price_per_player) || 0,
+      max_players: g.max_players, status: g.status, notes: g.notes,
+      players: gamePlayers, created_at: g.created_at,
+      _resultStatus: resultStatus, // extra field for UI
+    } as OpenGame & { _resultStatus?: string | null }
+  })
 }
