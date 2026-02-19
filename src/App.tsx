@@ -83,6 +83,7 @@ import {
 } from './lib/communityData'
 import { fetchAllClubs, fetchClubById, fetchUpcomingTournaments, fetchEnrolledByCategory, getTournamentRegistrationUrl, type ClubDetail, type UpcomingTournamentFromTour, type EnrolledByCategory } from './lib/clubAndTournaments'
 import { fetchAvailableClasses, fetchMyClasses, enrollInClass, type Class as ClassData } from './lib/classes'
+import { preloadAllPlayerData, getCachedPlayerData } from './lib/playerDataCache'
 
 type Screen = 'home' | 'games' | 'profile-view' | 'profile-edit' | 'club' | 'club-detail' | 'compete' | 'community' | 'player-profile' | 'follows-list' | 'learn' | 'find-game'
 
@@ -142,11 +143,14 @@ function App() {
         setAuthUserId(authUid || data.user_id || null)
         if (data.user_id) {
           // Pass playerAccount to avoid duplicate query (saves ~150ms)
-          const dash = await fetchPlayerDashboardData(data.user_id, {
-            id: data.id,
-            name: data.name,
-            phone_number: data.phone_number,
-          })
+          const [dash] = await Promise.all([
+            fetchPlayerDashboardData(data.user_id, {
+              id: data.id,
+              name: data.name,
+              phone_number: data.phone_number,
+            }),
+            preloadAllPlayerData(), // Carrega cache de jogadores em paralelo
+          ])
           setDashboardData(dash)
           // Enrich with Edge Function in background (progressive loading)
           enrichDashboardWithEdgeFunction().then(enriched => {
@@ -171,11 +175,14 @@ function App() {
         setAuthUserId(session.user.id)
         setIsAuthenticated(true)
         // Pass playerAccount to avoid duplicate query (saves ~150ms)
-        const data = await fetchPlayerDashboardData(session.user.id, {
-          id: playerAccount.id,
-          name: playerAccount.name,
-          phone_number: playerAccount.phone_number,
-        })
+        const [data] = await Promise.all([
+          fetchPlayerDashboardData(session.user.id, {
+            id: playerAccount.id,
+            name: playerAccount.name,
+            phone_number: playerAccount.phone_number,
+          }),
+          preloadAllPlayerData(),
+        ])
         setDashboardData(data)
         // Enrich with Edge Function in background (progressive loading)
         enrichDashboardWithEdgeFunction().then(enriched => {
@@ -318,11 +325,14 @@ function App() {
         setAuthUserId(authData?.user?.id || playerAccount.user_id || null)
         if (playerAccount.user_id) {
           // Pass playerAccount to avoid duplicate query (saves ~150ms)
-          const data = await fetchPlayerDashboardData(playerAccount.user_id, {
-            id: playerAccount.id,
-            name: playerAccount.name,
-            phone_number: playerAccount.phone_number,
-          })
+          const [data] = await Promise.all([
+            fetchPlayerDashboardData(playerAccount.user_id, {
+              id: playerAccount.id,
+              name: playerAccount.name,
+              phone_number: playerAccount.phone_number,
+            }),
+            preloadAllPlayerData(),
+          ])
           setDashboardData(data)
           // Enrich with Edge Function in background (progressive loading)
           enrichDashboardWithEdgeFunction().then(enriched => {
@@ -874,49 +884,6 @@ function GameCardPlaytomic({
   const p3 = match.player3_name ?? twoPlayersPerTeam(match.team2_name)[0]
   const p4 = match.player4_name ?? twoPlayersPerTeam(match.team2_name)[1]
   
-  // Estados para armazenar níveis, categorias e avatares dos jogadores
-  const [playersData, setPlayersData] = useState<{ [name: string]: { level?: number; category?: string; avatar_url?: string | null } }>({})
-  
-  // Buscar níveis, categorias e avatares dos jogadores
-  useEffect(() => {
-    const fetchPlayerData = async () => {
-      const { findPlayerDataByName } = await import('./lib/classes')
-      const { supabase } = await import('./lib/supabase')
-      const names = [p1, p2, p3, p4].filter(n => n && n !== 'TBD')
-      const data: { [name: string]: { level?: number; category?: string; avatar_url?: string | null } } = {}
-      
-      for (const name of names) {
-        const playerData = await findPlayerDataByName(name)
-        if (playerData) {
-          const level = playerData.level ?? (playerData.player_category ? categoryToLevel(playerData.player_category) : undefined)
-          
-          // Buscar avatar do player_account
-          let avatarUrl: string | null = null
-          if (playerData.player_account_id) {
-            const { data: account } = await supabase
-              .from('player_accounts')
-              .select('avatar_url')
-              .eq('id', playerData.player_account_id)
-              .maybeSingle()
-            avatarUrl = account?.avatar_url || null
-          }
-          
-          data[name] = {
-            level,
-            category: playerData.player_category ?? undefined,
-            avatar_url: avatarUrl
-          }
-        }
-        // Note: If player not found, they simply won't have level/category/avatar data
-        // This is normal for old matches with players no longer in the database
-      }
-      
-      setPlayersData(data)
-    }
-    
-    fetchPlayerData()
-  }, [p1, p2, p3, p4])
-  
   const setStrings = [match.set1, match.set2, match.set3].filter(Boolean) as string[]
   const parsedSets = setStrings.map(parseSetScores)
   const hasSets = parsedSets.some(Boolean)
@@ -931,13 +898,15 @@ function GameCardPlaytomic({
     return fullName.split(' ')[0]
   }
   
-  // Função para renderizar jogador com nível
+  // Função para renderizar jogador com nível (dados do cache global — sem queries)
   const renderPlayer = (name: string, bgClass: string, textClass: string) => {
     const firstName = getFirstName(name)
-    const playerData = playersData[name]
-    const colors = playerData?.category ? categoryColors(playerData.category) : null
-    // Usar avatar do playerData se disponível, senão usar currentPlayerAvatar se for o jogador atual
-    const avatarUrl = playerData?.avatar_url ?? (isCurrentPlayer(name, currentPlayerName) ? currentPlayerAvatar : null)
+    const cached = getCachedPlayerData(name)
+    const level = cached?.level ?? (cached?.player_category ? categoryToLevel(cached.player_category) : undefined)
+    const category = cached?.player_category ?? undefined
+    const colors = category ? categoryColors(category) : null
+    // Usar avatar do cache, senão usar currentPlayerAvatar se for o jogador atual
+    const avatarUrl = cached?.avatar_url ?? (isCurrentPlayer(name, currentPlayerName) ? currentPlayerAvatar : null)
     
     return (
       <div className="flex flex-col items-center min-h-[78px]">
@@ -952,13 +921,13 @@ function GameCardPlaytomic({
         <span className="text-[10px] text-gray-700 font-medium truncate max-w-[60px] mt-1 text-center" title={name}>
           {firstName}
         </span>
-        {playerData?.level !== undefined && (
+        {level !== undefined && (
           <div 
             className="mt-0.5 px-2 py-0.5 rounded-full text-[9px] font-bold text-white"
             style={{ backgroundColor: colors?.hex || '#9ca3af' }}
-            title={`Nível ${playerData.level.toFixed(1)}${playerData.category ? ` - ${playerData.category}` : ''}`}
+            title={`Nível ${level.toFixed(1)}${category ? ` - ${category}` : ''}`}
           >
-            {playerData.level.toFixed(1)}
+            {level.toFixed(1)}
           </div>
         )}
       </div>
@@ -3239,9 +3208,20 @@ function CompeteScreen({
                       {displayStandings.map((row) => (
                         <tr key={row.position} className={`border-t border-gray-100 ${row.is_current_player ? 'bg-red-100 ring-2 ring-red-200' : ''}`}>
                           <td className={`px-2 py-2 text-sm ${row.is_current_player ? 'font-bold text-red-600' : 'text-gray-500'}`}>{row.position}</td>
-                          <td className="px-2 py-2 truncate max-w-[180px]">
-                            <span className={row.is_current_player ? 'font-bold text-gray-900 text-base' : 'font-medium'}>{row.entity_name}</span>
-                            {row.is_current_player && <span className="ml-1 text-xs bg-red-600 text-white px-1.5 py-0.5 rounded font-semibold">Tu</span>}
+                          <td className="px-2 py-2">
+                            <div className="flex items-center gap-2">
+                              <div className="w-8 h-8 rounded-full flex-shrink-0 overflow-hidden bg-gray-200 flex items-center justify-center">
+                                {(row.avatar_url || getCachedPlayerData(row.entity_name)?.avatar_url) ? (
+                                  <img src={row.avatar_url || getCachedPlayerData(row.entity_name)?.avatar_url || ''} alt={row.entity_name} className="w-full h-full object-cover" />
+                                ) : (
+                                  <span className="text-xs font-bold text-gray-500">{row.entity_name?.split(' ').map((n: string) => n[0]).join('').substring(0, 2).toUpperCase()}</span>
+                                )}
+                              </div>
+                              <div className="truncate max-w-[140px]">
+                                <span className={row.is_current_player ? 'font-bold text-gray-900 text-base' : 'font-medium'}>{row.entity_name}</span>
+                                {row.is_current_player && <span className="ml-1 text-xs bg-red-600 text-white px-1.5 py-0.5 rounded font-semibold">Tu</span>}
+                              </div>
+                            </div>
                           </td>
                           <td className={`px-2 py-2 text-center font-bold ${row.is_current_player ? 'text-red-600 text-base' : ''}`}>{row.total_points}</td>
                           <td className={`px-2 py-2 text-center text-sm ${row.is_current_player ? 'font-bold text-gray-900' : 'text-gray-500'}`}>{row.tournaments_played}</td>
