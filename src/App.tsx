@@ -109,6 +109,7 @@ function App() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [showChangePassword, setShowChangePassword] = useState(false)
   const [showInfoModal, setShowInfoModal] = useState<'help' | 'howItWorks' | 'privacy' | null>(null)
+  const [showRegister, setShowRegister] = useState(false)
 
   useEffect(() => {
     checkAuth()
@@ -372,6 +373,20 @@ function App() {
   }
 
   if (!isAuthenticated) {
+    if (showRegister) {
+      return <RegisterScreen onBack={() => setShowRegister(false)} onSuccess={async (pa) => {
+        setPlayer(pa as any)
+        setAuthUserId(pa.user_id || null)
+        setIsAuthenticated(true)
+        if (pa.user_id) {
+          const [data] = await Promise.all([
+            fetchPlayerDashboardData(pa.user_id, { id: pa.id, name: pa.name, phone_number: pa.phone_number }),
+            preloadAllPlayerData(),
+          ])
+          setDashboardData(data)
+        }
+      }} />
+    }
     return <LoginScreen 
       phone={phone}
       setPhone={setPhone}
@@ -382,6 +397,7 @@ function App() {
       error={authError}
       isLoading={isAuthLoading}
       onLogin={handleLogin}
+      onRegister={() => setShowRegister(true)}
     />
   }
 
@@ -641,7 +657,7 @@ function NavItem({ icon: Icon, label, active, onClick }: {
   )
 }
 
-function LoginScreen({ phone, setPhone, password, setPassword, showPassword, setShowPassword, error, isLoading, onLogin }: {
+function LoginScreen({ phone, setPhone, password, setPassword, showPassword, setShowPassword, error, isLoading, onLogin, onRegister }: {
   phone: string
   setPhone: (v: string) => void
   password: string
@@ -651,6 +667,7 @@ function LoginScreen({ phone, setPhone, password, setPassword, showPassword, set
   error: string
   isLoading: boolean
   onLogin: () => void
+  onRegister?: () => void
 }) {
 
   return (
@@ -730,6 +747,15 @@ function LoginScreen({ phone, setPhone, password, setPassword, showPassword, set
           <p className="text-center text-gray-500 text-sm">
             Introduz o teu número de telemóvel e password
           </p>
+
+          {onRegister && (
+            <div className="text-center pt-2">
+              <span className="text-gray-500 text-sm">Ainda não tens conta? </span>
+              <button onClick={onRegister} className="text-red-600 font-semibold text-sm hover:underline">
+                Criar conta
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -6242,6 +6268,416 @@ function ProfileEditScreen({
         </div>
       </div>
 
+    </div>
+  )
+}
+
+// ---------- Registo (Criar Conta com Questionário de Nível) ----------
+function RegisterScreen({ onBack, onSuccess }: {
+  onBack: () => void
+  onSuccess: (playerAccount: any) => void
+}) {
+  const [step, setStep] = useState<1 | 2 | 3>(1)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  // Step 1: Dados pessoais
+  const [name, setName] = useState('')
+  const [regPhone, setRegPhone] = useState('')
+  const [email, setEmail] = useState('')
+  const [regPassword, setRegPassword] = useState('')
+  const [confirmPwd, setConfirmPwd] = useState('')
+
+  // Step 2: Questionário de nível
+  const [experience, setExperience] = useState<string>('') // never, less1, 1to3, 3to5, more5
+  const [frequency, setFrequency] = useState<string>('') // rarely, 1week, 2to3week, daily
+  const [skills, setSkills] = useState<string>('') // basic, intermediate, advanced, expert
+  const [selfLevel, setSelfLevel] = useState<number | null>(null) // 1.0 to 7.0
+
+  // Calcular nível baseado nas respostas
+  const calculateLevel = (): number => {
+    if (selfLevel) return selfLevel
+
+    let score = 1.5 // Base
+
+    // Experiência
+    if (experience === 'less1') score += 0.3
+    else if (experience === '1to3') score += 1.0
+    else if (experience === '3to5') score += 1.8
+    else if (experience === 'more5') score += 2.5
+
+    // Frequência
+    if (frequency === '1week') score += 0.3
+    else if (frequency === '2to3week') score += 0.7
+    else if (frequency === 'daily') score += 1.0
+
+    // Competências
+    if (skills === 'intermediate') score += 0.5
+    else if (skills === 'advanced') score += 1.2
+    else if (skills === 'expert') score += 2.0
+
+    // Limitar entre 1.0 e 7.0
+    return Math.max(1.0, Math.min(7.0, Math.round(score * 2) / 2)) // arredondar para 0.5
+  }
+
+  // Determinar categoria pelo nível
+  const getCategoryFromLevel = (level: number): string => {
+    if (level <= 1.5) return 'Iniciação'
+    if (level <= 2.5) return '4ª Série'
+    if (level <= 3.5) return '3ª Série'
+    if (level <= 4.5) return '2ª Série'
+    if (level <= 5.5) return '1ª Série'
+    return 'Open'
+  }
+
+  const handleRegister = async () => {
+    setError('')
+    setSaving(true)
+
+    try {
+      // Normalizar telefone
+      let normalizedPhone = regPhone.trim().replace(/\s+/g, '')
+      if (!normalizedPhone.startsWith('+')) {
+        normalizedPhone = '+351' + normalizedPhone
+      }
+
+      // Validações
+      if (!name.trim()) { setError('Nome é obrigatório'); setSaving(false); return }
+      if (!normalizedPhone || normalizedPhone.length < 9) { setError('Telefone inválido'); setSaving(false); return }
+      if (!email.trim() || !email.includes('@')) { setError('Email inválido'); setSaving(false); return }
+      if (regPassword.length < 6) { setError('Password deve ter pelo menos 6 caracteres'); setSaving(false); return }
+      if (regPassword !== confirmPwd) { setError('Passwords não coincidem'); setSaving(false); return }
+
+      // Verificar se telefone ou email já existem
+      const { data: existingPhone } = await supabase
+        .from('player_accounts')
+        .select('id')
+        .eq('phone_number', normalizedPhone)
+        .maybeSingle()
+      
+      if (existingPhone) { setError('Este número de telemóvel já está registado. Faz login.'); setSaving(false); return }
+
+      // 1. Criar conta no Supabase Auth
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: email.trim(),
+        password: regPassword,
+      })
+
+      if (authError) {
+        if (authError.message.includes('already registered')) {
+          setError('Este email já está registado. Faz login.')
+        } else {
+          setError('Erro ao criar conta: ' + authError.message)
+        }
+        setSaving(false)
+        return
+      }
+
+      const userId = authData?.user?.id
+      if (!userId) { setError('Erro ao criar conta'); setSaving(false); return }
+
+      // 2. Calcular nível
+      const level = calculateLevel()
+      const category = getCategoryFromLevel(level)
+
+      // 3. Criar player_account
+      const { data: pa, error: paError } = await supabase
+        .from('player_accounts')
+        .insert({
+          user_id: userId,
+          name: name.trim(),
+          phone_number: normalizedPhone,
+          email: email.trim(),
+          level,
+          level_reliability_percent: 10, // Novo jogador = baixa fiabilidade
+          player_category: category,
+          wins: 0,
+          losses: 0,
+          rated_matches: 0,
+        })
+        .select('*')
+        .single()
+
+      if (paError) {
+        console.error('[Register] Error creating player_account:', paError)
+        setError('Erro ao criar perfil: ' + paError.message)
+        setSaving(false)
+        return
+      }
+
+      // 4. Fazer login automático
+      await supabase.auth.signInWithPassword({ email: email.trim(), password: regPassword })
+
+      // Sucesso!
+      onSuccess(pa)
+    } catch (err: any) {
+      console.error('[Register] Error:', err)
+      setError('Erro inesperado: ' + err.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const levelDescriptions: { level: number; label: string; desc: string }[] = [
+    { level: 1.0, label: '1.0 - Principiante', desc: 'Nunca joguei ou estou a começar. Conheço as regras básicas.' },
+    { level: 1.5, label: '1.5 - Iniciação', desc: 'Consigo manter a bola em jogo com batidas simples.' },
+    { level: 2.0, label: '2.0 - Iniciação+', desc: 'Consigo servir e devolver. Ainda cometo muitos erros não forçados.' },
+    { level: 2.5, label: '2.5 - Intermédio baixo', desc: 'Batidas mais consistentes, começo a jogar no vidro.' },
+    { level: 3.0, label: '3.0 - Intermédio', desc: 'Jogo consistente, uso o vidro, posiciono-me razoavelmente.' },
+    { level: 3.5, label: '3.5 - Intermédio+', desc: 'Bom controlo, faço bandejas e vóleis. Jogo tático.' },
+    { level: 4.0, label: '4.0 - Avançado', desc: 'Todas as pancadas, boa leitura de jogo, experiência em torneios.' },
+    { level: 4.5, label: '4.5 - Avançado+', desc: 'Domínio técnico, víboras, smashes. Competitivo em torneios.' },
+    { level: 5.0, label: '5.0 - Expert', desc: 'Nível muito alto. Compito em torneios de alto nível.' },
+    { level: 5.5, label: '5.5 - Expert+', desc: 'Semi-profissional. Top no circuito regional.' },
+    { level: 6.0, label: '6.0+ - Profissional', desc: 'Nível profissional ou próximo.' },
+  ]
+
+  return (
+    <div className="min-h-screen bg-white flex flex-col">
+      <div className="flex-1 px-6 py-8">
+        {/* Header */}
+        <div className="flex items-center gap-3 mb-6">
+          <button onClick={onBack} className="p-1 -ml-1"><ArrowLeft className="w-6 h-6 text-gray-700" /></button>
+          <h1 className="text-2xl font-bold text-gray-900">Criar Conta</h1>
+        </div>
+
+        {/* Progress */}
+        <div className="flex gap-2 mb-8">
+          {[1, 2, 3].map(s => (
+            <div key={s} className={`flex-1 h-1.5 rounded-full transition-colors ${s <= step ? 'bg-red-600' : 'bg-gray-200'}`} />
+          ))}
+        </div>
+
+        {error && (
+          <div className="bg-red-50 border border-red-200 rounded-xl p-3 mb-4">
+            <p className="text-red-600 text-sm text-center">{error}</p>
+          </div>
+        )}
+
+        {/* Step 1: Dados Pessoais */}
+        {step === 1 && (
+          <div className="space-y-4 animate-fade-in">
+            <h2 className="text-lg font-bold text-gray-900 mb-2">Dados Pessoais</h2>
+            <div>
+              <label className="text-sm font-medium text-gray-700 mb-1 block">Nome completo</label>
+              <div className="relative">
+                <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <input value={name} onChange={e => setName(e.target.value)} placeholder="O teu nome" className="w-full pl-11 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-red-500/20 focus:border-red-500" />
+              </div>
+            </div>
+            <div>
+              <label className="text-sm font-medium text-gray-700 mb-1 block">Telemóvel</label>
+              <div className="relative">
+                <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <input value={regPhone} onChange={e => setRegPhone(e.target.value)} placeholder="912 345 678" type="tel" className="w-full pl-11 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-red-500/20 focus:border-red-500" />
+              </div>
+            </div>
+            <div>
+              <label className="text-sm font-medium text-gray-700 mb-1 block">Email</label>
+              <div className="relative">
+                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <input value={email} onChange={e => setEmail(e.target.value)} placeholder="email@exemplo.com" type="email" className="w-full pl-11 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-red-500/20 focus:border-red-500" />
+              </div>
+            </div>
+            <div>
+              <label className="text-sm font-medium text-gray-700 mb-1 block">Password</label>
+              <div className="relative">
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <input value={regPassword} onChange={e => setRegPassword(e.target.value)} placeholder="Mínimo 6 caracteres" type="password" className="w-full pl-11 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-red-500/20 focus:border-red-500" />
+              </div>
+            </div>
+            <div>
+              <label className="text-sm font-medium text-gray-700 mb-1 block">Confirmar password</label>
+              <div className="relative">
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <input value={confirmPwd} onChange={e => setConfirmPwd(e.target.value)} placeholder="Repetir password" type="password" className="w-full pl-11 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-red-500/20 focus:border-red-500" />
+              </div>
+            </div>
+
+            <button 
+              onClick={() => {
+                setError('')
+                if (!name.trim()) { setError('Nome é obrigatório'); return }
+                if (!regPhone.trim()) { setError('Telefone é obrigatório'); return }
+                if (!email.trim()) { setError('Email é obrigatório'); return }
+                if (regPassword.length < 6) { setError('Password deve ter pelo menos 6 caracteres'); return }
+                if (regPassword !== confirmPwd) { setError('Passwords não coincidem'); return }
+                setStep(2)
+              }}
+              className="w-full py-3 bg-red-600 text-white rounded-xl font-semibold hover:bg-red-700 transition-colors"
+            >
+              Seguinte
+            </button>
+          </div>
+        )}
+
+        {/* Step 2: Questionário de Nível */}
+        {step === 2 && (
+          <div className="space-y-5 animate-fade-in">
+            <h2 className="text-lg font-bold text-gray-900">Qual é o teu nível de Padel?</h2>
+            <p className="text-sm text-gray-500 -mt-3">Podes responder às perguntas ou selecionar diretamente o teu nível</p>
+
+            {/* Opção direta: selecionar nível */}
+            <div>
+              <p className="font-semibold text-gray-800 text-sm mb-2">Se já sabes o teu nível, seleciona:</p>
+              <div className="grid grid-cols-2 gap-2 max-h-[240px] overflow-y-auto pr-1">
+                {levelDescriptions.map(ld => (
+                  <button
+                    key={ld.level}
+                    onClick={() => setSelfLevel(selfLevel === ld.level ? null : ld.level)}
+                    className={`text-left p-2.5 rounded-xl border text-sm transition-colors ${
+                      selfLevel === ld.level 
+                        ? 'border-red-500 bg-red-50 ring-2 ring-red-200' 
+                        : 'border-gray-200 hover:border-gray-300'
+                    }`}
+                  >
+                    <span className="font-bold text-gray-900 block">{ld.label.split(' - ')[0]}</span>
+                    <span className="text-[11px] text-gray-500 leading-tight">{ld.desc.substring(0, 50)}...</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Ou responder a perguntas */}
+            {!selfLevel && (
+              <>
+                <div className="border-t pt-4">
+                  <p className="font-semibold text-gray-800 text-sm mb-2">Ou responde a estas perguntas:</p>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-gray-700 mb-2">Há quanto tempo jogas padel?</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { value: 'never', label: 'Nunca joguei' },
+                      { value: 'less1', label: 'Menos de 1 ano' },
+                      { value: '1to3', label: '1 a 3 anos' },
+                      { value: '3to5', label: '3 a 5 anos' },
+                      { value: 'more5', label: 'Mais de 5 anos' },
+                    ].map(o => (
+                      <button key={o.value} onClick={() => setExperience(o.value)}
+                        className={`py-2 rounded-lg text-xs font-medium border transition-colors ${experience === o.value ? 'bg-red-50 border-red-500 text-red-700' : 'bg-white border-gray-200 text-gray-700 hover:border-gray-300'}`}
+                      >{o.label}</button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-gray-700 mb-2">Com que frequência jogas?</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {[
+                      { value: 'rarely', label: 'Raramente' },
+                      { value: '1week', label: '1x por semana' },
+                      { value: '2to3week', label: '2-3x por semana' },
+                      { value: 'daily', label: 'Quase todos os dias' },
+                    ].map(o => (
+                      <button key={o.value} onClick={() => setFrequency(o.value)}
+                        className={`py-2 rounded-lg text-xs font-medium border transition-colors ${frequency === o.value ? 'bg-red-50 border-red-500 text-red-700' : 'bg-white border-gray-200 text-gray-700 hover:border-gray-300'}`}
+                      >{o.label}</button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-gray-700 mb-2">Como descrevas as tuas competências?</p>
+                  <div className="grid grid-cols-1 gap-2">
+                    {[
+                      { value: 'basic', label: 'Básico', desc: 'Consigo servir e devolver, mas cometo muitos erros' },
+                      { value: 'intermediate', label: 'Intermédio', desc: 'Consigo jogar no vidro, faço vóleis e rede' },
+                      { value: 'advanced', label: 'Avançado', desc: 'Faço bandejas, víboras, controlo o jogo tático' },
+                      { value: 'expert', label: 'Expert', desc: 'Domino todas as pancadas, jogo a alto nível' },
+                    ].map(o => (
+                      <button key={o.value} onClick={() => setSkills(o.value)}
+                        className={`text-left p-3 rounded-lg border transition-colors ${skills === o.value ? 'bg-red-50 border-red-500 ring-1 ring-red-200' : 'bg-white border-gray-200 hover:border-gray-300'}`}
+                      >
+                        <span className="font-semibold text-sm text-gray-900">{o.label}</span>
+                        <span className="text-xs text-gray-500 block">{o.desc}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+
+            <div className="flex gap-3">
+              <button onClick={() => setStep(1)} className="flex-1 py-3 border border-gray-200 rounded-xl font-medium text-gray-700 hover:bg-gray-50">
+                Voltar
+              </button>
+              <button 
+                onClick={() => {
+                  if (!selfLevel && !experience && !skills) {
+                    setError('Seleciona o teu nível ou responde às perguntas')
+                    return
+                  }
+                  setError('')
+                  setStep(3)
+                }}
+                className="flex-1 py-3 bg-red-600 text-white rounded-xl font-semibold hover:bg-red-700 transition-colors"
+              >
+                Seguinte
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Step 3: Confirmação */}
+        {step === 3 && (
+          <div className="space-y-6 animate-fade-in">
+            <h2 className="text-lg font-bold text-gray-900">Confirmar registo</h2>
+            
+            <div className="card p-5 space-y-3">
+              <div className="flex items-center gap-3">
+                <div className="w-14 h-14 rounded-full bg-gradient-padel flex items-center justify-center">
+                  <span className="text-white font-bold text-xl">{name.charAt(0).toUpperCase()}</span>
+                </div>
+                <div>
+                  <p className="font-bold text-gray-900">{name}</p>
+                  <p className="text-sm text-gray-500">{email}</p>
+                </div>
+              </div>
+              
+              <div className="border-t pt-3 grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <p className="text-gray-500">Telefone</p>
+                  <p className="font-medium">{regPhone}</p>
+                </div>
+                <div>
+                  <p className="text-gray-500">Nível estimado</p>
+                  <p className="font-bold text-red-600 text-lg">{calculateLevel().toFixed(1)}</p>
+                </div>
+                <div>
+                  <p className="text-gray-500">Categoria</p>
+                  <p className="font-medium">{getCategoryFromLevel(calculateLevel())}</p>
+                </div>
+                <div>
+                  <p className="text-gray-500">Fiabilidade</p>
+                  <p className="font-medium text-amber-600">10%</p>
+                </div>
+              </div>
+            </div>
+
+            <p className="text-xs text-gray-500 text-center">
+              O teu nível será ajustado automaticamente com base nos resultados dos teus jogos.
+              Os clubes também podem ajustar o teu nível.
+            </p>
+
+            <div className="flex gap-3">
+              <button onClick={() => setStep(2)} className="flex-1 py-3 border border-gray-200 rounded-xl font-medium text-gray-700 hover:bg-gray-50">
+                Voltar
+              </button>
+              <button 
+                onClick={handleRegister}
+                disabled={saving}
+                className="flex-1 py-3 bg-red-600 text-white rounded-xl font-semibold hover:bg-red-700 transition-colors disabled:bg-gray-300"
+              >
+                {saving ? (
+                  <div className="flex items-center justify-center gap-2">
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    A criar...
+                  </div>
+                ) : 'Criar conta'}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
