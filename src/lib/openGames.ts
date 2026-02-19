@@ -1432,6 +1432,135 @@ export async function fetchRewardTransactions(playerAccountId: string, limit: nu
 }
 
 // ============================
+// Reward Catalog & Redemption (Player side)
+// ============================
+
+export interface CatalogItem {
+  id: string
+  club_id: string
+  club_name: string
+  club_logo_url: string | null
+  title: string
+  description: string | null
+  image_url: string | null
+  cost_points: number
+  category: string
+  stock: number | null
+  is_active: boolean
+}
+
+export interface RedemptionEntry {
+  id: string
+  item_title: string
+  club_name: string
+  points_spent: number
+  status: string
+  redeemed_at: string
+}
+
+export async function fetchRewardCatalog(playerAccountId: string): Promise<{
+  items: CatalogItem[]
+  pointsByClub: Map<string, number>
+}> {
+  // Get clubs where the player has rewards
+  const { data: playerRewards } = await supabase
+    .from('player_rewards')
+    .select('club_id, total_points')
+    .eq('player_account_id', playerAccountId)
+
+  const pointsByClub = new Map<string, number>()
+  const clubIds: string[] = []
+
+  if (playerRewards) {
+    playerRewards.forEach(r => {
+      pointsByClub.set(r.club_id, r.total_points)
+      clubIds.push(r.club_id)
+    })
+  }
+
+  // Get all active catalog items (from all clubs for now)
+  const { data: catalogData, error } = await supabase
+    .from('reward_catalog')
+    .select('id, club_id, title, description, image_url, cost_points, category, stock, is_active')
+    .eq('is_active', true)
+    .order('sort_order', { ascending: true })
+
+  if (error || !catalogData) return { items: [], pointsByClub }
+
+  // Get club names
+  const allClubIds = [...new Set(catalogData.map(c => c.club_id))]
+  const { data: clubs } = await supabase
+    .from('clubs')
+    .select('id, name, logo_url')
+    .in('id', allClubIds)
+
+  const clubMap = new Map((clubs || []).map(c => [c.id, c]))
+
+  const items: CatalogItem[] = catalogData
+    .filter(c => c.stock === null || c.stock > 0) // Hide out-of-stock
+    .map(c => {
+      const club = clubMap.get(c.club_id)
+      return {
+        ...c,
+        club_name: club?.name || 'Clube',
+        club_logo_url: club?.logo_url || null,
+      }
+    })
+
+  return { items, pointsByClub }
+}
+
+export async function redeemReward(catalogItemId: string, playerAccountId: string): Promise<{
+  success: boolean
+  error?: string
+  pointsSpent?: number
+  remainingPoints?: number
+  itemTitle?: string
+}> {
+  const { data, error } = await supabase.rpc('redeem_reward', {
+    p_catalog_item_id: catalogItemId,
+    p_player_account_id: playerAccountId,
+  })
+
+  if (error) {
+    console.error('[Rewards] Error redeeming:', error)
+    return { success: false, error: error.message }
+  }
+
+  const result = data as any
+  if (!result?.success) {
+    return { success: false, error: result?.error || 'Erro desconhecido' }
+  }
+
+  return {
+    success: true,
+    pointsSpent: result.points_spent,
+    remainingPoints: result.remaining_points,
+    itemTitle: result.item_title,
+  }
+}
+
+export async function fetchMyRedemptions(playerAccountId: string): Promise<RedemptionEntry[]> {
+  const { data, error } = await supabase
+    .from('reward_redemptions')
+    .select('id, points_spent, status, redeemed_at, catalog_item:reward_catalog(title), club:clubs(name)')
+    .eq('player_account_id', playerAccountId)
+    .order('redeemed_at', { ascending: false })
+    .limit(30)
+
+  if (error || !data) return []
+
+  return data.map((r: any) => ({
+    id: r.id,
+    item_title: (r.catalog_item as any)?.title || 'Item',
+    club_name: (r.club as any)?.name || 'Clube',
+    points_spent: r.points_spent,
+    status: r.status,
+    redeemed_at: r.redeemed_at,
+  }))
+}
+
+// ============================
 // Fetch games awaiting result (past games with status full/completed but no result)
 // ============================
 
