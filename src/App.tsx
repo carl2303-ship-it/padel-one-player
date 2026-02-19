@@ -107,6 +107,8 @@ function App() {
   // Dashboard data (mesma fonte que Padel One Tour – dados nos dois lados)
   const [dashboardData, setDashboardData] = useState<PlayerDashboardData | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [showChangePassword, setShowChangePassword] = useState(false)
+  const [showInfoModal, setShowInfoModal] = useState<'help' | 'howItWorks' | 'privacy' | null>(null)
 
   useEffect(() => {
     checkAuth()
@@ -433,34 +435,43 @@ function App() {
                 <Settings className="w-5 h-5 text-gray-500" />
                 <span className="font-medium text-gray-900">Definições do perfil</span>
               </button>
-              <button onClick={() => setMenuOpen(false)} className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 text-left">
+              <button onClick={() => { setMenuOpen(false); alert('Escolha de idioma estará disponível em breve!') }} className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 text-left">
                 <Globe className="w-5 h-5 text-gray-500" />
-                <span className="font-medium text-gray-900">Escolha de idioma</span>
+                <div>
+                  <span className="font-medium text-gray-900">Escolha de idioma</span>
+                  <span className="ml-2 text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-medium">Em breve</span>
+                </div>
               </button>
-              <button onClick={() => setMenuOpen(false)} className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 text-left">
+              <button onClick={() => { setShowChangePassword(true); setMenuOpen(false) }} className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 text-left">
                 <KeyRound className="w-5 h-5 text-gray-500" />
                 <span className="font-medium text-gray-900">Mudar a password</span>
               </button>
-              <button onClick={() => setMenuOpen(false)} className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 text-left">
+              <button onClick={() => { setMenuOpen(false); alert('Notificações push estarão disponíveis em breve!') }} className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 text-left">
                 <Bell className="w-5 h-5 text-gray-500" />
-                <span className="font-medium text-gray-900">Ativar notificações</span>
+                <div>
+                  <span className="font-medium text-gray-900">Ativar notificações</span>
+                  <span className="ml-2 text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-medium">Em breve</span>
+                </div>
               </button>
               <div className="border-t my-2" />
-              <button onClick={() => setMenuOpen(false)} className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 text-left">
+              <button onClick={() => { setShowInfoModal('help'); setMenuOpen(false) }} className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 text-left">
                 <HelpCircle className="w-5 h-5 text-gray-500" />
                 <span className="font-medium text-gray-900">Ajuda</span>
               </button>
-              <button onClick={() => setMenuOpen(false)} className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 text-left">
+              <button onClick={() => { setShowInfoModal('howItWorks'); setMenuOpen(false) }} className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 text-left">
                 <GraduationCap className="w-5 h-5 text-gray-500" />
                 <span className="font-medium text-gray-900">Como funciona a Padel One</span>
               </button>
-              <button onClick={() => setMenuOpen(false)} className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 text-left">
+              <button onClick={() => { setShowInfoModal('privacy'); setMenuOpen(false) }} className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 text-left">
                 <Shield className="w-5 h-5 text-gray-500" />
                 <span className="font-medium text-gray-900">Privacidade</span>
               </button>
-              <button onClick={() => setMenuOpen(false)} className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 text-left">
+              <button onClick={() => { setMenuOpen(false); alert('Histórico de pagamentos estará disponível em breve!') }} className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 text-left">
                 <CreditCard className="w-5 h-5 text-gray-500" />
-                <span className="font-medium text-gray-900">Os seus Pagamentos</span>
+                <div>
+                  <span className="font-medium text-gray-900">Os seus Pagamentos</span>
+                  <span className="ml-2 text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-medium">Em breve</span>
+                </div>
               </button>
               <div className="border-t my-2" />
               <button onClick={() => { handleLogout(); setMenuOpen(false) }} className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-red-50 text-left text-red-600">
@@ -471,6 +482,12 @@ function App() {
           </div>
         </div>
       )}
+
+      {/* Modal: Mudar Password */}
+      {showChangePassword && <ChangePasswordModal onClose={() => setShowChangePassword(false)} />}
+
+      {/* Modal: Informações (Ajuda, Como funciona, Privacidade) */}
+      {showInfoModal && <InfoModal type={showInfoModal} onClose={() => setShowInfoModal(null)} />}
 
       {/* Main Content */}
       <main className="px-4 py-4">
@@ -6209,6 +6226,144 @@ function ProfileEditScreen({
         </div>
       </div>
 
+    </div>
+  )
+}
+
+// ---------- Modal: Mudar Password ----------
+function ChangePasswordModal({ onClose }: { onClose: () => void }) {
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [message, setMessage] = useState('')
+
+  const handleChangePassword = async () => {
+    if (newPassword.length < 6) {
+      setMessage('A password deve ter pelo menos 6 caracteres.')
+      return
+    }
+    if (newPassword !== confirmPassword) {
+      setMessage('As passwords não coincidem.')
+      return
+    }
+    setSaving(true)
+    setMessage('')
+    try {
+      const { error } = await supabase.auth.updateUser({ password: newPassword })
+      if (error) throw error
+      setMessage('Password alterada com sucesso!')
+      setTimeout(onClose, 1500)
+    } catch (err: any) {
+      setMessage(`Erro: ${err.message}`)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl w-full max-w-sm p-6 shadow-xl" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-bold text-gray-900">Mudar Password</h3>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100"><X className="w-5 h-5" /></button>
+        </div>
+        <div className="space-y-3">
+          <div>
+            <label className="text-sm font-medium text-gray-700">Nova password</label>
+            <input
+              type="password"
+              value={newPassword}
+              onChange={e => setNewPassword(e.target.value)}
+              className="w-full mt-1 px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-transparent"
+              placeholder="Mínimo 6 caracteres"
+            />
+          </div>
+          <div>
+            <label className="text-sm font-medium text-gray-700">Confirmar password</label>
+            <input
+              type="password"
+              value={confirmPassword}
+              onChange={e => setConfirmPassword(e.target.value)}
+              className="w-full mt-1 px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-transparent"
+              placeholder="Repetir password"
+            />
+          </div>
+          {message && (
+            <p className={`text-sm ${message.startsWith('Erro') ? 'text-red-600' : message.includes('sucesso') ? 'text-green-600' : 'text-amber-600'}`}>{message}</p>
+          )}
+          <button
+            onClick={handleChangePassword}
+            disabled={saving}
+            className="w-full py-2.5 bg-red-600 text-white rounded-lg font-semibold text-sm hover:bg-red-700 disabled:bg-gray-300 transition-colors"
+          >
+            {saving ? 'A alterar...' : 'Alterar Password'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ---------- Modal: Informações (Ajuda, Como funciona, Privacidade) ----------
+function InfoModal({ type, onClose }: { type: 'help' | 'howItWorks' | 'privacy'; onClose: () => void }) {
+  const content = {
+    help: {
+      title: 'Ajuda',
+      icon: HelpCircle,
+      sections: [
+        { title: 'Contacto', text: 'Para qualquer questão, envie um email para suporte@padelone.pt ou contacte-nos via WhatsApp.' },
+        { title: 'Problemas com a conta', text: 'Se tem problemas para fazer login ou aceder à sua conta, contacte o organizador do torneio ou o clube onde joga.' },
+        { title: 'Resultados incorretos', text: 'Se algum resultado está incorreto, contacte o organizador do torneio para que ele possa corrigir.' },
+        { title: 'Nível e Fiabilidade', text: 'O seu nível é calculado automaticamente com base nos resultados dos seus jogos. Quanto mais jogos fizer, mais fiável será o seu nível.' },
+      ]
+    },
+    howItWorks: {
+      title: 'Como funciona a Padel One',
+      icon: GraduationCap,
+      sections: [
+        { title: '🏆 Torneios', text: 'Inscreva-se em torneios através do link do clube. Os resultados são registados pelo organizador e contam para o seu ranking.' },
+        { title: '📊 Nível ELO', text: 'O seu nível (0.5 a 7.0) é calculado automaticamente após cada jogo. Jogadores novos têm variações maiores para calibrar rapidamente. Após ~30 jogos, o nível estabiliza.' },
+        { title: '🏅 Ligas', text: 'Acumule pontos ao longo dos torneios. Os melhores classificados de cada liga são reconhecidos.' },
+        { title: '👥 Comunidade', text: 'Siga outros jogadores, veja os seus resultados e mantenha-se a par da atividade da sua comunidade de padel.' },
+        { title: '🎮 Jogos Abertos', text: 'Crie ou junte-se a jogos avulsos. Reserve um campo, convide jogadores e organize partidas facilmente.' },
+      ]
+    },
+    privacy: {
+      title: 'Privacidade',
+      icon: Shield,
+      sections: [
+        { title: 'Dados pessoais', text: 'Recolhemos apenas os dados necessários para o funcionamento da plataforma: nome, telefone, email e resultados de jogos.' },
+        { title: 'Visibilidade', text: 'O seu perfil (nome e nível) é visível para outros jogadores. O seu número de telefone e email são privados.' },
+        { title: 'Partilha de dados', text: 'Não partilhamos os seus dados com terceiros. Os organizadores de torneios têm acesso apenas aos dados necessários para a gestão dos eventos.' },
+        { title: 'Eliminação de conta', text: 'Pode solicitar a eliminação da sua conta e todos os dados associados contactando suporte@padelone.pt.' },
+      ]
+    }
+  }
+
+  const { title, icon: Icon, sections } = content[type]
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center" onClick={onClose}>
+      <div 
+        className="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md max-h-[85vh] overflow-hidden shadow-xl" 
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="p-4 border-b flex items-center justify-between sticky top-0 bg-white">
+          <div className="flex items-center gap-2">
+            <Icon className="w-5 h-5 text-red-600" />
+            <h3 className="text-lg font-bold text-gray-900">{title}</h3>
+          </div>
+          <button onClick={onClose} className="p-1 rounded-lg hover:bg-gray-100"><X className="w-5 h-5" /></button>
+        </div>
+        <div className="p-4 overflow-y-auto max-h-[70vh] space-y-4">
+          {sections.map((s, i) => (
+            <div key={i}>
+              <h4 className="font-semibold text-gray-900 mb-1">{s.title}</h4>
+              <p className="text-sm text-gray-600 leading-relaxed">{s.text}</p>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   )
 }
