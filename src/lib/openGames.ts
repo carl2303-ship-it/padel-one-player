@@ -519,7 +519,13 @@ export async function createOpenGame(params: {
 
   if (gameError || !game) {
     console.error('[OpenGames] Error creating game:', gameError)
-    return { success: false, error: gameError?.message || 'Erro ao criar jogo' }
+    const msg = gameError?.message || 'Erro ao criar jogo'
+    const hint = gameError?.code === '42501' 
+      ? ' (Sem permissão — verifique as políticas RLS)' 
+      : gameError?.code === '23503' 
+        ? ' (Referência inválida — clube ou campo não existe)' 
+        : ''
+    return { success: false, error: msg + hint }
   }
 
   // Use player data passed directly (most reliable) or look up as fallback

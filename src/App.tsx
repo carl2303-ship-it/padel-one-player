@@ -546,6 +546,7 @@ function App() {
             userId={authUserId || player?.user_id || null}
             onBack={() => setCurrentScreen('home')}
             onOpenPlayerProfile={(uid: string) => { setSelectedPlayerUserId(uid); setCurrentScreen('player-profile') }}
+            onRefresh={refreshDashboard}
           />
         )}
         {currentScreen === 'club-detail' && selectedClubId && (
@@ -3388,11 +3389,13 @@ function FindGameScreen({
   userId,
   onBack,
   onOpenPlayerProfile,
+  onRefresh,
 }: {
   player: PlayerAccount | null
   userId: string | null
   onBack: () => void
   onOpenPlayerProfile: (userId: string) => void
+  onRefresh?: () => Promise<void>
 }) {
   const [activeSection, setActiveSection] = useState<'existing' | 'request' | 'create'>('existing')
   const [loading, setLoading] = useState(true)
@@ -3584,10 +3587,17 @@ function FindGameScreen({
     if (result.success) {
       setCreateModal(null)
       setActiveSection('existing')
-      // Refresh games
+      // Refresh games list
       const { fetchOpenGames } = await import('./lib/openGames')
-      const data = await fetchOpenGames({})
+      const dateStr = dates[selectedDay]?.dateStr
+      const data = await fetchOpenGames({
+        clubId: selectedClubId || undefined,
+        dateFrom: dateStr ? dateStr + 'T00:00:00' : undefined,
+        dateTo: dateStr ? dateStr + 'T23:59:59' : undefined,
+      })
       setGames(data)
+      // Refresh dashboard
+      if (onRefresh) onRefresh()
     } else {
       alert(result.error || 'Erro ao criar jogo')
     }
@@ -3904,11 +3914,7 @@ function FindGameScreen({
                     })
                     setGames(data)
                     // Refresh dashboard data
-                    if (setDashboardData) {
-                      const { fetchPlayerDashboardData } = await import('./lib/playerDashboardData')
-                      const newData = await fetchPlayerDashboardData(userId)
-                      setDashboardData(newData)
-                    }
+                    if (onRefresh) onRefresh()
                     alert('Saíste do jogo com sucesso!')
                   } else {
                     alert('Erro ao sair do jogo')
