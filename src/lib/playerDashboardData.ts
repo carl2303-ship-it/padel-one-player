@@ -55,6 +55,8 @@ export interface LeagueFullStanding {
   tournaments_played: number
   best_position: number
   is_current_player: boolean
+  avatar_url?: string | null
+  player_account_id?: string | null
 }
 
 export interface PlayerStats {
@@ -213,21 +215,24 @@ export async function fetchPlayerDashboardData(
   const phone = (playerAccount as any).phone_number
   const name = playerAccount.name
 
-  const [playersByPhone, playersByName, playersByNamePartial] = await Promise.all([
+  // OPTIMIZED: Use player_account_id (direct FK) as primary, with fallbacks for unlinked records
+  const [playersByAccountId, playersByPhone, playersByName] = await Promise.all([
+    // Priority 1: Direct FK link (fastest, most reliable)
+    playerAccount.id
+      ? supabase.from('players').select('id, tournament_id').eq('player_account_id', playerAccount.id)
+      : { data: [] },
+    // Fallback: phone match (for records not yet linked by trigger)
     phone
-      ? supabase.from('players').select('id, tournament_id').eq('phone_number', phone)
+      ? supabase.from('players').select('id, tournament_id').eq('phone_number', phone).is('player_account_id', null)
       : { data: [] },
+    // Fallback: name match (for records without phone or account link)
     name
-      ? supabase.from('players').select('id, tournament_id').ilike('name', name)
-      : { data: [] },
-    // Also try partial match in case of name variations (e.g., "Jordi Oviedo" vs "Jordi")
-    name
-      ? supabase.from('players').select('id, tournament_id').ilike('name', `%${name}%`)
+      ? supabase.from('players').select('id, tournament_id').ilike('name', name).is('player_account_id', null)
       : { data: [] },
   ])
 
   const allPlayersMap = new Map<string, { id: string; tournament_id: string | null }>()
-  ;[...(playersByPhone.data || []), ...(playersByName.data || []), ...(playersByNamePartial.data || [])].forEach((p: any) => {
+  ;[...(playersByAccountId.data || []), ...(playersByPhone.data || []), ...(playersByName.data || [])].forEach((p: any) => {
     allPlayersMap.set(p.id, p)
   })
   const allPlayers = Array.from(allPlayersMap.values())
@@ -586,7 +591,7 @@ export async function fetchLeagueFullStandings(
   leagueId: string,
   playerName: string
 ): Promise<LeagueFullStanding[]> {
-  // Fetch standings with player_account info to get consistent names
+  // Fetch standings with player_account info for consistent names and avatars
   const { data: allStandings } = await supabase
     .from('league_standings')
     .select(`
@@ -595,14 +600,14 @@ export async function fetchLeagueFullStandings(
       tournaments_played, 
       best_position,
       player_account_id,
-      player_accounts:player_account_id(name)
+      player_accounts:player_account_id(name, avatar_url)
     `)
     .eq('league_id', leagueId)
     .order('total_points', { ascending: false })
 
   if (!allStandings) return []
   
-  // Use player_account name if available, otherwise fallback to entity_name
+  // Use player_account name/avatar if available, otherwise fallback to entity_name
   return allStandings.map((s: any, index: number) => {
     const displayName = s.player_accounts?.name || s.entity_name || 'Desconhecido'
     const normalizedPlayerName = playerName?.toLowerCase().trim() || ''
@@ -611,7 +616,7 @@ export async function fetchLeagueFullStandings(
     
     return {
       position: index + 1,
-      entity_name: displayName, // Use player_account name for consistency
+      entity_name: displayName,
       total_points: s.total_points,
       tournaments_played: s.tournaments_played,
       best_position: s.best_position ?? 0,
@@ -619,6 +624,8 @@ export async function fetchLeagueFullStandings(
         normalizedDisplayName === normalizedPlayerName || 
         normalizedEntityName === normalizedPlayerName
       ),
+      avatar_url: s.player_accounts?.avatar_url || null,
+      player_account_id: s.player_account_id || null,
     }
   })
 }
