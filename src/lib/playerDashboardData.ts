@@ -239,6 +239,15 @@ export async function fetchPlayerDashboardData(
   const playerIds = allPlayers.map((p) => p.id)
   const tournamentIds = allPlayers.filter((p) => p.tournament_id).map((p) => p.tournament_id!)
 
+  console.log('[PlayerDashboard] Found players:', {
+    byAccountId: playersByAccountId.data?.length || 0,
+    byPhone: playersByPhone.data?.length || 0,
+    byName: playersByName.data?.length || 0,
+    total: allPlayers.length,
+    playerIds: playerIds.length,
+    tournamentIds: tournamentIds.length
+  })
+
   if (allPlayers.length === 0) {
     await fetchLeagueStandingsOnly(playerAccount.id, name || '', result)
     console.timeEnd('[Dashboard] Total load time')
@@ -363,6 +372,7 @@ export async function fetchPlayerDashboardData(
         console.warn('[PlayerDashboard] Matches query error:', matchError)
       } else {
         matchesData = fetchedMatches || []
+        console.log('[PlayerDashboard] Found matches:', matchesData.length, 'for', playerIds.length, 'players and', teamIds.length, 'teams')
       }
     }
     console.timeEnd('[Dashboard] Fetch matches (single query)')
@@ -668,7 +678,7 @@ export async function fetchTournamentStandingsAndMatches(
   let tournamentName = ''
 
   const [{ data: tournament }, { data: matches }, { data: teams }, { data: players }] = await Promise.all([
-    supabase.from('tournaments').select('name').eq('id', tournamentId).maybeSingle(),
+    supabase.from('tournaments').select('name, format').eq('id', tournamentId).maybeSingle(),
     supabase
       .from('matches')
       .select(
@@ -677,7 +687,7 @@ export async function fetchTournamentStandingsAndMatches(
       .eq('tournament_id', tournamentId)
       .eq('status', 'completed'),
     supabase.from('teams').select('id, name, group_name, final_position, player1_id, player2_id, player1:players!teams_player1_id_fkey(id, name), player2:players!teams_player2_id_fkey(id, name)').eq('tournament_id', tournamentId),
-    supabase.from('players').select('id, name, group_name').eq('tournament_id', tournamentId),
+    supabase.from('players').select('id, name, group_name, final_position').eq('tournament_id', tournamentId),
   ])
 
   // Create a map of player names by id (from players table and from teams relations)
@@ -704,6 +714,7 @@ export async function fetchTournamentStandingsAndMatches(
   if (tournament) tournamentName = tournament.name || ''
 
   const isIndividual = (players?.length || 0) > 0 && (teams?.length || 0) === 0
+  const isMixedAmerican = tournament && ((tournament as any).format === 'mixed_american' || (tournament as any).format === 'mixed_gender')
   const standingsMap = new Map<string, any>()
 
   if (isIndividual && players) {
@@ -712,6 +723,7 @@ export async function fetchTournamentStandingsAndMatches(
         id: p.id,
         name: p.name,
         group_name: p.group_name || 'Geral',
+        final_position: p.final_position || null, // Usar final_position da DB se existir
         wins: 0,
         draws: 0,
         losses: 0,
@@ -837,6 +849,93 @@ export async function fetchTournamentStandingsAndMatches(
     if (aWins > bWins) return -1 // A fica à frente
     if (bWins > aWins) return 1  // B fica à frente
     return 0
+  }
+
+  // Para torneios MISTOS: se não tiver final_position na DB, calcular baseado nas fases finais
+  if (isMixedAmerican && isIndividual) {
+    const allMatches = matches || []
+    const finalMatch = allMatches.find((m: any) => (m.round === 'final' || m.round === 'mixed_final') && m.status === 'completed')
+    const thirdPlaceMatch = allMatches.find((m: any) => (m.round === '3rd_place' || m.round === 'mixed_3rd_place') && m.status === 'completed')
+    
+    // Se tiver final_position na DB, usar (já foi calculado pelo Standings.tsx)
+    const hasFinalPositions = Array.from(standingsMap.values()).some((s: any) => s.final_position != null)
+    
+    if (!hasFinalPositions && (finalMatch || thirdPlaceMatch)) {
+      // Calcular classificação final baseada nas fases finais (replicar lógica do Standings.tsx)
+      const sortByGroupStats = (playerIds: string[]): string[] => {
+        return [...playerIds].sort((a, b) => {
+          const sa = standingsMap.get(a) || { wins: 0, points_for: 0, points_against: 0 }
+          const sb = standingsMap.get(b) || { wins: 0, points_for: 0, points_against: 0 }
+          if (sb.wins !== sa.wins) return sb.wins - sa.wins
+          const diffA = sa.points_for - sa.points_against
+          const diffB = sb.points_for - sb.points_against
+          if (diffB !== diffA) return diffB - diffA
+          return sb.points_for - sa.points_for
+        })
+      }
+
+      const getMatchWL = (match: any) => {
+        const t1 = (match.team1_score_set1 || 0) + (match.team1_score_set2 || 0) + (match.team1_score_set3 || 0)
+        const t2 = (match.team2_score_set1 || 0) + (match.team2_score_set2 || 0) + (match.team2_score_set3 || 0)
+        const team1 = [match.player1_individual_id, match.player2_individual_id].filter(Boolean)
+        const team2 = [match.player3_individual_id, match.player4_individual_id].filter(Boolean)
+        return { winners: t1 > t2 ? team1 : team2, losers: t1 > t2 ? team2 : team1 }
+      }
+
+      const rankedIds = new Set<string>()
+
+      if (finalMatch) {
+        const { winners, losers } = getMatchWL(finalMatch)
+        // 1°, 2° — Vencedores da Final
+        sortByGroupStats(winners).forEach((pid: string, idx: number) => {
+          const s = standingsMap.get(pid)
+          if (s) {
+            s.final_position = idx + 1
+            rankedIds.add(pid)
+          }
+        })
+        // 3°, 4° — Vencidos da Final
+        sortByGroupStats(losers).forEach((pid: string, idx: number) => {
+          const s = standingsMap.get(pid)
+          if (s) {
+            s.final_position = 3 + idx
+            rankedIds.add(pid)
+          }
+        })
+      }
+
+      if (thirdPlaceMatch) {
+        const { winners, losers } = getMatchWL(thirdPlaceMatch)
+        // 5°, 6° — Vencedores da Pequena Final
+        sortByGroupStats(winners.filter((id: string) => !rankedIds.has(id))).forEach((pid: string, idx: number) => {
+          const s = standingsMap.get(pid)
+          if (s) {
+            s.final_position = 5 + idx
+            rankedIds.add(pid)
+          }
+        })
+        // 7°, 8° — Vencidos da Pequena Final
+        sortByGroupStats(losers.filter((id: string) => !rankedIds.has(id))).forEach((pid: string, idx: number) => {
+          const s = standingsMap.get(pid)
+          if (s) {
+            s.final_position = 7 + idx
+            rankedIds.add(pid)
+          }
+        })
+      }
+
+      // Restantes por performance de grupo
+      const remaining = Array.from(standingsMap.keys()).filter(id => !rankedIds.has(id))
+      if (remaining.length > 0) {
+        const maxPos = Math.max(...Array.from(standingsMap.values()).map((s: any) => s.final_position || 0))
+        sortByGroupStats(remaining).forEach((pid, idx) => {
+          const s = standingsMap.get(pid)
+          if (s) {
+            s.final_position = maxPos + 1 + idx
+          }
+        })
+      }
+    }
   }
 
   // Contar quantas entidades (sem final_position) partilham o mesmo grupo + vitórias + pontos
