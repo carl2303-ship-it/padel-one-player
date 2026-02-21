@@ -511,6 +511,23 @@ export async function enrichDashboardWithEdgeFunction(): Promise<Partial<PlayerD
     if (edgeData.pastTournamentDetails && Object.keys(edgeData.pastTournamentDetails).length > 0) {
       enriched.pastTournamentDetails = edgeData.pastTournamentDetails
     }
+    // Merge stats from edge function (bypasses RLS, always has correct data)
+    if (edgeData.stats) {
+      enriched.stats = {
+        totalMatches: edgeData.stats.totalMatches || 0,
+        wins: edgeData.stats.wins || 0,
+        losses: edgeData.stats.losses || 0,
+        winRate: edgeData.stats.winRate || 0,
+        tournamentsPlayed: edgeData.pastTournaments?.length || 0,
+        bestFinish: '-',
+      }
+      console.log('[Dashboard] Edge Function stats:', enriched.stats)
+    }
+    // Merge recent matches from edge function (bypasses RLS)
+    if (edgeData.recentMatches?.length) {
+      enriched.recentMatches = edgeData.recentMatches
+      console.log('[Dashboard] Edge Function recentMatches:', edgeData.recentMatches.length)
+    }
     return Object.keys(enriched).length > 0 ? enriched : null
   } catch (err) {
     console.error('[Dashboard] Edge Function error:', err)
