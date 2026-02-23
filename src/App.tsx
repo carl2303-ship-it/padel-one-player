@@ -4768,39 +4768,38 @@ function FindGameScreen({
         )}
         {isInGame && (
           <div className="px-4 pb-3 pt-0 bg-gray-50/50 space-y-2">
-            {isCreator ? (
+            {/* Sair do jogo — visível para todos (incluindo criador) */}
+            <button
+              onClick={async () => {
+                if (!userId) return
+                if (!confirm('Tens a certeza que queres sair deste jogo?')) return
+                const { leaveOpenGame } = await import('./lib/openGames')
+                const success = await leaveOpenGame(game.id, userId)
+                if (success) {
+                  const { fetchOpenGames } = await import('./lib/openGames')
+                  const dateStr = dates[selectedDay]?.dateStr
+                  const data = await fetchOpenGames({
+                    clubId: selectedClubId || undefined,
+                    dateFrom: dateStr ? dateStr + 'T00:00:00' : undefined,
+                    dateTo: dateStr ? dateStr + 'T23:59:59' : undefined,
+                  })
+                  setGames(data)
+                  if (onRefresh) onRefresh()
+                } else {
+                  alert('Erro ao sair do jogo')
+                }
+              }}
+              className="w-full py-2 rounded-xl text-sm font-semibold text-orange-600 bg-orange-50 border border-orange-200 hover:bg-orange-100 transition-colors"
+            >
+              🚪 Sair do jogo
+            </button>
+            {/* Cancelar jogo — só para o criador */}
+            {isCreator && (
               <button
                 onClick={() => handleCancelGame(game)}
-                className="w-full py-2 rounded-xl text-sm font-semibold text-red-600 bg-red-50 border border-red-200 hover:bg-red-100 transition-colors"
+                className="w-full py-1.5 rounded-xl text-xs font-medium text-red-500 hover:text-red-700 hover:bg-red-50 transition-colors"
               >
                 ❌ Cancelar jogo
-              </button>
-            ) : (
-              <button
-                onClick={async () => {
-                  if (!userId) return
-                  const { leaveOpenGame } = await import('./lib/openGames')
-                  const success = await leaveOpenGame(game.id, userId)
-                  if (success) {
-                    // Refresh games
-                    const { fetchOpenGames } = await import('./lib/openGames')
-                    const dateStr = dates[selectedDay]?.dateStr
-                    const data = await fetchOpenGames({
-                      clubId: selectedClubId || undefined,
-                      dateFrom: dateStr ? dateStr + 'T00:00:00' : undefined,
-                      dateTo: dateStr ? dateStr + 'T23:59:59' : undefined,
-                    })
-                    setGames(data)
-                    // Refresh dashboard data
-                    if (onRefresh) onRefresh()
-                    alert('Saíste do jogo com sucesso!')
-                  } else {
-                    alert('Erro ao sair do jogo')
-                  }
-                }}
-                className="w-full py-2 rounded-xl text-sm font-semibold text-orange-600 bg-orange-50 border border-orange-200 hover:bg-orange-100 transition-colors"
-              >
-                🚪 Sair do jogo
               </button>
             )}
           </div>
