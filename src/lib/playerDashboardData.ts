@@ -780,7 +780,9 @@ export async function fetchTournamentStandingsAndMatches(
 ): Promise<{ standings: TournamentStandingRow[]; myMatches: TournamentMyMatch[]; tournamentName: string; playerPosition?: number }> {
   let tournamentName = ''
 
-  const [{ data: tournament }, { data: matches }, { data: teams, error: teamsError }, { data: players }] = await Promise.all([
+  // Usar RPC get_tournament_player_names (SECURITY DEFINER) — bypassa RLS
+  // Isto resolve o problema dos nomes não aparecerem no Player App
+  const [{ data: tournament }, { data: matches }, { data: teams, error: teamsError }, { data: rpcPlayers }] = await Promise.all([
     supabase.from('tournaments').select('name, format').eq('id', tournamentId).maybeSingle(),
     supabase
       .from('matches')
@@ -789,89 +791,58 @@ export async function fetchTournamentStandingsAndMatches(
       )
       .eq('tournament_id', tournamentId)
       .eq('status', 'completed'),
-    supabase.from('teams').select('id, name, group_name, final_position, player1_id, player2_id, player1:players!teams_player1_id_fkey(id, name), player2:players!teams_player2_id_fkey(id, name)').eq('tournament_id', tournamentId),
-    supabase.from('players').select('id, name, group_name, final_position').eq('tournament_id', tournamentId),
+    supabase.from('teams').select('id, name, group_name, final_position, player1_id, player2_id').eq('tournament_id', tournamentId),
+    supabase.rpc('get_tournament_player_names', { tournament_uuid: tournamentId }),
   ])
 
   if (teamsError) {
     console.error('[fetchTournamentStandingsAndMatches] Error fetching teams:', teamsError)
   }
-  
-  console.log('[fetchTournamentStandingsAndMatches] Raw teams data:', teams?.slice(0, 2).map((t: any) => ({
-    id: t.id,
-    name: t.name,
-    player1_id: t.player1_id,
-    player2_id: t.player2_id,
-    player1_relation: t.player1,
-    player2_relation: t.player2
-  })))
 
-  // Create a map of player names by id (from players table and from teams relations)
+  // Mapa de nomes: RPC bypassa RLS, tem SEMPRE todos os nomes (usa player_accounts como fonte central)
   const playerNamesMap = new Map<string, string>()
-  if (players) {
-    players.forEach((p: any) => {
-      playerNamesMap.set(p.id, p.name)
-    })
-  }
-  // Also add player names from teams relations
-  if (teams) {
-    teams.forEach((t: any) => {
-      if (t.player1?.id && t.player1?.name) {
-        playerNamesMap.set(t.player1.id, t.player1.name)
-      }
-      if (t.player2?.id && t.player2?.name) {
-        playerNamesMap.set(t.player2.id, t.player2.name)
-      }
+  const players: any[] = [] // Para compatibilidade com lógica individual
+  if (rpcPlayers && Array.isArray(rpcPlayers)) {
+    rpcPlayers.forEach((p: any) => {
+      playerNamesMap.set(p.player_id, p.player_name)
+      // RPC v2 devolve group_name/final_position; v1 não — guardar o que existir
+      players.push({ 
+        id: p.player_id, 
+        name: p.player_name,
+        group_name: p.group_name || undefined,
+        final_position: p.final_position || undefined,
+      })
     })
   }
 
-  // FALLBACK: Se as relações não funcionaram, buscar jogadores diretamente pelos IDs das equipas
-  if (teams && teams.length > 0) {
-    const missingPlayerIds = new Set<string>()
-    const teamsWithMissingPlayers: any[] = []
-    
-    teams.forEach((t: any) => {
-      const hasP1 = t.player1_id && playerNamesMap.has(t.player1_id)
-      const hasP2 = t.player2_id && playerNamesMap.has(t.player2_id)
-      
-      if (t.player1_id && !hasP1) {
-        missingPlayerIds.add(t.player1_id)
-      }
-      if (t.player2_id && !hasP2) {
-        missingPlayerIds.add(t.player2_id)
-      }
-      
-      if ((t.player1_id && !hasP1) || (t.player2_id && !hasP2)) {
-        teamsWithMissingPlayers.push({ name: t.name, p1_id: t.player1_id, p2_id: t.player2_id, p1_name: t.player1?.name, p2_name: t.player2?.name })
-      }
-    })
-    
-    console.log('[fetchTournamentStandingsAndMatches] Missing player IDs:', Array.from(missingPlayerIds), 'Teams with missing players:', teamsWithMissingPlayers.length)
-    
-    if (missingPlayerIds.size > 0) {
-      const playerIdsArray = Array.from(missingPlayerIds)
-      console.log('[fetchTournamentStandingsAndMatches] Fetching missing players:', playerIdsArray)
-      
-      const { data: missingPlayers, error: missingError } = await supabase
-        .from('players')
-        .select('id, name')
-        .in('id', playerIdsArray)
-      
-      if (missingError) {
-        console.error('[fetchTournamentStandingsAndMatches] Error fetching missing players:', missingError)
+  // Complementar com dados da tabela players (group_name, final_position) se a RPC não os tem
+  // Também serve como fallback completo se a RPC falhou
+  const needsExtra = players.length === 0 || !players[0].group_name
+  if (needsExtra) {
+    const { data: directPlayers } = await supabase.from('players').select('id, name, group_name, final_position').eq('tournament_id', tournamentId)
+    if (directPlayers && directPlayers.length > 0) {
+      if (players.length === 0) {
+        // RPC falhou — usar dados directos
+        directPlayers.forEach((p: any) => {
+          playerNamesMap.set(p.id, p.name)
+          players.push(p)
+        })
       } else {
-        console.log('[fetchTournamentStandingsAndMatches] Found missing players:', missingPlayers?.length || 0)
-        if (missingPlayers) {
-          missingPlayers.forEach((p: any) => {
-            playerNamesMap.set(p.id, p.name)
-            console.log('[fetchTournamentStandingsAndMatches] Added to map:', p.id, '->', p.name)
-          })
-        }
+        // RPC funcionou para nomes, enriquecer com group_name/final_position
+        const extraMap = new Map<string, any>()
+        directPlayers.forEach((p: any) => extraMap.set(p.id, p))
+        players.forEach((p: any) => {
+          const extra = extraMap.get(p.id)
+          if (extra) {
+            if (!p.group_name) p.group_name = extra.group_name
+            if (!p.final_position) p.final_position = extra.final_position
+          }
+        })
       }
     }
   }
 
-  console.log('[fetchTournamentStandingsAndMatches] Teams:', teams?.length, 'Players:', players?.length, 'Matches:', matches?.length, 'PlayerNamesMap size:', playerNamesMap.size)
+  console.log('[fetchTournamentStandingsAndMatches] Teams:', teams?.length, 'Players (RPC):', rpcPlayers?.length || 0, 'Matches:', matches?.length, 'PlayerNamesMap size:', playerNamesMap.size)
 
   if (tournament) tournamentName = tournament.name || ''
 
@@ -931,28 +902,17 @@ export async function fetchTournamentStandingsAndMatches(
       })
     })
   } else if (teams) {
-    console.log('[fetchTournamentStandingsAndMatches] Processing teams, playerNamesMap size:', playerNamesMap.size)
-    console.log('[fetchTournamentStandingsAndMatches] Sample team data:', teams[0] ? {
-      name: teams[0].name,
-      player1_id: teams[0].player1_id,
-      player2_id: teams[0].player2_id,
-      player1_relation: teams[0].player1,
-      player2_relation: teams[0].player2
-    } : 'No teams')
-    
     teams.forEach((t: any) => {
-      // Prefer names from team relations, fallback to map
-      let finalP1Name = t.player1?.name || (t.player1_id ? playerNamesMap.get(t.player1_id) : undefined)
-      let finalP2Name = t.player2?.name || (t.player2_id ? playerNamesMap.get(t.player2_id) : undefined)
+      // Nomes via RPC (bypassa RLS) → playerNamesMap
+      let finalP1Name = t.player1_id ? playerNamesMap.get(t.player1_id) : undefined
+      let finalP2Name = t.player2_id ? playerNamesMap.get(t.player2_id) : undefined
       
-      // Fallback: parse do nome da equipa "Player1 / Player2" (torneios antigos sem player IDs)
+      // Fallback: parse do nome da equipa "Player1 / Player2"
       if (!finalP1Name || !finalP2Name) {
         const parts = (t.name || '').split(/\s*[\/\\]\s*/)
         if (!finalP1Name && parts[0]?.trim()) finalP1Name = parts[0].trim()
         if (!finalP2Name && parts[1]?.trim()) finalP2Name = parts[1].trim()
       }
-      
-      console.log('[fetchTournamentStandingsAndMatches] Team:', t.name, 'Player1ID:', t.player1_id, 'Player1Name:', finalP1Name, 'Player2ID:', t.player2_id, 'Player2Name:', finalP2Name)
       
       standingsMap.set(t.id, {
         id: t.id,
