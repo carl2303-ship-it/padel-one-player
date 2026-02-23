@@ -113,6 +113,8 @@ function App() {
 
   // Dashboard data (mesma fonte que Padel One Tour – dados nos dois lados)
   const [dashboardData, setDashboardData] = useState<PlayerDashboardData | null>(null)
+  // Edge function pastTournamentDetails — estado separado que NUNCA é sobrescrito por setDashboardData
+  const [edgePastTournamentDetails, setEdgePastTournamentDetails] = useState<Record<string, any> | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const [showChangePassword, setShowChangePassword] = useState(false)
   const [showInfoModal, setShowInfoModal] = useState<'help' | 'howItWorks' | 'privacy' | null>(null)
@@ -164,7 +166,10 @@ function App() {
           setDashboardData(dash)
           // Enrich with Edge Function in background (progressive loading)
           enrichDashboardWithEdgeFunction().then(enriched => {
-            if (enriched) setDashboardData(prev => prev ? { ...prev, ...enriched } : prev)
+            if (enriched) {
+              if (enriched.pastTournamentDetails) setEdgePastTournamentDetails(enriched.pastTournamentDetails)
+              setDashboardData(prev => prev ? { ...prev, ...enriched } : prev)
+            }
           })
         }
         setIsLoading(false)
@@ -196,7 +201,10 @@ function App() {
         setDashboardData(data)
         // Enrich with Edge Function in background (progressive loading)
         enrichDashboardWithEdgeFunction().then(enriched => {
-          if (enriched) setDashboardData(prev => prev ? { ...prev, ...enriched } : prev)
+          if (enriched) {
+            if (enriched.pastTournamentDetails) setEdgePastTournamentDetails(enriched.pastTournamentDetails)
+            setDashboardData(prev => prev ? { ...prev, ...enriched } : prev)
+          }
         })
         setIsLoading(false)
         return
@@ -213,7 +221,10 @@ function App() {
       setDashboardData(data)
       // Enrich with Edge Function in background
       enrichDashboardWithEdgeFunction().then(enriched => {
-        if (enriched) setDashboardData(prev => prev ? { ...prev, ...enriched } : prev)
+        if (enriched) {
+          if (enriched.pastTournamentDetails) setEdgePastTournamentDetails(enriched.pastTournamentDetails)
+          setDashboardData(prev => prev ? { ...prev, ...enriched } : prev)
+        }
       })
     }
   }
@@ -346,7 +357,10 @@ function App() {
           setDashboardData(data)
           // Enrich with Edge Function in background (progressive loading)
           enrichDashboardWithEdgeFunction().then(enriched => {
-            if (enriched) setDashboardData(prev => prev ? { ...prev, ...enriched } : prev)
+            if (enriched) {
+              if (enriched.pastTournamentDetails) setEdgePastTournamentDetails(enriched.pastTournamentDetails)
+              setDashboardData(prev => prev ? { ...prev, ...enriched } : prev)
+            }
           })
         }
       }
@@ -3293,17 +3307,17 @@ function CompeteScreen({
     return () => { active = false }
   }, [activeTab, d?.leagueStandings?.length, leaguesFetched, playerAccountId])
 
-  // Usar pastTournamentDetails do dashboardData (edge function) - SEMPRE sobrepor dados client-side
+  // Usar edgePastTournamentDetails (estado separado que nunca é sobrescrito por setDashboardData)
   // Edge function usa service role e bypassa RLS, garantindo nomes dos jogadores corretos
   useEffect(() => {
-    if (d?.pastTournamentDetails && Object.keys(d.pastTournamentDetails).length > 0) {
-      console.log('[CompeteTab] Edge function data received, overriding client-side data with', Object.keys(d.pastTournamentDetails).length, 'tournaments')
-      edgeFunctionDataReceivedRef.current = true // Sinalizar que dados da edge function chegaram (ref síncrono)
-      setPastTournamentDetails(d.pastTournamentDetails)
+    if (edgePastTournamentDetails && Object.keys(edgePastTournamentDetails).length > 0) {
+      console.log('[CompeteTab] Edge function data received (stable state), setting', Object.keys(edgePastTournamentDetails).length, 'tournaments')
+      edgeFunctionDataReceivedRef.current = true
+      setPastTournamentDetails(edgePastTournamentDetails)
       setHistoryFetched(true)
       setPastTournamentLoading(false)
     }
-  }, [d?.pastTournamentDetails])
+  }, [edgePastTournamentDetails])
 
   // Carregar detalhes dos torneios passados quando abre o tab history
   // NOTA: Não executar se a edge function já forneceu os dados (ref síncrono impede sobrescrita)
@@ -3369,8 +3383,8 @@ function CompeteScreen({
   }
 
   const viewTournament = async (tournamentId: string, tournamentName: string) => {
-    // 1. Primeiro tentar dados da edge function (tem nomes dos jogadores corretos via service role)
-    const edgeCached = d?.pastTournamentDetails?.[tournamentId]
+    // 1. Primeiro tentar dados da edge function (estado separado, nunca sobrescrito)
+    const edgeCached = edgePastTournamentDetails?.[tournamentId]
     if (edgeCached) {
       setViewingTournament({ id: tournamentId, name: tournamentName })
       setTournamentDetail({ standings: edgeCached.standings, myMatches: edgeCached.myMatches, name: edgeCached.tournamentName })
