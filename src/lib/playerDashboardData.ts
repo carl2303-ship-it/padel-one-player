@@ -383,6 +383,65 @@ export async function fetchPlayerDashboardData(
       return result
     }
 
+    // FALLBACK: Buscar nomes dos jogadores das equipas diretamente se as relações falharem
+    const teamIdsFromMatches = new Set<string>()
+    matchesData.forEach((m: any) => {
+      if (m.team1_id) teamIdsFromMatches.add(m.team1_id)
+      if (m.team2_id) teamIdsFromMatches.add(m.team2_id)
+    })
+    
+    const teamPlayerNamesMap = new Map<string, { player1_name?: string; player2_name?: string }>()
+    if (teamIdsFromMatches.size > 0) {
+      const { data: teamsWithPlayers } = await supabase
+        .from('teams')
+        .select('id, player1_id, player2_id, player1:players!teams_player1_id_fkey(id, name), player2:players!teams_player2_id_fkey(id, name)')
+        .in('id', Array.from(teamIdsFromMatches))
+      
+      if (teamsWithPlayers) {
+        // Primeiro, tentar usar as relações
+        teamsWithPlayers.forEach((t: any) => {
+          const p1Name = t.player1?.name
+          const p2Name = t.player2?.name
+          if (p1Name || p2Name) {
+            teamPlayerNamesMap.set(t.id, { player1_name: p1Name, player2_name: p2Name })
+          }
+        })
+        
+        // Se ainda faltam nomes, buscar diretamente pelos IDs
+        const missingPlayerIds = new Set<string>()
+        teamsWithPlayers.forEach((t: any) => {
+          const cached = teamPlayerNamesMap.get(t.id)
+          if (t.player1_id && !cached?.player1_name) missingPlayerIds.add(t.player1_id)
+          if (t.player2_id && !cached?.player2_name) missingPlayerIds.add(t.player2_id)
+        })
+        
+        if (missingPlayerIds.size > 0) {
+          const { data: missingPlayers } = await supabase
+            .from('players')
+            .select('id, name')
+            .in('id', Array.from(missingPlayerIds))
+          
+          if (missingPlayers) {
+            const playerNamesById = new Map<string, string>()
+            missingPlayers.forEach((p: any) => playerNamesById.set(p.id, p.name))
+            
+            teamsWithPlayers.forEach((t: any) => {
+              const cached = teamPlayerNamesMap.get(t.id) || {}
+              if (t.player1_id && !cached.player1_name) {
+                cached.player1_name = playerNamesById.get(t.player1_id)
+              }
+              if (t.player2_id && !cached.player2_name) {
+                cached.player2_name = playerNamesById.get(t.player2_id)
+              }
+              if (cached.player1_name || cached.player2_name) {
+                teamPlayerNamesMap.set(t.id, cached)
+              }
+            })
+          }
+        }
+      }
+    }
+
     // Process matchesData from the combined queries above
     let wins = 0
     let losses = 0
@@ -394,10 +453,27 @@ export async function fetchPlayerDashboardData(
       const team2Name = isIndividual
         ? `${m.p3?.name || 'TBD'}${m.p4 ? ' / ' + m.p4.name : ''}`
         : m.team2?.name || 'TBD'
-      const p1Name = isIndividual ? m.p1?.name : (m.team1 as any)?.t1p1?.name
-      const p2Name = isIndividual ? m.p2?.name : (m.team1 as any)?.t1p2?.name
-      const p3Name = isIndividual ? m.p3?.name : (m.team2 as any)?.t2p1?.name
-      const p4Name = isIndividual ? m.p4?.name : (m.team2 as any)?.t2p2?.name
+      
+      // Para jogos por equipas, usar o mapa de fallback se as relações falharem
+      let p1Name: string | undefined
+      let p2Name: string | undefined
+      let p3Name: string | undefined
+      let p4Name: string | undefined
+      
+      if (isIndividual) {
+        p1Name = m.p1?.name
+        p2Name = m.p2?.name
+        p3Name = m.p3?.name
+        p4Name = m.p4?.name
+      } else {
+        const team1Players = m.team1_id ? teamPlayerNamesMap.get(m.team1_id) : null
+        const team2Players = m.team2_id ? teamPlayerNamesMap.get(m.team2_id) : null
+        
+        p1Name = (m.team1 as any)?.t1p1?.name || team1Players?.player1_name
+        p2Name = (m.team1 as any)?.t1p2?.name || team1Players?.player2_name
+        p3Name = (m.team2 as any)?.t2p1?.name || team2Players?.player1_name
+        p4Name = (m.team2 as any)?.t2p2?.name || team2Players?.player2_name
+      }
       const team1Sets = [
         (m.team1_score_set1 || 0) > (m.team2_score_set1 || 0) ? 1 : 0,
         (m.team1_score_set2 || 0) > (m.team2_score_set2 || 0) ? 1 : 0,
