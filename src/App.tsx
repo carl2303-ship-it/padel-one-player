@@ -6934,7 +6934,6 @@ function GamesScreen({
   onBack: () => void
   onOpenPlayerProfile: (userId: string) => void
 }) {
-  void onRefresh
   const [activeTab, setActiveTab] = useState<'upcoming' | 'history'>('upcoming')
   const d = dashboardData
   const upcoming = d?.upcomingMatches ?? []
@@ -6976,13 +6975,23 @@ function GamesScreen({
         <div className="space-y-3">
           {list.map((match) => (
             <div key={match.id} className="w-full">
-              <GameCardPlaytomic 
-                match={match} 
-                fullWidth 
-                currentPlayerAvatar={player?.avatar_url} 
-                currentPlayerName={player?.name}
-                onPlayerClick={handlePlayerClick}
-              />
+              {match.is_open_game && match.open_game_id ? (
+                <OpenGameCard
+                  gameId={match.open_game_id}
+                  match={match}
+                  userId={player?.user_id}
+                  playerAccountId={player?.id}
+                  onRefresh={onRefresh}
+                />
+              ) : (
+                <GameCardPlaytomic 
+                  match={match} 
+                  fullWidth 
+                  currentPlayerAvatar={player?.avatar_url} 
+                  currentPlayerName={player?.name}
+                  onPlayerClick={handlePlayerClick}
+                />
+              )}
             </div>
           ))}
         </div>
