@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase, PlayerAccount } from './lib/supabase'
 import {
   fetchPlayerDashboardData,
@@ -3147,6 +3147,7 @@ function CompeteScreen({
   const [enrolledLoading, setEnrolledLoading] = useState(false)
   const [pastTournamentDetails, setPastTournamentDetails] = useState<Record<string, { standings: any[]; myMatches: any[]; playerPosition?: number; tournamentName: string }>>({})
   const [pastTournamentLoading, setPastTournamentLoading] = useState(false)
+  const edgeFunctionDataReceivedRef = useRef(false)
   const [leaguesDirect, setLeaguesDirect] = useState<PlayerDashboardData['leagueStandings']>([])
   const [leaguesLoading, setLeaguesLoading] = useState(false)
   const [leaguesFetched, setLeaguesFetched] = useState(false)
@@ -3297,32 +3298,41 @@ function CompeteScreen({
   useEffect(() => {
     if (d?.pastTournamentDetails && Object.keys(d.pastTournamentDetails).length > 0) {
       console.log('[CompeteTab] Edge function data received, overriding client-side data with', Object.keys(d.pastTournamentDetails).length, 'tournaments')
+      edgeFunctionDataReceivedRef.current = true // Sinalizar que dados da edge function chegaram (ref síncrono)
       setPastTournamentDetails(d.pastTournamentDetails)
       setHistoryFetched(true)
+      setPastTournamentLoading(false)
     }
   }, [d?.pastTournamentDetails])
 
   // Carregar detalhes dos torneios passados quando abre o tab history
+  // NOTA: Não executar se a edge function já forneceu os dados (ref síncrono impede sobrescrita)
   useEffect(() => {
     if (activeTab !== 'history') return
     if (!d?.pastTournaments?.length) return
     if (!userId) return
-    // FORÇAR RE-FETCH se não temos detalhes
+    // Se a edge function já entregou os dados, NÃO fazer fetch client-side (RLS pode bloquear nomes)
+    if (edgeFunctionDataReceivedRef.current) {
+      console.log('[History] Skipping client-side fetch — edge function data already available')
+      return
+    }
     const hasDetails = Object.keys(pastTournamentDetails).length > 0
     if (historyFetched && hasDetails) return
     let active = true
     setPastTournamentLoading(true)
-    setHistoryFetched(false) // Reset para permitir re-fetch
+    setHistoryFetched(false)
     ;(async () => {
       try {
         const { fetchTournamentStandingsAndMatches } = await import('./lib/playerDashboardData')
         const results: Record<string, { standings: any[]; myMatches: any[]; playerPosition?: number; tournamentName: string }> = {}
         for (const t of (d.pastTournaments ?? [])) {
-          if (!active) break
+          // Parar se cancelado OU se a edge function entretanto entregou dados melhores
+          if (!active || edgeFunctionDataReceivedRef.current) break
           try {
             const data = await fetchTournamentStandingsAndMatches(t.id, userId!)
             results[t.id] = { standings: data.standings, myMatches: data.myMatches, playerPosition: data.playerPosition, tournamentName: data.tournamentName }
-            if (active) setPastTournamentDetails({ ...results })
+            // Só atualizar se a edge function NÃO entregou dados (evitar sobrescrever dados completos)
+            if (active && !edgeFunctionDataReceivedRef.current) setPastTournamentDetails({ ...results })
           } catch (err) {
             console.error(`[History] Error ${t.name}:`, err)
             results[t.id] = { standings: [], myMatches: [], tournamentName: t.name }
@@ -3331,7 +3341,7 @@ function CompeteScreen({
       } catch (err) {
         console.error('[History] ERROR:', err)
       }
-      if (active) { setPastTournamentLoading(false); setHistoryFetched(true) }
+      if (active && !edgeFunctionDataReceivedRef.current) { setPastTournamentLoading(false); setHistoryFetched(true) }
     })()
     return () => { active = false }
   }, [activeTab, d?.pastTournaments?.length, historyFetched, userId])

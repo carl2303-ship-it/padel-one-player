@@ -566,7 +566,7 @@ export async function fetchPlayerDashboardData(
  */
 export async function enrichDashboardWithEdgeFunction(): Promise<Partial<PlayerDashboardData> | null> {
   try {
-    console.time('[Dashboard] Edge Function enrichment')
+    const t0 = performance.now()
     const { data: { session } } = await supabase.auth.getSession()
     if (!session?.access_token) return null
 
@@ -582,7 +582,7 @@ export async function enrichDashboardWithEdgeFunction(): Promise<Partial<PlayerD
       },
       body: JSON.stringify({}),
     })
-    console.timeEnd('[Dashboard] Edge Function enrichment')
+    console.log(`[Dashboard] Edge Function enrichment: ${Math.round(performance.now() - t0)}ms`)
 
     if (!response.ok) {
       console.warn('[Dashboard] Edge Function error:', response.status, response.statusText)
