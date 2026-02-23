@@ -383,6 +383,15 @@ function App() {
     setPassword('')
   }
 
+  // DADOS EFETIVOS: merge dashboardData (client-side) + edgeEnrichedData (edge function)
+  // Edge function tem SEMPRE prioridade — bypassa RLS, tem nomes correctos
+  // NOTA: Este useMemo TEM de estar ANTES de qualquer return condicional (Rules of Hooks)
+  const effectiveDashboard = useMemo(() => {
+    if (!dashboardData) return null
+    if (!edgeEnrichedData) return dashboardData
+    return { ...dashboardData, ...edgeEnrichedData }
+  }, [dashboardData, edgeEnrichedData])
+
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -422,16 +431,6 @@ function App() {
       onRegister={() => setShowRegister(true)}
     />
   }
-
-  // DADOS EFETIVOS: merge dashboardData (client-side) + edgeEnrichedData (edge function)
-  // Edge function tem SEMPRE prioridade — bypassa RLS, tem nomes correctos
-  // Assim, mesmo que setDashboardData() sobrescreva os dados base (StrictMode, refresh, etc.),
-  // o effectiveDashboard SEMPRE contém os dados correctos da edge function
-  const effectiveDashboard = useMemo(() => {
-    if (!dashboardData) return null
-    if (!edgeEnrichedData) return dashboardData
-    return { ...dashboardData, ...edgeEnrichedData }
-  }, [dashboardData, edgeEnrichedData])
 
   const displayName = effectiveDashboard?.playerName || player?.name?.split(' ')[0] || 'Jogador'
 
