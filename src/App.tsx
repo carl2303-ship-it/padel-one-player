@@ -1143,6 +1143,12 @@ function OpenGameCard({
 }) {
   const [game, setGame] = useState<import('./lib/openGames').OpenGame | null>(null)
   const [loading, setLoading] = useState(true)
+  const [showAddPlayer, setShowAddPlayer] = useState(false)
+  const [addPlayerSearch, setAddPlayerSearch] = useState('')
+  const [addPlayerResults, setAddPlayerResults] = useState<{ id: string; name: string; avatar_url: string | null; level: number | null; player_category: string | null }[]>([])
+  const [addingPlayer, setAddingPlayer] = useState(false)
+  const [searchLoading, setSearchLoading] = useState(false)
+  const [actionLoading, setActionLoading] = useState(false)
 
   useEffect(() => {
     const fetchGame = async () => {
@@ -1256,25 +1262,106 @@ function OpenGameCard({
 
   const handleLeaveGame = async () => {
     if (!confirm('Tens a certeza que queres sair deste jogo?')) return
+    setActionLoading(true)
     const { leaveOpenGame } = await import('./lib/openGames')
     const success = await leaveOpenGame(game.id, userId || '')
+    setActionLoading(false)
     if (success) {
       await onRefresh()
-      alert('Saíste do jogo com sucesso!')
     } else {
       alert('Erro ao sair do jogo')
     }
   }
 
   const handleCancelGame = async () => {
-    if (!confirm('Tens a certeza que queres cancelar este jogo?')) return
+    if (!confirm('Tens a certeza que queres cancelar este jogo? Todos os jogadores serão removidos.')) return
+    setActionLoading(true)
     const { cancelOpenGame } = await import('./lib/openGames')
     const success = await cancelOpenGame(game.id)
+    setActionLoading(false)
     if (success) {
       await onRefresh()
-      alert('Jogo cancelado com sucesso!')
     } else {
       alert('Erro ao cancelar jogo')
+    }
+  }
+
+  const handleLeaveGameCreator = async () => {
+    if (!confirm('Tens a certeza que queres sair deste jogo? O jogo continuará para os outros jogadores.')) return
+    setActionLoading(true)
+    const { leaveOpenGame } = await import('./lib/openGames')
+    const success = await leaveOpenGame(game.id, userId || '')
+    setActionLoading(false)
+    if (success) {
+      await onRefresh()
+    } else {
+      alert('Erro ao sair do jogo')
+    }
+  }
+
+  const handleSearchPlayer = async (query: string) => {
+    setAddPlayerSearch(query)
+    if (query.length < 2) {
+      setAddPlayerResults([])
+      return
+    }
+    setSearchLoading(true)
+    const { searchPlayerAccounts } = await import('./lib/openGames')
+    const results = await searchPlayerAccounts(query)
+    // Filter out players already in the game
+    const existingIds = new Set(game.players.map(p => p.player_account_id).filter(Boolean))
+    setAddPlayerResults(results.filter(r => !existingIds.has(r.id)))
+    setSearchLoading(false)
+  }
+
+  const handleAddPlayer = async (paId: string) => {
+    setAddingPlayer(true)
+    const { addPlayerToOpenGame } = await import('./lib/openGames')
+    const result = await addPlayerToOpenGame({ gameId: game.id, playerAccountId: paId })
+    setAddingPlayer(false)
+    if (result.success) {
+      setShowAddPlayer(false)
+      setAddPlayerSearch('')
+      setAddPlayerResults([])
+      await onRefresh()
+      // Re-fetch game data
+      const { supabase } = await import('./lib/supabase')
+      const { data } = await supabase.from('open_games').select('*').eq('id', gameId).single()
+      if (data) {
+        const { data: playersData } = await supabase
+          .from('open_game_players')
+          .select('*')
+          .eq('game_id', gameId)
+          .eq('status', 'confirmed')
+          .order('position')
+        const userIds2 = [...new Set((playersData || []).map((p2: any) => p2.user_id).filter(Boolean))]
+        let acctMap2: { [key: string]: any } = {}
+        if (userIds2.length > 0) {
+          const { data: accts } = await supabase.from('player_accounts').select('id, user_id, name, avatar_url, level, player_category').in('user_id', userIds2)
+          if (accts) accts.forEach((a: any) => { if (a.user_id) acctMap2[a.user_id] = a; acctMap2[a.id] = a })
+        }
+        const enriched = (playersData || []).map((p2: any) => {
+          const acct = acctMap2[p2.user_id] || acctMap2[p2.player_account_id]
+          return { ...p2, name: acct?.name || 'Jogador', avatar_url: acct?.avatar_url || null, level: acct?.level || null, player_category: acct?.player_category || null }
+        })
+        const { data: clubData } = await supabase.from('clubs').select('name, logo_url, city').eq('id', data.club_id).single()
+        let courtData2 = null
+        if (data.court_id) {
+          const { data: cr } = await supabase.from('club_courts').select('name, type').eq('id', data.court_id).single()
+          courtData2 = cr
+        }
+        setGame({
+          ...data,
+          club_name: clubData?.name || '',
+          club_logo_url: clubData?.logo_url || null,
+          club_city: clubData?.city || null,
+          court_name: courtData2?.name || null,
+          court_type: courtData2?.type || null,
+          players: enriched,
+        })
+      }
+    } else {
+      alert(result.error || 'Erro ao adicionar jogador')
     }
   }
 
@@ -1334,11 +1421,15 @@ function OpenGameCard({
                 )
               } else {
                 return (
-                  <div key={`empty-${i}`} className="flex flex-col items-center">
-                    <div className="w-12 h-12 rounded-full border-2 border-dashed border-gray-300 flex items-center justify-center">
-                      <Plus className="w-5 h-5 text-gray-400" />
+                  <div 
+                    key={`empty-${i}`} 
+                    className={`flex flex-col items-center ${isInGame ? 'cursor-pointer' : ''}`}
+                    onClick={isInGame ? () => setShowAddPlayer(true) : undefined}
+                  >
+                    <div className={`w-12 h-12 rounded-full border-2 border-dashed flex items-center justify-center transition-colors ${isInGame ? 'border-blue-400 hover:border-blue-500 hover:bg-blue-50' : 'border-gray-300'}`}>
+                      <UserPlus className={`w-5 h-5 ${isInGame ? 'text-blue-500' : 'text-gray-400'}`} />
                     </div>
-                    <span className="text-[9px] text-blue-600 font-medium mt-1">Livre</span>
+                    <span className={`text-[9px] font-medium mt-1 ${isInGame ? 'text-blue-600' : 'text-gray-400'}`}>{isInGame ? 'Adicionar' : 'Livre'}</span>
                   </div>
                 )
               }
@@ -1373,11 +1464,15 @@ function OpenGameCard({
                 )
               } else {
                 return (
-                  <div key={`empty-${i}`} className="flex flex-col items-center">
-                    <div className="w-12 h-12 rounded-full border-2 border-dashed border-gray-300 flex items-center justify-center">
-                      <Plus className="w-5 h-5 text-gray-400" />
+                  <div 
+                    key={`empty-${i}`} 
+                    className={`flex flex-col items-center ${isInGame ? 'cursor-pointer' : ''}`}
+                    onClick={isInGame ? () => setShowAddPlayer(true) : undefined}
+                  >
+                    <div className={`w-12 h-12 rounded-full border-2 border-dashed flex items-center justify-center transition-colors ${isInGame ? 'border-blue-400 hover:border-blue-500 hover:bg-blue-50' : 'border-gray-300'}`}>
+                      <UserPlus className={`w-5 h-5 ${isInGame ? 'text-blue-500' : 'text-gray-400'}`} />
                     </div>
-                    <span className="text-[9px] text-blue-600 font-medium mt-1">Livre</span>
+                    <span className={`text-[9px] font-medium mt-1 ${isInGame ? 'text-blue-600' : 'text-gray-400'}`}>{isInGame ? 'Adicionar' : 'Livre'}</span>
                   </div>
                 )
               }
@@ -1385,6 +1480,70 @@ function OpenGameCard({
           </div>
         </div>
       </div>
+
+      {/* Add Player Search Panel */}
+      {showAddPlayer && (
+        <div className="border-t border-gray-100 px-4 py-3 bg-blue-50/50">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-xs font-semibold text-gray-700">Adicionar jogador</p>
+            <button 
+              onClick={() => { setShowAddPlayer(false); setAddPlayerSearch(''); setAddPlayerResults([]) }}
+              className="text-gray-400 hover:text-gray-600 text-xs"
+            >
+              ✕
+            </button>
+          </div>
+          <div className="relative">
+            <Search className="w-4 h-4 absolute left-2.5 top-2.5 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Pesquisar por nome..."
+              value={addPlayerSearch}
+              onChange={(e) => handleSearchPlayer(e.target.value)}
+              className="w-full pl-8 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+              autoFocus
+            />
+          </div>
+          {searchLoading && (
+            <p className="text-xs text-gray-500 mt-2 text-center">A pesquisar...</p>
+          )}
+          {addPlayerResults.length > 0 && (
+            <div className="mt-2 max-h-[150px] overflow-y-auto space-y-1">
+              {addPlayerResults.map(r => {
+                const rColors = r.player_category ? categoryColors(r.player_category) : null
+                return (
+                  <button
+                    key={r.id}
+                    onClick={() => handleAddPlayer(r.id)}
+                    disabled={addingPlayer}
+                    className="w-full flex items-center gap-2 p-2 rounded-lg hover:bg-blue-100 transition-colors text-left disabled:opacity-50"
+                  >
+                    <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden flex-shrink-0">
+                      {r.avatar_url ? (
+                        <img src={r.avatar_url} alt="" className="w-full h-full object-cover" />
+                      ) : (
+                        <span className="text-xs font-bold text-gray-600">{r.name.charAt(0).toUpperCase()}</span>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-900 truncate">{r.name}</p>
+                    </div>
+                    {r.level != null && (
+                      <span className="text-[10px] font-bold text-white px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ backgroundColor: rColors?.hex || '#9ca3af' }}>
+                        {r.level.toFixed(1)}
+                      </span>
+                    )}
+                    <UserPlus className="w-4 h-4 text-blue-500 flex-shrink-0" />
+                  </button>
+                )
+              })}
+            </div>
+          )}
+          {addPlayerSearch.length >= 2 && !searchLoading && addPlayerResults.length === 0 && (
+            <p className="text-xs text-gray-500 mt-2 text-center">Nenhum jogador encontrado</p>
+          )}
+        </div>
+      )}
 
       {/* Club & Price footer */}
       <div className="border-t border-gray-100 px-4 py-2 flex items-center justify-between bg-gray-50/50">
@@ -1408,19 +1567,22 @@ function OpenGameCard({
       {/* Actions */}
       {isInGame && (
         <div className="px-4 pb-3 pt-0 bg-gray-50/50 space-y-2">
-          {isCreator ? (
+          {/* Everyone can leave */}
+          <button
+            onClick={isCreator ? handleLeaveGameCreator : handleLeaveGame}
+            disabled={actionLoading}
+            className="w-full py-2 rounded-xl text-sm font-semibold text-orange-600 bg-orange-50 border border-orange-200 hover:bg-orange-100 transition-colors disabled:opacity-50"
+          >
+            {actionLoading ? '...' : '🚪 Sair do jogo'}
+          </button>
+          {/* Creator can also cancel */}
+          {isCreator && (
             <button
               onClick={handleCancelGame}
-              className="w-full py-2 rounded-xl text-sm font-semibold text-red-600 bg-red-50 border border-red-200 hover:bg-red-100 transition-colors"
+              disabled={actionLoading}
+              className="w-full py-1.5 rounded-xl text-xs font-medium text-red-500 hover:text-red-700 hover:bg-red-50 transition-colors disabled:opacity-50"
             >
               ❌ Cancelar jogo
-            </button>
-          ) : (
-            <button
-              onClick={handleLeaveGame}
-              className="w-full py-2 rounded-xl text-sm font-semibold text-orange-600 bg-orange-50 border border-orange-200 hover:bg-orange-100 transition-colors"
-            >
-              🚪 Sair do jogo
             </button>
           )}
         </div>
