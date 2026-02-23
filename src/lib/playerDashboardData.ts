@@ -726,6 +726,33 @@ export async function fetchTournamentStandingsAndMatches(
     })
   }
 
+  // FALLBACK: Se as relações não funcionaram, buscar jogadores diretamente pelos IDs das equipas
+  if (teams && teams.length > 0) {
+    const missingPlayerIds = new Set<string>()
+    teams.forEach((t: any) => {
+      if (t.player1_id && !playerNamesMap.has(t.player1_id)) {
+        missingPlayerIds.add(t.player1_id)
+      }
+      if (t.player2_id && !playerNamesMap.has(t.player2_id)) {
+        missingPlayerIds.add(t.player2_id)
+      }
+    })
+    
+    if (missingPlayerIds.size > 0) {
+      const playerIdsArray = Array.from(missingPlayerIds)
+      const { data: missingPlayers } = await supabase
+        .from('players')
+        .select('id, name')
+        .in('id', playerIdsArray)
+      
+      if (missingPlayers) {
+        missingPlayers.forEach((p: any) => {
+          playerNamesMap.set(p.id, p.name)
+        })
+      }
+    }
+  }
+
   console.log('[fetchTournamentStandingsAndMatches] Teams:', teams?.length, 'Players:', players?.length, 'Matches:', matches?.length)
 
   if (tournament) tournamentName = tournament.name || ''
