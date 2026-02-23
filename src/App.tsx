@@ -8368,12 +8368,134 @@ function ProfileEditScreen({
   )
 }
 
-// ---------- Registo (Criar Conta com Questionário de Nível) ----------
+// ---------- Registo (Criar Conta com Questionário de Nível — 12 perguntas) ----------
+
+// Definição das 12 perguntas do questionário
+const QUIZ_QUESTIONS: { id: string; title: string; options: { value: number; label: string }[] }[] = [
+  {
+    id: 'q1', title: '1. Com que frequência jogas por semana?',
+    options: [
+      { value: 0, label: 'Jogo muito pouco ou quase nada' },
+      { value: 1, label: 'Jogo 1 vez por semana' },
+      { value: 2, label: 'Jogo 2–3 vezes por semana' },
+      { value: 3, label: 'Jogo 4 ou mais vezes por semana' },
+    ],
+  },
+  {
+    id: 'q2', title: '2. Já participaste em torneios ou ligas?',
+    options: [
+      { value: 0, label: 'Nunca joguei torneios' },
+      { value: 1, label: 'Participei ocasionalmente' },
+      { value: 2, label: 'Participo regularmente' },
+      { value: 3, label: 'Compito a nível regional/nacional' },
+    ],
+  },
+  {
+    id: 'q3', title: '3. Treinas técnica além de jogar partidas?',
+    options: [
+      { value: 0, label: 'Não treino' },
+      { value: 1, label: 'Treino esporadicamente' },
+      { value: 2, label: 'Treino 1 vez por semana' },
+      { value: 3, label: 'Treino 2 ou mais vezes por semana' },
+    ],
+  },
+  {
+    id: 'q4', title: '4. Consistência em rallies de 10+ pancadas',
+    options: [
+      { value: 0, label: 'Evito trocas longas / erro muito' },
+      { value: 1, label: 'Às vezes mantenho rallies' },
+      { value: 2, label: 'Mantenho trocas longas com frequência' },
+      { value: 3, label: 'Muito consistente mesmo a ritmo elevado' },
+    ],
+  },
+  {
+    id: 'q5', title: '5. Usas os vidros com intenção tática?',
+    options: [
+      { value: 0, label: 'Nunca / não sei usá-los' },
+      { value: 1, label: 'Às vezes' },
+      { value: 2, label: 'Regularmente' },
+      { value: 3, label: 'De forma estratégica e com controlo' },
+    ],
+  },
+  {
+    id: 'q6', title: '6. Jogo na rede (voleias, bandeja, finalizações)',
+    options: [
+      { value: 0, label: 'Evito a rede / erro muito' },
+      { value: 1, label: 'Vou à rede mas sem segurança' },
+      { value: 2, label: 'Boa volea / bandeja básica' },
+      { value: 3, label: 'Domino volea, bandeja/víbora e finalizações' },
+    ],
+  },
+  {
+    id: 'q7', title: '7. Serviço',
+    options: [
+      { value: 0, label: 'Inconsistente / muitos erros' },
+      { value: 1, label: 'Aceitável' },
+      { value: 2, label: 'Colocado e estável' },
+      { value: 3, label: 'Potente e preciso' },
+    ],
+  },
+  {
+    id: 'q8', title: '8. Bandeja ou víbora',
+    options: [
+      { value: 0, label: 'Não sei executar bem' },
+      { value: 1, label: 'Básica' },
+      { value: 2, label: 'Consistente' },
+      { value: 3, label: 'Finalizadora' },
+    ],
+  },
+  {
+    id: 'q9', title: '9. Smash / remate',
+    options: [
+      { value: 0, label: 'Fraco' },
+      { value: 1, label: 'Básico' },
+      { value: 2, label: 'Potente e direcionado' },
+      { value: 3, label: 'Muito potente e decisivo' },
+    ],
+  },
+  {
+    id: 'q10', title: '10. Leitura de jogo e antecipação',
+    options: [
+      { value: 0, label: 'Tenho dificuldade em antecipar' },
+      { value: 1, label: 'Às vezes antecipo' },
+      { value: 2, label: 'Boa leitura' },
+      { value: 3, label: 'Excelente antecipação' },
+    ],
+  },
+  {
+    id: 'q11', title: '11. Comunicação com o parceiro',
+    options: [
+      { value: 0, label: 'Má' },
+      { value: 1, label: 'A melhorar' },
+      { value: 2, label: 'Boa' },
+      { value: 3, label: 'Excelente' },
+    ],
+  },
+  {
+    id: 'q12', title: '12. Gestão da pressão',
+    options: [
+      { value: 0, label: 'Afeta-me bastante' },
+      { value: 1, label: 'Às vezes' },
+      { value: 2, label: 'Normalmente mantenho a calma' },
+      { value: 3, label: 'Excelente controlo sob pressão' },
+    ],
+  },
+]
+
+// Agrupar perguntas em páginas de 3
+const QUIZ_PAGES = [
+  { label: 'Experiência & Hábitos', questions: QUIZ_QUESTIONS.slice(0, 3) },
+  { label: 'Técnica Base', questions: QUIZ_QUESTIONS.slice(3, 6) },
+  { label: 'Pancadas', questions: QUIZ_QUESTIONS.slice(6, 9) },
+  { label: 'Estratégia & Mental', questions: QUIZ_QUESTIONS.slice(9, 12) },
+]
+
 function RegisterScreen({ onBack, onSuccess }: {
   onBack: () => void
   onSuccess: (playerAccount: any) => void
 }) {
   const [step, setStep] = useState<1 | 2 | 3>(1)
+  const [quizPage, setQuizPage] = useState(0) // 0-3 for the 4 quiz sub-pages
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
@@ -8384,36 +8506,34 @@ function RegisterScreen({ onBack, onSuccess }: {
   const [regPassword, setRegPassword] = useState('')
   const [confirmPwd, setConfirmPwd] = useState('')
 
-  // Step 2: Questionário de nível
-  const [experience, setExperience] = useState<string>('') // never, less1, 1to3, 3to5, more5
-  const [frequency, setFrequency] = useState<string>('') // rarely, 1week, 2to3week, daily
-  const [skills, setSkills] = useState<string>('') // basic, intermediate, advanced, expert
-  const [selfLevel, setSelfLevel] = useState<number | null>(null) // 1.0 to 7.0
+  // Step 2: Questionário de nível — 12 respostas (0-3) indexadas por question id
+  const [answers, setAnswers] = useState<Record<string, number>>({})
+  const [selfLevel, setSelfLevel] = useState<number | null>(null) // Se o jogador já sabe o nível
 
-  // Calcular nível baseado nas respostas
+  const setAnswer = (questionId: string, value: number) => {
+    setAnswers(prev => ({ ...prev, [questionId]: value }))
+  }
+
+  // Calcular nível baseado nas 12 respostas
+  // Score total: 0-36 → nível 1.0-7.0
   const calculateLevel = (): number => {
     if (selfLevel) return selfLevel
 
-    let score = 1.5 // Base
+    const totalScore = Object.values(answers).reduce((sum, v) => sum + v, 0)
+    const answeredCount = Object.keys(answers).length
 
-    // Experiência
-    if (experience === 'less1') score += 0.3
-    else if (experience === '1to3') score += 1.0
-    else if (experience === '3to5') score += 1.8
-    else if (experience === 'more5') score += 2.5
+    // Se não respondeu nada, nível base
+    if (answeredCount === 0) return 1.5
 
-    // Frequência
-    if (frequency === '1week') score += 0.3
-    else if (frequency === '2to3week') score += 0.7
-    else if (frequency === 'daily') score += 1.0
+    // Normalizar para 12 perguntas (caso não tenha respondido a todas)
+    const normalizedScore = answeredCount < 12
+      ? (totalScore / answeredCount) * 12
+      : totalScore
 
-    // Competências
-    if (skills === 'intermediate') score += 0.5
-    else if (skills === 'advanced') score += 1.2
-    else if (skills === 'expert') score += 2.0
-
-    // Limitar entre 1.0 e 7.0
-    return Math.max(1.0, Math.min(7.0, Math.round(score * 2) / 2)) // arredondar para 0.5
+    // Mapear 0-36 → 1.0-7.0
+    const level = 1.0 + (normalizedScore / 36) * 6.0
+    // Arredondar para 0.5
+    return Math.max(1.0, Math.min(7.0, Math.round(level * 2) / 2))
   }
 
   // Determinar categoria pelo nível
@@ -8515,32 +8635,46 @@ function RegisterScreen({ onBack, onSuccess }: {
   }
 
   const levelDescriptions: { level: number; label: string; desc: string }[] = [
-    { level: 1.0, label: '1.0 - Principiante', desc: 'Nunca joguei ou estou a começar. Conheço as regras básicas.' },
-    { level: 1.5, label: '1.5 - Iniciação', desc: 'Consigo manter a bola em jogo com batidas simples.' },
-    { level: 2.0, label: '2.0 - Iniciação+', desc: 'Consigo servir e devolver. Ainda cometo muitos erros não forçados.' },
-    { level: 2.5, label: '2.5 - Intermédio baixo', desc: 'Batidas mais consistentes, começo a jogar no vidro.' },
-    { level: 3.0, label: '3.0 - Intermédio', desc: 'Jogo consistente, uso o vidro, posiciono-me razoavelmente.' },
-    { level: 3.5, label: '3.5 - Intermédio+', desc: 'Bom controlo, faço bandejas e vóleis. Jogo tático.' },
-    { level: 4.0, label: '4.0 - Avançado', desc: 'Todas as pancadas, boa leitura de jogo, experiência em torneios.' },
-    { level: 4.5, label: '4.5 - Avançado+', desc: 'Domínio técnico, víboras, smashes. Competitivo em torneios.' },
-    { level: 5.0, label: '5.0 - Expert', desc: 'Nível muito alto. Compito em torneios de alto nível.' },
-    { level: 5.5, label: '5.5 - Expert+', desc: 'Semi-profissional. Top no circuito regional.' },
-    { level: 6.0, label: '6.0+ - Profissional', desc: 'Nível profissional ou próximo.' },
+    { level: 1.0, label: '1.0 - Principiante', desc: 'Nunca joguei ou estou a começar.' },
+    { level: 1.5, label: '1.5 - Iniciação', desc: 'Consigo manter a bola em jogo.' },
+    { level: 2.0, label: '2.0 - Iniciação+', desc: 'Consigo servir e devolver.' },
+    { level: 2.5, label: '2.5 - Intermédio baixo', desc: 'Batidas consistentes, vidro.' },
+    { level: 3.0, label: '3.0 - Intermédio', desc: 'Jogo consistente, posiciono-me bem.' },
+    { level: 3.5, label: '3.5 - Intermédio+', desc: 'Bom controlo, bandejas e vóleis.' },
+    { level: 4.0, label: '4.0 - Avançado', desc: 'Todas as pancadas, leitura de jogo.' },
+    { level: 4.5, label: '4.5 - Avançado+', desc: 'Domínio técnico, competitivo.' },
+    { level: 5.0, label: '5.0 - Expert', desc: 'Nível muito alto, torneios top.' },
+    { level: 5.5, label: '5.5 - Expert+', desc: 'Semi-profissional.' },
+    { level: 6.0, label: '6.0+ - Profissional', desc: 'Nível profissional.' },
   ]
+
+  // Progresso total: step 1 = 1/6, step 2 pages = 2-5/6, step 3 = 6/6
+  const totalSegments = 6
+  const currentSegment = step === 1 ? 1 : step === 2 ? 2 + quizPage : 6
+
+  // Quantas perguntas da página actual estão respondidas
+  const currentPageQuestions = step === 2 ? QUIZ_PAGES[quizPage]?.questions ?? [] : []
+  const currentPageAnswered = currentPageQuestions.filter(q => answers[q.id] !== undefined).length
+  const currentPageComplete = currentPageAnswered === currentPageQuestions.length
 
   return (
     <div className="min-h-screen bg-white flex flex-col">
       <div className="flex-1 px-6 py-8">
         {/* Header */}
         <div className="flex items-center gap-3 mb-6">
-          <button onClick={onBack} className="p-1 -ml-1"><ArrowLeft className="w-6 h-6 text-gray-700" /></button>
+          <button onClick={() => {
+            if (step === 2 && quizPage > 0) { setQuizPage(quizPage - 1); setError('') }
+            else if (step === 2 && quizPage === 0) { setStep(1); setError('') }
+            else if (step === 3) { setStep(2); setQuizPage(3); setError('') }
+            else onBack()
+          }} className="p-1 -ml-1"><ArrowLeft className="w-6 h-6 text-gray-700" /></button>
           <h1 className="text-2xl font-bold text-gray-900">Criar Conta</h1>
         </div>
 
-        {/* Progress */}
-        <div className="flex gap-2 mb-8">
-          {[1, 2, 3].map(s => (
-            <div key={s} className={`flex-1 h-1.5 rounded-full transition-colors ${s <= step ? 'bg-red-600' : 'bg-gray-200'}`} />
+        {/* Progress bar — 6 segmentos */}
+        <div className="flex gap-1.5 mb-6">
+          {Array.from({ length: totalSegments }).map((_, i) => (
+            <div key={i} className={`flex-1 h-1.5 rounded-full transition-colors ${i < currentSegment ? 'bg-red-600' : 'bg-gray-200'}`} />
           ))}
         </div>
 
@@ -8550,7 +8684,7 @@ function RegisterScreen({ onBack, onSuccess }: {
           </div>
         )}
 
-        {/* Step 1: Dados Pessoais */}
+        {/* ========== STEP 1: DADOS PESSOAIS ========== */}
         {step === 1 && (
           <div className="space-y-4 animate-fade-in">
             <h2 className="text-lg font-bold text-gray-900 mb-2">Dados Pessoais</h2>
@@ -8599,6 +8733,7 @@ function RegisterScreen({ onBack, onSuccess }: {
                 if (regPassword.length < 6) { setError('Password deve ter pelo menos 6 caracteres'); return }
                 if (regPassword !== confirmPwd) { setError('Passwords não coincidem'); return }
                 setStep(2)
+                setQuizPage(0)
               }}
               className="w-full py-3 bg-red-600 text-white rounded-xl font-semibold hover:bg-red-700 transition-colors"
             >
@@ -8607,113 +8742,143 @@ function RegisterScreen({ onBack, onSuccess }: {
           </div>
         )}
 
-        {/* Step 2: Questionário de Nível */}
+        {/* ========== STEP 2: QUESTIONÁRIO DE NÍVEL (12 perguntas em 4 páginas) ========== */}
         {step === 2 && (
           <div className="space-y-5 animate-fade-in">
-            <h2 className="text-lg font-bold text-gray-900">Qual é o teu nível de Padel?</h2>
-            <p className="text-sm text-gray-500 -mt-3">Podes responder às perguntas ou selecionar diretamente o teu nível</p>
-
-            {/* Opção direta: selecionar nível */}
-            <div>
-              <p className="font-semibold text-gray-800 text-sm mb-2">Se já sabes o teu nível, seleciona:</p>
-              <div className="grid grid-cols-2 gap-2 max-h-[240px] overflow-y-auto pr-1">
-                {levelDescriptions.map(ld => (
-                  <button
-                    key={ld.level}
-                    onClick={() => setSelfLevel(selfLevel === ld.level ? null : ld.level)}
-                    className={`text-left p-2.5 rounded-xl border text-sm transition-colors ${
-                      selfLevel === ld.level 
-                        ? 'border-red-500 bg-red-50 ring-2 ring-red-200' 
-                        : 'border-gray-200 hover:border-gray-300'
-                    }`}
-                  >
-                    <span className="font-bold text-gray-900 block">{ld.label.split(' - ')[0]}</span>
-                    <span className="text-[11px] text-gray-500 leading-tight">{ld.desc.substring(0, 50)}...</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Ou responder a perguntas */}
-            {!selfLevel && (
+            {/* Se quizPage === 0, mostrar opção directa */}
+            {quizPage === 0 && (
               <>
-                <div className="border-t pt-4">
-                  <p className="font-semibold text-gray-800 text-sm mb-2">Ou responde a estas perguntas:</p>
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-gray-700 mb-2">Há quanto tempo jogas padel?</p>
-                  <div className="grid grid-cols-2 gap-2">
-                    {[
-                      { value: 'never', label: 'Nunca joguei' },
-                      { value: 'less1', label: 'Menos de 1 ano' },
-                      { value: '1to3', label: '1 a 3 anos' },
-                      { value: '3to5', label: '3 a 5 anos' },
-                      { value: 'more5', label: 'Mais de 5 anos' },
-                    ].map(o => (
-                      <button key={o.value} onClick={() => setExperience(o.value)}
-                        className={`py-2 rounded-lg text-xs font-medium border transition-colors ${experience === o.value ? 'bg-red-50 border-red-500 text-red-700' : 'bg-white border-gray-200 text-gray-700 hover:border-gray-300'}`}
-                      >{o.label}</button>
-                    ))}
+                <h2 className="text-lg font-bold text-gray-900">Avaliação de Nível</h2>
+                <p className="text-sm text-gray-500 -mt-3">
+                  Responde às 12 perguntas para calcularmos o teu nível, ou seleciona diretamente se já o conheces.
+                </p>
+
+                {/* Toggle: questionário vs directo */}
+                {selfLevel !== null && (
+                  <div className="bg-green-50 border border-green-200 rounded-xl p-3 flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-semibold text-green-800">Nível selecionado: {selfLevel.toFixed(1)}</p>
+                      <p className="text-xs text-green-600">{getCategoryFromLevel(selfLevel)}</p>
+                    </div>
+                    <button onClick={() => setSelfLevel(null)} className="text-xs text-green-700 underline">Alterar</button>
                   </div>
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-gray-700 mb-2">Com que frequência jogas?</p>
-                  <div className="grid grid-cols-2 gap-2">
-                    {[
-                      { value: 'rarely', label: 'Raramente' },
-                      { value: '1week', label: '1x por semana' },
-                      { value: '2to3week', label: '2-3x por semana' },
-                      { value: 'daily', label: 'Quase todos os dias' },
-                    ].map(o => (
-                      <button key={o.value} onClick={() => setFrequency(o.value)}
-                        className={`py-2 rounded-lg text-xs font-medium border transition-colors ${frequency === o.value ? 'bg-red-50 border-red-500 text-red-700' : 'bg-white border-gray-200 text-gray-700 hover:border-gray-300'}`}
-                      >{o.label}</button>
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-gray-700 mb-2">Como descrevas as tuas competências?</p>
-                  <div className="grid grid-cols-1 gap-2">
-                    {[
-                      { value: 'basic', label: 'Básico', desc: 'Consigo servir e devolver, mas cometo muitos erros' },
-                      { value: 'intermediate', label: 'Intermédio', desc: 'Consigo jogar no vidro, faço vóleis e rede' },
-                      { value: 'advanced', label: 'Avançado', desc: 'Faço bandejas, víboras, controlo o jogo tático' },
-                      { value: 'expert', label: 'Expert', desc: 'Domino todas as pancadas, jogo a alto nível' },
-                    ].map(o => (
-                      <button key={o.value} onClick={() => setSkills(o.value)}
-                        className={`text-left p-3 rounded-lg border transition-colors ${skills === o.value ? 'bg-red-50 border-red-500 ring-1 ring-red-200' : 'bg-white border-gray-200 hover:border-gray-300'}`}
-                      >
-                        <span className="font-semibold text-sm text-gray-900">{o.label}</span>
-                        <span className="text-xs text-gray-500 block">{o.desc}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
+                )}
+
+                {selfLevel === null && (
+                  <details className="group">
+                    <summary className="cursor-pointer text-sm font-semibold text-red-600 hover:text-red-700 flex items-center gap-1">
+                      <ChevronRight className="w-4 h-4 transition-transform group-open:rotate-90" />
+                      Já sei o meu nível — selecionar diretamente
+                    </summary>
+                    <div className="mt-3 grid grid-cols-2 gap-2 max-h-[220px] overflow-y-auto pr-1">
+                      {levelDescriptions.map(ld => (
+                        <button
+                          key={ld.level}
+                          onClick={() => setSelfLevel(ld.level)}
+                          className="text-left p-2.5 rounded-xl border text-sm transition-colors border-gray-200 hover:border-red-300 hover:bg-red-50/50"
+                        >
+                          <span className="font-bold text-gray-900 block">{ld.label.split(' - ')[0]}</span>
+                          <span className="text-[11px] text-gray-500 leading-tight">{ld.desc}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </details>
+                )}
               </>
             )}
 
-            <div className="flex gap-3">
-              <button onClick={() => setStep(1)} className="flex-1 py-3 border border-gray-200 rounded-xl font-medium text-gray-700 hover:bg-gray-50">
+            {/* Perguntas da página actual (se não selecionou nível directo) */}
+            {selfLevel === null && (
+              <>
+                {quizPage > 0 && (
+                  <h2 className="text-lg font-bold text-gray-900">{QUIZ_PAGES[quizPage].label}</h2>
+                )}
+                {quizPage === 0 && (
+                  <div className="border-t pt-4">
+                    <h3 className="font-semibold text-gray-800 text-sm mb-1">{QUIZ_PAGES[0].label}</h3>
+                  </div>
+                )}
+
+                <div className="space-y-5">
+                  {currentPageQuestions.map((q) => (
+                    <div key={q.id}>
+                      <p className="text-sm font-semibold text-gray-800 mb-2">{q.title}</p>
+                      <div className="space-y-1.5">
+                        {q.options.map((opt, oi) => {
+                          const letter = String.fromCharCode(65 + oi) // A, B, C, D
+                          const isSelected = answers[q.id] === opt.value
+                          return (
+                            <button
+                              key={opt.value}
+                              onClick={() => setAnswer(q.id, opt.value)}
+                              className={`w-full flex items-center gap-3 p-3 rounded-xl border text-left text-sm transition-all ${
+                                isSelected
+                                  ? 'border-red-500 bg-red-50 ring-1 ring-red-200'
+                                  : 'border-gray-200 hover:border-gray-300 bg-white'
+                              }`}
+                            >
+                              <span className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+                                isSelected ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-500'
+                              }`}>
+                                {letter}
+                              </span>
+                              <span className={`${isSelected ? 'text-red-800 font-medium' : 'text-gray-700'}`}>
+                                {opt.label}
+                              </span>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Contador de respostas na página */}
+                <p className="text-xs text-gray-400 text-center">
+                  {currentPageAnswered}/{currentPageQuestions.length} respondidas nesta secção
+                </p>
+              </>
+            )}
+
+            {/* Botões navegação */}
+            <div className="flex gap-3 pt-2">
+              <button
+                onClick={() => {
+                  setError('')
+                  if (quizPage > 0) setQuizPage(quizPage - 1)
+                  else { setStep(1); setQuizPage(0) }
+                }}
+                className="flex-1 py-3 border border-gray-200 rounded-xl font-medium text-gray-700 hover:bg-gray-50"
+              >
                 Voltar
               </button>
               <button 
                 onClick={() => {
-                  if (!selfLevel && !experience && !skills) {
-                    setError('Seleciona o teu nível ou responde às perguntas')
+                  setError('')
+                  if (selfLevel !== null) {
+                    // Nível directo — saltar questionário, ir para confirmação
+                    setStep(3)
                     return
                   }
-                  setError('')
-                  setStep(3)
+                  if (!currentPageComplete) {
+                    setError('Responde a todas as perguntas desta secção')
+                    return
+                  }
+                  if (quizPage < QUIZ_PAGES.length - 1) {
+                    setQuizPage(quizPage + 1)
+                  } else {
+                    setStep(3)
+                  }
                 }}
                 className="flex-1 py-3 bg-red-600 text-white rounded-xl font-semibold hover:bg-red-700 transition-colors"
               >
-                Seguinte
+                {(selfLevel !== null || quizPage === QUIZ_PAGES.length - 1) ? 'Ver resultado' : 'Seguinte'}
               </button>
             </div>
           </div>
         )}
 
-        {/* Step 3: Confirmação */}
+        {/* ========== STEP 3: CONFIRMAÇÃO ========== */}
         {step === 3 && (
           <div className="space-y-6 animate-fade-in">
             <h2 className="text-lg font-bold text-gray-900">Confirmar registo</h2>
@@ -8749,13 +8914,42 @@ function RegisterScreen({ onBack, onSuccess }: {
               </div>
             </div>
 
+            {/* Resumo visual do questionário */}
+            {selfLevel === null && Object.keys(answers).length > 0 && (
+              <div className="card p-4">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Resumo do questionário</p>
+                <div className="grid grid-cols-4 gap-2">
+                  {QUIZ_PAGES.map((page, pi) => {
+                    const pageScore = page.questions.reduce((s, q) => s + (answers[q.id] ?? 0), 0)
+                    const pageMax = page.questions.length * 3
+                    const pct = Math.round((pageScore / pageMax) * 100)
+                    return (
+                      <div key={pi} className="text-center">
+                        <div className="relative w-12 h-12 mx-auto mb-1">
+                          <svg className="w-12 h-12 -rotate-90" viewBox="0 0 48 48">
+                            <circle cx="24" cy="24" r="20" fill="none" stroke="#e5e7eb" strokeWidth="4" />
+                            <circle cx="24" cy="24" r="20" fill="none" stroke="#dc2626" strokeWidth="4"
+                              strokeDasharray={`${(pct / 100) * 125.6} 125.6`}
+                              strokeLinecap="round"
+                            />
+                          </svg>
+                          <span className="absolute inset-0 flex items-center justify-center text-xs font-bold text-gray-700">{pct}%</span>
+                        </div>
+                        <p className="text-[10px] text-gray-500 leading-tight">{page.label}</p>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
             <p className="text-xs text-gray-500 text-center">
               O teu nível será ajustado automaticamente com base nos resultados dos teus jogos.
               Os clubes também podem ajustar o teu nível.
             </p>
 
             <div className="flex gap-3">
-              <button onClick={() => setStep(2)} className="flex-1 py-3 border border-gray-200 rounded-xl font-medium text-gray-700 hover:bg-gray-50">
+              <button onClick={() => { setStep(2); setQuizPage(selfLevel !== null ? 0 : 3); setError('') }} className="flex-1 py-3 border border-gray-200 rounded-xl font-medium text-gray-700 hover:bg-gray-50">
                 Voltar
               </button>
               <button 
