@@ -942,19 +942,14 @@ export async function fetchTournamentStandingsAndMatches(
     
     teams.forEach((t: any) => {
       // Prefer names from team relations, fallback to map
-      const player1Name = t.player1?.name || (t.player1_id ? playerNamesMap.get(t.player1_id) : undefined)
-      const player2Name = t.player2?.name || (t.player2_id ? playerNamesMap.get(t.player2_id) : undefined)
+      let finalP1Name = t.player1?.name || (t.player1_id ? playerNamesMap.get(t.player1_id) : undefined)
+      let finalP2Name = t.player2?.name || (t.player2_id ? playerNamesMap.get(t.player2_id) : undefined)
       
-      // Se ainda não temos nomes, tentar buscar diretamente
-      let finalP1Name = player1Name
-      let finalP2Name = player2Name
-      
-      if (!finalP1Name && t.player1_id) {
-        // Última tentativa: buscar diretamente
-        console.warn('[fetchTournamentStandingsAndMatches] Player1 name still missing for team', t.name, 'player1_id:', t.player1_id)
-      }
-      if (!finalP2Name && t.player2_id) {
-        console.warn('[fetchTournamentStandingsAndMatches] Player2 name still missing for team', t.name, 'player2_id:', t.player2_id)
+      // Fallback: parse do nome da equipa "Player1 / Player2" (torneios antigos sem player IDs)
+      if (!finalP1Name || !finalP2Name) {
+        const parts = (t.name || '').split(/\s*[\/\\]\s*/)
+        if (!finalP1Name && parts[0]?.trim()) finalP1Name = parts[0].trim()
+        if (!finalP2Name && parts[1]?.trim()) finalP2Name = parts[1].trim()
       }
       
       console.log('[fetchTournamentStandingsAndMatches] Team:', t.name, 'Player1ID:', t.player1_id, 'Player1Name:', finalP1Name, 'Player2ID:', t.player2_id, 'Player2Name:', finalP2Name)
