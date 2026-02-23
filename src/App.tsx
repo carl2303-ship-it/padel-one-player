@@ -6301,49 +6301,50 @@ function BookingScreen({
         alert(result.error || 'Erro ao criar jogo')
       }
     } else {
-      // Create as private booking (court_bookings only, no open_game)
-      try {
-        const { data: club } = await supabase
-          .from('clubs')
-          .select('owner_id')
-          .eq('id', selectedClub.id)
-          .single()
+      // Private booking: also create via open_game (for court_booking sync + RLS compliance)
+      // but immediately mark as full so nobody else can join
+      const { createOpenGame } = await import('./lib/openGames')
+      const result = await createOpenGame({
+        userId,
+        playerAccountId: player?.id || null,
+        playerName: player?.name || null,
+        playerPhone: player?.phone_number || null,
+        clubId: selectedClub.id,
+        courtId: selectedCourt.court_id,
+        scheduledAt,
+        durationMinutes: duration,
+        gameType,
+        gender,
+        playerLevel,
+        pricePerPlayer,
+      })
 
-        if (!club) throw new Error('Clube não encontrado')
-
-        const endTime = new Date(new Date(scheduledAt).getTime() + duration * 60000)
-        const bookingName = player?.name || 'Jogador'
-
-        // Build player slots
-        const playerSlots: Record<string, any> = {}
-        for (let i = 1; i <= 4; i++) {
-          const p = players.find(x => x.slot === i)
-          playerSlots[`player${i}_name`] = p?.name || null
-          playerSlots[`player${i}_is_member`] = false
-          playerSlots[`player${i}_discount`] = 0
+      if (result.success && result.gameId) {
+        // Add extra players
+        const extraPlayers = players.filter(p => p.slot !== 1)
+        if (extraPlayers.length > 0) {
+          const { addPlayerToOpenGame } = await import('./lib/openGames')
+          for (const ep of extraPlayers) {
+            await addPlayerToOpenGame({ gameId: result.gameId, playerAccountId: ep.id })
+          }
         }
 
-        await supabase.from('court_bookings').insert({
-          user_id: club.owner_id,
-          court_id: selectedCourt.court_id,
-          start_time: scheduledAt,
-          end_time: endTime.toISOString(),
-          booked_by_name: bookingName,
-          booked_by_phone: player?.phone_number || null,
-          ...playerSlots,
-          status: 'confirmed',
-          price: pricePerPlayer * 4,
-          payment_status: 'pending',
-          event_type: 'booking',
-          notes: `Reserva privada - Criada pela app Player`,
-        })
+        // Mark game as full/private so it doesn't show in public searches
+        await supabase.from('open_games').update({ status: 'full' }).eq('id', result.gameId)
+
+        // Update the court_booking notes to indicate private
+        await supabase
+          .from('court_bookings')
+          .update({ notes: `Reserva Privada - Criada pela app Player | ID: ${result.gameId}` })
+          .like('notes', `%ID: ${result.gameId}%`)
+          .eq('event_type', 'open_game')
 
         setCreating(false)
         setStep(5)
         if (onRefresh) onRefresh()
-      } catch (err: any) {
+      } else {
         setCreating(false)
-        alert('Erro ao criar reserva: ' + (err?.message || 'Erro desconhecido'))
+        alert(result.error || 'Erro ao criar reserva')
       }
     }
   }
