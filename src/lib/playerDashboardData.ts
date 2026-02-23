@@ -842,6 +842,57 @@ export async function fetchTournamentStandingsAndMatches(
     }
   }
 
+  // FIX: Equipas podem referenciar jogadores de OUTROS torneios (ex: ligas com jornadas)
+  // Buscar nomes dos jogadores que estão nas equipas mas NÃO foram devolvidos pelo RPC
+  if (teams && teams.length > 0) {
+    const missingTeamPlayerIds = new Set<string>()
+    teams.forEach((t: any) => {
+      if (t.player1_id && !playerNamesMap.has(t.player1_id)) missingTeamPlayerIds.add(t.player1_id)
+      if (t.player2_id && !playerNamesMap.has(t.player2_id)) missingTeamPlayerIds.add(t.player2_id)
+    })
+    if (missingTeamPlayerIds.size > 0) {
+      console.log('[fetchTournamentStandingsAndMatches] Fetching', missingTeamPlayerIds.size, 'cross-tournament player names')
+      // Usar RPC com cada tournament_id dos jogadores em falta? Não — buscar directamente
+      // Como a RPC faz SECURITY DEFINER, podemos chamar com os IDs directos
+      const { data: crossPlayers } = await supabase
+        .from('players')
+        .select('id, name, player_account_id')
+        .in('id', Array.from(missingTeamPlayerIds))
+      if (crossPlayers && crossPlayers.length > 0) {
+        // Tentar obter nome do player_accounts (centralizado) para os que têm player_account_id
+        const paIds = crossPlayers.filter(p => p.player_account_id).map(p => p.player_account_id)
+        let paMap = new Map<string, string>()
+        if (paIds.length > 0) {
+          const { data: paData } = await supabase
+            .from('player_accounts')
+            .select('id, name')
+            .in('id', paIds)
+          if (paData) {
+            paData.forEach((pa: any) => paMap.set(pa.id, pa.name))
+          }
+        }
+        crossPlayers.forEach((p: any) => {
+          const paName = p.player_account_id ? paMap.get(p.player_account_id) : undefined
+          playerNamesMap.set(p.id, paName || p.name)
+        })
+      }
+      // Fallback final: parse do nome da equipa "Player1 / Player2" ou "Player1 - Player2"
+      teams.forEach((t: any) => {
+        if (t.player1_id && !playerNamesMap.has(t.player1_id) || t.player2_id && !playerNamesMap.has(t.player2_id)) {
+          const parts = (t.name || '').split(/\s*[-\/\\&]\s*/)
+          if (parts.length >= 2) {
+            if (t.player1_id && !playerNamesMap.has(t.player1_id) && parts[0]?.trim()) {
+              playerNamesMap.set(t.player1_id, parts[0].trim())
+            }
+            if (t.player2_id && !playerNamesMap.has(t.player2_id) && parts[1]?.trim()) {
+              playerNamesMap.set(t.player2_id, parts[1].trim())
+            }
+          }
+        }
+      })
+    }
+  }
+
   console.log('[fetchTournamentStandingsAndMatches] Teams:', teams?.length, 'Players (RPC):', rpcPlayers?.length || 0, 'Matches:', matches?.length, 'PlayerNamesMap size:', playerNamesMap.size)
 
   if (tournament) tournamentName = tournament.name || ''
