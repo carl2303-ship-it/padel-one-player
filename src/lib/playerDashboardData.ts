@@ -570,15 +570,25 @@ export async function enrichDashboardWithEdgeFunction(): Promise<Partial<PlayerD
     const { data: { session } } = await supabase.auth.getSession()
     if (!session?.access_token) return null
 
-    const { data: edgeData, error: edgeError } = await supabase.functions.invoke('get-player-dashboard', {
-      headers: { Authorization: `Bearer ${session.access_token}` },
+    // Usar fetch() direto em vez de supabase.functions.invoke() para evitar 401
+    const supabaseUrl = 'https://rqiwnxcexsccguruiteq.supabase.co'
+    const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJxaXdueGNleHNjY2d1cnVpdGVxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk3Njc5MzcsImV4cCI6MjA3NTM0MzkzN30.Dl05zPQDtPVpmvn_Y-JokT3wDq0Oh9uF3op5xcHZpkY'
+    const response = await fetch(`${supabaseUrl}/functions/v1/get-player-dashboard`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`,
+        'apikey': supabaseAnonKey,
+      },
+      body: JSON.stringify({}),
     })
     console.timeEnd('[Dashboard] Edge Function enrichment')
 
-    if (edgeError) {
-      console.warn('[Dashboard] Edge Function error:', edgeError)
+    if (!response.ok) {
+      console.warn('[Dashboard] Edge Function error:', response.status, response.statusText)
       return null
     }
+    const edgeData = await response.json()
     if (!edgeData || edgeData.error) return null
 
     const enriched: Partial<PlayerDashboardData> = {}

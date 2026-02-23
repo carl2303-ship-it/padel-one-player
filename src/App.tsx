@@ -3292,9 +3292,11 @@ function CompeteScreen({
     return () => { active = false }
   }, [activeTab, d?.leagueStandings?.length, leaguesFetched, playerAccountId])
 
-  // Usar pastTournamentDetails do dashboardData se disponíveis
+  // Usar pastTournamentDetails do dashboardData (edge function) - SEMPRE sobrepor dados client-side
+  // Edge function usa service role e bypassa RLS, garantindo nomes dos jogadores corretos
   useEffect(() => {
-    if (d?.pastTournamentDetails && Object.keys(d.pastTournamentDetails).length > 0 && Object.keys(pastTournamentDetails).length === 0) {
+    if (d?.pastTournamentDetails && Object.keys(d.pastTournamentDetails).length > 0) {
+      console.log('[CompeteTab] Edge function data received, overriding client-side data with', Object.keys(d.pastTournamentDetails).length, 'tournaments')
       setPastTournamentDetails(d.pastTournamentDetails)
       setHistoryFetched(true)
     }
@@ -3357,6 +3359,15 @@ function CompeteScreen({
   }
 
   const viewTournament = async (tournamentId: string, tournamentName: string) => {
+    // 1. Primeiro tentar dados da edge function (tem nomes dos jogadores corretos via service role)
+    const edgeCached = d?.pastTournamentDetails?.[tournamentId]
+    if (edgeCached) {
+      setViewingTournament({ id: tournamentId, name: tournamentName })
+      setTournamentDetail({ standings: edgeCached.standings, myMatches: edgeCached.myMatches, name: edgeCached.tournamentName })
+      setDetailTab('standings')
+      return
+    }
+    // 2. Tentar dados do state local
     const cached = pastTournamentDetails[tournamentId]
     if (cached) {
       setViewingTournament({ id: tournamentId, name: tournamentName })
@@ -3364,6 +3375,7 @@ function CompeteScreen({
       setDetailTab('standings')
       return
     }
+    // 3. Fallback: fetch client-side (pode ter limitações RLS)
     if (!userId) return
     const { fetchTournamentStandingsAndMatches } = await import('./lib/playerDashboardData')
     const { standings, myMatches, tournamentName: tn } = await fetchTournamentStandingsAndMatches(tournamentId, userId)
