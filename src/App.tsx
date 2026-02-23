@@ -113,8 +113,9 @@ function App() {
 
   // Dashboard data (mesma fonte que Padel One Tour – dados nos dois lados)
   const [dashboardData, setDashboardData] = useState<PlayerDashboardData | null>(null)
-  // Edge function pastTournamentDetails — estado separado que NUNCA é sobrescrito por setDashboardData
-  const [edgePastTournamentDetails, setEdgePastTournamentDetails] = useState<Record<string, any> | null>(null)
+  // Edge function data — estado separado que NUNCA é sobrescrito por setDashboardData
+  // Guarda TODOS os dados enriquecidos (recentMatches, stats, pastTournamentDetails, etc.)
+  const [edgeEnrichedData, setEdgeEnrichedData] = useState<Partial<PlayerDashboardData> | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const [showChangePassword, setShowChangePassword] = useState(false)
   const [showInfoModal, setShowInfoModal] = useState<'help' | 'howItWorks' | 'privacy' | null>(null)
@@ -167,7 +168,7 @@ function App() {
           // Enrich with Edge Function in background (progressive loading)
           enrichDashboardWithEdgeFunction().then(enriched => {
             if (enriched) {
-              if (enriched.pastTournamentDetails) setEdgePastTournamentDetails(enriched.pastTournamentDetails)
+              setEdgeEnrichedData(enriched)
               setDashboardData(prev => prev ? { ...prev, ...enriched } : prev)
             }
           })
@@ -202,7 +203,7 @@ function App() {
         // Enrich with Edge Function in background (progressive loading)
         enrichDashboardWithEdgeFunction().then(enriched => {
           if (enriched) {
-            if (enriched.pastTournamentDetails) setEdgePastTournamentDetails(enriched.pastTournamentDetails)
+            setEdgeEnrichedData(enriched)
             setDashboardData(prev => prev ? { ...prev, ...enriched } : prev)
           }
         })
@@ -222,7 +223,7 @@ function App() {
       // Enrich with Edge Function in background
       enrichDashboardWithEdgeFunction().then(enriched => {
         if (enriched) {
-          if (enriched.pastTournamentDetails) setEdgePastTournamentDetails(enriched.pastTournamentDetails)
+          setEdgeEnrichedData(enriched)
           setDashboardData(prev => prev ? { ...prev, ...enriched } : prev)
         }
       })
@@ -358,7 +359,7 @@ function App() {
           // Enrich with Edge Function in background (progressive loading)
           enrichDashboardWithEdgeFunction().then(enriched => {
             if (enriched) {
-              if (enriched.pastTournamentDetails) setEdgePastTournamentDetails(enriched.pastTournamentDetails)
+              setEdgeEnrichedData(enriched)
               setDashboardData(prev => prev ? { ...prev, ...enriched } : prev)
             }
           })
@@ -422,7 +423,17 @@ function App() {
     />
   }
 
-  const displayName = dashboardData?.playerName || player?.name?.split(' ')[0] || 'Jogador'
+  // DADOS EFETIVOS: merge dashboardData (client-side) + edgeEnrichedData (edge function)
+  // Edge function tem SEMPRE prioridade — bypassa RLS, tem nomes correctos
+  // Assim, mesmo que setDashboardData() sobrescreva os dados base (StrictMode, refresh, etc.),
+  // o effectiveDashboard SEMPRE contém os dados correctos da edge function
+  const effectiveDashboard = useMemo(() => {
+    if (!dashboardData) return null
+    if (!edgeEnrichedData) return dashboardData
+    return { ...dashboardData, ...edgeEnrichedData }
+  }, [dashboardData, edgeEnrichedData])
+
+  const displayName = effectiveDashboard?.playerName || player?.name?.split(' ')[0] || 'Jogador'
 
   return (
     <div className="min-h-screen bg-gray-50 pb-20">
@@ -531,7 +542,7 @@ function App() {
         {currentScreen === 'home' && (
           <HomeScreen
             player={player}
-            dashboardData={dashboardData}
+            dashboardData={effectiveDashboard}
             userId={player?.user_id ?? null}
             onRefresh={refreshDashboard}
             onOpenClub={() => setCurrentScreen('club')}
@@ -547,7 +558,7 @@ function App() {
         {currentScreen === 'games' && (
           <GamesScreen
             player={player}
-            dashboardData={dashboardData}
+            dashboardData={effectiveDashboard}
             onRefresh={refreshDashboard}
             onBack={() => setCurrentScreen('home')}
             onOpenPlayerProfile={(uid: string) => { setSelectedPlayerUserId(uid); setCurrentScreen('player-profile') }}
@@ -561,12 +572,11 @@ function App() {
         )}
         {currentScreen === 'compete' && (
           <CompeteScreen
-            dashboardData={dashboardData}
+            dashboardData={effectiveDashboard}
             favoriteClubId={player?.favorite_club_id ?? null}
             userId={player?.user_id ?? null}
             playerAccountId={player?.id ?? null}
             player={player}
-            edgePastTournamentDetails={edgePastTournamentDetails}
             onBack={() => setCurrentScreen('home')}
           />
         )}
@@ -594,7 +604,7 @@ function App() {
         {currentScreen === 'profile-view' && (
           <ProfileViewScreen
             player={player}
-            dashboardData={dashboardData}
+            dashboardData={effectiveDashboard}
             userId={player?.user_id ?? null}
             onOpenGames={() => setCurrentScreen('games')}
             onOpenFollowsList={(uid: string) => { setFollowsListUserId(uid); setCurrentScreen('follows-list') }}
@@ -3137,7 +3147,6 @@ function CompeteScreen({
   userId,
   playerAccountId,
   player,
-  edgePastTournamentDetails,
   onBack,
 }: {
   dashboardData: PlayerDashboardData | null
@@ -3145,7 +3154,6 @@ function CompeteScreen({
   userId: string | null
   playerAccountId: string | null
   player: PlayerAccount | null
-  edgePastTournamentDetails: Record<string, any> | null
   onBack: () => void
 }) {
   const [activeTab, setActiveTab] = useState<'upcoming' | 'leagues' | 'history'>('upcoming')
@@ -3174,11 +3182,11 @@ function CompeteScreen({
   const d = dashboardData
   const name = d?.playerName ?? ''
 
-  // DADOS EFETIVOS: edge function tem SEMPRE prioridade (bypassa RLS, tem nomes correctos dos jogadores)
-  // Mesmo que o fetch client-side sobrescreva pastTournamentDetails, o render usa SEMPRE os dados da edge function
+  // DADOS EFETIVOS: dashboardData (que é effectiveDashboard do App) já inclui edge function data
+  // Merge: client-side pastTournamentDetails + dashboardData.pastTournamentDetails (edge function)
   const effectivePastDetails = useMemo(() => {
-    return { ...pastTournamentDetails, ...(edgePastTournamentDetails || {}) }
-  }, [pastTournamentDetails, edgePastTournamentDetails])
+    return { ...pastTournamentDetails, ...(d?.pastTournamentDetails || {}) }
+  }, [pastTournamentDetails, d?.pastTournamentDetails])
 
   // Use ligas do dashboardData se existirem, senão usa as buscadas diretamente
   const leagueStandings = (d?.leagueStandings?.length ?? 0) > 0 ? d!.leagueStandings : leaguesDirect
