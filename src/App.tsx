@@ -92,7 +92,7 @@ import { fetchAllClubs, fetchClubById, fetchUpcomingTournaments, fetchEnrolledBy
 import { fetchAvailableClasses, fetchMyClasses, enrollInClass, type Class as ClassData } from './lib/classes'
 import { preloadAllPlayerData, getCachedPlayerData } from './lib/playerDataCache'
 
-type Screen = 'home' | 'games' | 'profile-view' | 'profile-edit' | 'club' | 'club-detail' | 'compete' | 'community' | 'player-profile' | 'follows-list' | 'learn' | 'find-game' | 'rewards'
+type Screen = 'home' | 'games' | 'profile-view' | 'profile-edit' | 'club' | 'club-detail' | 'compete' | 'community' | 'player-profile' | 'follows-list' | 'learn' | 'find-game' | 'rewards' | 'booking'
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
@@ -552,6 +552,16 @@ function App() {
             onOpenPlayerProfile={(uid: string) => { setSelectedPlayerUserId(uid); setCurrentScreen('player-profile') }}
             onOpenFindGame={() => setCurrentScreen('find-game')}
             onOpenRewards={() => setCurrentScreen('rewards')}
+            onOpenBooking={() => setCurrentScreen('booking')}
+          />
+        )}
+        {currentScreen === 'booking' && (
+          <BookingScreen
+            player={player}
+            userId={player?.user_id ?? null}
+            onBack={() => setCurrentScreen('home')}
+            onOpenPlayerProfile={(uid: string) => { setSelectedPlayerUserId(uid); setCurrentScreen('player-profile') }}
+            onRefresh={refreshDashboard}
           />
         )}
         {currentScreen === 'games' && (
@@ -2010,6 +2020,7 @@ function HomeScreen({
   onOpenPlayerProfile,
   onOpenFindGame,
   onOpenRewards,
+  onOpenBooking,
 }: {
   player: PlayerAccount | null
   dashboardData: PlayerDashboardData | null
@@ -2023,6 +2034,7 @@ function HomeScreen({
   onOpenPlayerProfile: (userId: string) => void
   onOpenFindGame: () => void
   onOpenRewards: () => void
+  onOpenBooking: () => void
 }) {
   void onRefresh
   const [viewingTournament, setViewingTournament] = useState<{ id: string; name: string } | null>(null)
@@ -2101,7 +2113,7 @@ function HomeScreen({
     <div className="space-y-6 animate-fade-in">
       {/* Quick Actions */}
       <div className="grid grid-cols-5 gap-3">
-        <ActionButton icon={Calendar} label="Reservar" color="lime" />
+        <ActionButton icon={Calendar} label="Reservar" color="lime" onClick={onOpenBooking} />
         <ActionButton icon={Building2} label="Clube Favorito" color="blue" onClick={onOpenClub} />
         <ActionButton icon={Trophy} label="Competir" color="amber" onClick={onOpenCompete} />
         <ActionButton icon={Gamepad2} label="Encontrar Jogo" color="purple" emoji="🎾" onClick={onOpenFindGame} />
@@ -6096,6 +6108,814 @@ function ClassCard({
           </div>
         </div>
       </div>
+    </div>
+  )
+}
+
+// ---------- Reservar ----------
+function BookingScreen({
+  player,
+  userId,
+  onBack,
+  onOpenPlayerProfile,
+  onRefresh,
+}: {
+  player: PlayerAccount | null
+  userId: string | null
+  onBack: () => void
+  onOpenPlayerProfile: (userId: string) => void
+  onRefresh?: () => Promise<void>
+}) {
+  // Wizard step: 1=club, 2=date/time, 3=config, 4=players/teams, 5=confirmation
+  const [step, setStep] = useState<1 | 2 | 3 | 4 | 5>(1)
+  const [loading, setLoading] = useState(false)
+
+  // Step 1: Club selection
+  const [clubs, setClubs] = useState<import('./lib/openGames').ClubWithAvailability[]>([])
+  const [loadingClubs, setLoadingClubs] = useState(true)
+  const [selectedClub, setSelectedClub] = useState<import('./lib/openGames').ClubWithAvailability | null>(null)
+
+  // Step 2: Date + time + court
+  const [selectedDate, setSelectedDate] = useState<string>('')
+  const [selectedTime, setSelectedTime] = useState<string>('')
+  const [selectedCourt, setSelectedCourt] = useState<import('./lib/openGames').CourtSlot | null>(null)
+
+  // Step 3: Game config
+  const [isPublic, setIsPublic] = useState(false)
+  const [gameType, setGameType] = useState<'competitive' | 'friendly'>('friendly')
+  const [gender, setGender] = useState<'all' | 'male' | 'female' | 'mixed'>('all')
+  const [duration, setDuration] = useState<number>(90)
+
+  // Step 4: Players
+  const [players, setPlayers] = useState<{ slot: number; id: string; name: string; avatar_url: string | null; level: number | null; player_category: string | null; user_id?: string }[]>([])
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState<{ id: string; name: string; avatar_url: string | null; level: number | null; player_category: string | null; phone_number: string | null }[]>([])
+  const [searching, setSearching] = useState(false)
+  const [selectedSlot, setSelectedSlot] = useState<number | null>(null)
+
+  // Booking
+  const [creating, setCreating] = useState(false)
+
+  const playerLevel = player?.level || 3.0
+
+  // Load clubs with availability
+  useEffect(() => {
+    const loadClubs = async () => {
+      setLoadingClubs(true)
+      const { fetchClubsWithAvailability } = await import('./lib/openGames')
+      const data = await fetchClubsWithAvailability()
+      setClubs(data)
+      setLoadingClubs(false)
+    }
+    loadClubs()
+  }, [])
+
+  // Initialize player 1 (creator) on mount
+  useEffect(() => {
+    if (player) {
+      setPlayers([{
+        slot: 1,
+        id: player.id,
+        name: player.name || 'Eu',
+        avatar_url: player.avatar_url || null,
+        level: player.level || null,
+        player_category: player.player_category || null,
+        user_id: player.user_id || undefined,
+      }])
+    }
+  }, [player])
+
+  // Get dates for selected club
+  const availableDates = selectedClub ? Object.keys(selectedClub.availability).sort() : []
+
+  // Get time slots for selected date
+  const availableSlots = (selectedClub && selectedDate)
+    ? (selectedClub.availability[selectedDate] || [])
+    : []
+
+  // Get courts for selected time slot
+  const availableCourts = availableSlots.find(s => s.time === selectedTime)?.courts || []
+
+  // Format date for display
+  const formatDateLabel = (dateStr: string) => {
+    const now = new Date()
+    const d = new Date(dateStr + 'T12:00:00')
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    const target = new Date(d.getFullYear(), d.getMonth(), d.getDate())
+    const diffDays = Math.round((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+    const dayNames = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
+    if (diffDays === 0) return 'Hoje'
+    if (diffDays === 1) return 'Amanhã'
+    return `${dayNames[d.getDay()]} ${d.getDate()}/${(d.getMonth() + 1).toString().padStart(2, '0')}`
+  }
+
+  // Search players
+  const handleSearch = async (q: string) => {
+    setSearchQuery(q)
+    if (q.length < 2) { setSearchResults([]); return }
+    setSearching(true)
+    const { searchPlayerAccounts } = await import('./lib/openGames')
+    const results = await searchPlayerAccounts(q)
+    // Filter out already added players
+    const existingIds = new Set(players.map(p => p.id))
+    setSearchResults(results.filter(r => !existingIds.has(r.id)))
+    setSearching(false)
+  }
+
+  // Add player to slot
+  const handleAddPlayer = (p: { id: string; name: string; avatar_url: string | null; level: number | null; player_category: string | null }) => {
+    if (selectedSlot == null) return
+    setPlayers(prev => {
+      const filtered = prev.filter(x => x.slot !== selectedSlot)
+      return [...filtered, { slot: selectedSlot, ...p }].sort((a, b) => a.slot - b.slot)
+    })
+    setSelectedSlot(null)
+    setSearchQuery('')
+    setSearchResults([])
+  }
+
+  // Remove player from slot
+  const handleRemovePlayer = (slot: number) => {
+    if (slot === 1) return // Can't remove creator
+    setPlayers(prev => prev.filter(x => x.slot !== slot))
+  }
+
+  // Swap player positions
+  const handleSwapPlayers = (slotA: number, slotB: number) => {
+    setPlayers(prev => {
+      const a = prev.find(p => p.slot === slotA)
+      const b = prev.find(p => p.slot === slotB)
+      if (!a && !b) return prev
+      const rest = prev.filter(p => p.slot !== slotA && p.slot !== slotB)
+      if (a && b) return [...rest, { ...a, slot: slotB }, { ...b, slot: slotA }].sort((x, y) => x.slot - y.slot)
+      if (a) return [...rest, { ...a, slot: slotB }].sort((x, y) => x.slot - y.slot)
+      if (b) return [...rest, { ...b, slot: slotA }].sort((x, y) => x.slot - y.slot)
+      return prev
+    })
+  }
+
+  // Calculate price
+  const pricePerPlayer = selectedCourt
+    ? (duration === 90 ? selectedCourt.price_90 : selectedCourt.price_60)
+    : 0
+
+  // Create booking
+  const handleCreateBooking = async () => {
+    if (!selectedClub || !selectedCourt || !selectedDate || !selectedTime || !userId) return
+    setCreating(true)
+
+    const scheduledAt = `${selectedDate}T${selectedTime}:00`
+
+    if (isPublic) {
+      // Create as open game (public)
+      const { createOpenGame } = await import('./lib/openGames')
+      const result = await createOpenGame({
+        userId,
+        playerAccountId: player?.id || null,
+        playerName: player?.name || null,
+        playerPhone: player?.phone_number || null,
+        clubId: selectedClub.id,
+        courtId: selectedCourt.court_id,
+        scheduledAt,
+        durationMinutes: duration,
+        gameType,
+        gender,
+        playerLevel,
+        pricePerPlayer,
+      })
+
+      if (result.success && result.gameId) {
+        // Add extra players if any
+        const extraPlayers = players.filter(p => p.slot !== 1)
+        if (extraPlayers.length > 0) {
+          const { addPlayerToOpenGame } = await import('./lib/openGames')
+          for (const ep of extraPlayers) {
+            await addPlayerToOpenGame({ gameId: result.gameId, playerAccountId: ep.id })
+          }
+        }
+        setCreating(false)
+        setStep(5)
+        if (onRefresh) onRefresh()
+      } else {
+        setCreating(false)
+        alert(result.error || 'Erro ao criar jogo')
+      }
+    } else {
+      // Create as private booking (court_bookings only, no open_game)
+      try {
+        const { data: club } = await supabase
+          .from('clubs')
+          .select('owner_id')
+          .eq('id', selectedClub.id)
+          .single()
+
+        if (!club) throw new Error('Clube não encontrado')
+
+        const endTime = new Date(new Date(scheduledAt).getTime() + duration * 60000)
+        const bookingName = player?.name || 'Jogador'
+
+        // Build player slots
+        const playerSlots: Record<string, any> = {}
+        for (let i = 1; i <= 4; i++) {
+          const p = players.find(x => x.slot === i)
+          playerSlots[`player${i}_name`] = p?.name || null
+          playerSlots[`player${i}_is_member`] = false
+          playerSlots[`player${i}_discount`] = 0
+        }
+
+        await supabase.from('court_bookings').insert({
+          user_id: club.owner_id,
+          court_id: selectedCourt.court_id,
+          start_time: scheduledAt,
+          end_time: endTime.toISOString(),
+          booked_by_name: bookingName,
+          booked_by_phone: player?.phone_number || null,
+          ...playerSlots,
+          status: 'confirmed',
+          price: pricePerPlayer * 4,
+          payment_status: 'pending',
+          event_type: 'booking',
+          notes: `Reserva privada - Criada pela app Player`,
+        })
+
+        setCreating(false)
+        setStep(5)
+        if (onRefresh) onRefresh()
+      } catch (err: any) {
+        setCreating(false)
+        alert('Erro ao criar reserva: ' + (err?.message || 'Erro desconhecido'))
+      }
+    }
+  }
+
+  // Render player slot
+  const renderSlot = (slotNum: number, team: 'A' | 'B') => {
+    const p = players.find(x => x.slot === slotNum)
+    const pColors = p?.player_category ? categoryColors(p.player_category) : null
+    if (p) {
+      return (
+        <div key={slotNum} className="flex flex-col items-center relative group">
+          <div
+            className="w-14 h-14 rounded-full overflow-hidden bg-gray-200 flex items-center justify-center border-2 border-white shadow-sm"
+            onClick={() => p.user_id && onOpenPlayerProfile(p.user_id)}
+          >
+            {p.avatar_url ? (
+              <img src={p.avatar_url} alt={p.name} className="w-full h-full object-cover" />
+            ) : (
+              <span className="text-xl font-bold text-gray-600">{(p.name || '?').charAt(0).toUpperCase()}</span>
+            )}
+          </div>
+          <span className="text-[10px] text-gray-700 font-medium mt-1 truncate max-w-[70px] text-center">{(p.name || '').split(' ')[0]}</span>
+          {p.level != null && (
+            <div className="mt-0.5 px-2 py-0.5 rounded-full text-[9px] font-bold text-white" style={{ backgroundColor: pColors?.hex || '#9ca3af' }}>
+              {p.level.toFixed(1)}
+            </div>
+          )}
+          {slotNum !== 1 && (
+            <button
+              onClick={(e) => { e.stopPropagation(); handleRemovePlayer(slotNum) }}
+              className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+            >
+              ×
+            </button>
+          )}
+        </div>
+      )
+    }
+    return (
+      <div key={slotNum} className="flex flex-col items-center">
+        <button
+          onClick={() => { setSelectedSlot(slotNum); setSearchQuery(''); setSearchResults([]) }}
+          className="w-14 h-14 rounded-full border-2 border-dashed border-indigo-300 flex items-center justify-center hover:bg-indigo-50 hover:border-indigo-500 transition-colors"
+        >
+          <UserPlus className="w-5 h-5 text-indigo-400" />
+        </button>
+        <span className="text-[10px] text-indigo-600 font-medium mt-1">Adicionar</span>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-4 animate-fade-in pb-20">
+      {/* Header */}
+      <div className="flex items-center gap-3">
+        <button onClick={step === 1 ? onBack : () => setStep(prev => Math.max(1, prev - 1) as any)} className="p-1 -ml-1">
+          <ChevronLeft className="w-6 h-6 text-gray-700" />
+        </button>
+        <h1 className="text-2xl font-bold text-gray-900">Reservar</h1>
+      </div>
+
+      {/* Progress bar */}
+      {step < 5 && (
+        <div className="flex gap-1.5">
+          {[1, 2, 3, 4].map(s => (
+            <div key={s} className={`h-1.5 flex-1 rounded-full transition-colors ${s <= step ? 'bg-lime-500' : 'bg-gray-200'}`} />
+          ))}
+        </div>
+      )}
+
+      {/* === STEP 1: Choose Club === */}
+      {step === 1 && (
+        <div className="space-y-3">
+          <div>
+            <h2 className="text-lg font-bold text-gray-900">Escolhe o clube</h2>
+            <p className="text-xs text-gray-500">Seleciona o clube onde queres jogar</p>
+          </div>
+          {loadingClubs ? (
+            <div className="text-center py-10">
+              <div className="animate-spin w-8 h-8 border-2 border-lime-600 border-t-transparent rounded-full mx-auto mb-3" />
+              <p className="text-sm text-gray-500">A carregar clubes...</p>
+            </div>
+          ) : clubs.length > 0 ? (
+            <div className="space-y-3">
+              {clubs.map(club => (
+                <button
+                  key={club.id}
+                  onClick={() => { setSelectedClub(club); setSelectedDate(''); setSelectedTime(''); setSelectedCourt(null); setStep(2) }}
+                  className={`w-full border rounded-2xl p-4 flex items-center gap-4 text-left transition-all hover:border-lime-400 hover:shadow-sm ${
+                    selectedClub?.id === club.id ? 'border-lime-500 bg-lime-50' : 'border-gray-200 bg-white'
+                  }`}
+                >
+                  {club.logo_url ? (
+                    <img src={club.logo_url} alt="" className="w-14 h-14 rounded-xl object-cover flex-shrink-0" />
+                  ) : (
+                    <div className="w-14 h-14 rounded-xl bg-gray-100 flex items-center justify-center flex-shrink-0">
+                      <Building2 className="w-7 h-7 text-gray-400" />
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="font-bold text-gray-900">{club.name}</p>
+                    {club.city && <p className="text-xs text-gray-500 flex items-center gap-1"><MapPin className="w-3 h-3" /> {club.city}</p>}
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      {club.courts.length} campo{club.courts.length > 1 ? 's' : ''} • {club.operating_hours.start} - {club.operating_hours.end}
+                    </p>
+                  </div>
+                  <ChevronRight className="w-5 h-5 text-gray-300 flex-shrink-0" />
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="card p-8 text-center">
+              <span className="text-4xl block mb-3">🏟️</span>
+              <p className="font-semibold text-gray-700 mb-1">Sem clubes disponíveis</p>
+              <p className="text-sm text-gray-500">Nenhum clube com disponibilidade neste momento</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* === STEP 2: Choose Date + Time + Court === */}
+      {step === 2 && selectedClub && (
+        <div className="space-y-4">
+          <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
+            {selectedClub.logo_url ? (
+              <img src={selectedClub.logo_url} alt="" className="w-10 h-10 rounded-lg object-cover" />
+            ) : (
+              <div className="w-10 h-10 rounded-lg bg-gray-200 flex items-center justify-center">
+                <Building2 className="w-5 h-5 text-gray-400" />
+              </div>
+            )}
+            <div>
+              <p className="font-semibold text-gray-900 text-sm">{selectedClub.name}</p>
+              {selectedClub.city && <p className="text-xs text-gray-500">{selectedClub.city}</p>}
+            </div>
+          </div>
+
+          {/* Date picker */}
+          <div>
+            <label className="text-sm font-semibold text-gray-700 mb-2 block">📅 Data</label>
+            <div className="flex gap-2 overflow-x-auto pb-2 -mx-1 px-1 snap-x">
+              {availableDates.map(d => (
+                <button
+                  key={d}
+                  onClick={() => { setSelectedDate(d); setSelectedTime(''); setSelectedCourt(null) }}
+                  className={`flex-shrink-0 px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors snap-start ${
+                    selectedDate === d ? 'bg-lime-600 text-white shadow-sm' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  {formatDateLabel(d)}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Time picker */}
+          {selectedDate && (
+            <div>
+              <label className="text-sm font-semibold text-gray-700 mb-2 block">🕐 Hora</label>
+              {availableSlots.length > 0 ? (
+                <div className="flex gap-2 flex-wrap">
+                  {availableSlots.map(slot => (
+                    <button
+                      key={slot.time}
+                      onClick={() => {
+                        setSelectedTime(slot.time)
+                        // Auto-select first court
+                        setSelectedCourt(slot.courts[0] || null)
+                      }}
+                      className={`px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
+                        selectedTime === slot.time ? 'bg-lime-600 text-white shadow-sm' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
+                    >
+                      {slot.time}
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-400 text-center py-4">Sem horários disponíveis para esta data</p>
+              )}
+            </div>
+          )}
+
+          {/* Court picker */}
+          {selectedTime && availableCourts.length > 1 && (
+            <div>
+              <label className="text-sm font-semibold text-gray-700 mb-2 block">🏟️ Campo</label>
+              <div className="flex gap-2 flex-wrap">
+                {availableCourts.map(court => {
+                  const typeLabel = court.court_type === 'indoor' ? '🏠 Indoor' : court.court_type === 'outdoor' ? '☀️ Outdoor' : court.court_type === 'covered' ? '🏗️ Coberto' : ''
+                  return (
+                    <button
+                      key={court.court_id}
+                      onClick={() => {
+                        setSelectedCourt(court)
+                        setDuration(court.durations.includes(90) ? 90 : 60)
+                      }}
+                      className={`px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
+                        selectedCourt?.court_id === court.court_id ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
+                    >
+                      <span>{court.court_name}</span>
+                      {typeLabel && <span className="block text-[10px] font-normal opacity-80">{typeLabel}</span>}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Selected court info (single court) */}
+          {selectedTime && availableCourts.length === 1 && selectedCourt && (
+            <div className="p-3 bg-indigo-50 rounded-xl flex items-center gap-2">
+              <span className="text-sm text-gray-600">🏟️ Campo:</span>
+              <span className="font-semibold text-indigo-700 text-sm">
+                {selectedCourt.court_name}
+                {selectedCourt.court_type && (
+                  <span className="ml-2 text-xs font-normal text-indigo-500">
+                    {selectedCourt.court_type === 'indoor' ? '🏠 Indoor' : selectedCourt.court_type === 'outdoor' ? '☀️ Outdoor' : '🏗️ Coberto'}
+                  </span>
+                )}
+              </span>
+            </div>
+          )}
+
+          {/* Continue button */}
+          {selectedCourt && (
+            <button
+              onClick={() => setStep(3)}
+              className="w-full py-3 bg-lime-600 text-white rounded-xl font-bold text-sm hover:bg-lime-700 transition-colors"
+            >
+              Continuar →
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* === STEP 3: Game Configuration === */}
+      {step === 3 && selectedClub && selectedCourt && (
+        <div className="space-y-5">
+          {/* Summary */}
+          <div className="p-4 bg-gray-50 rounded-xl space-y-1">
+            <p className="font-bold text-gray-900 text-sm">{selectedClub.name}</p>
+            <p className="text-xs text-gray-500">{selectedCourt.court_name} • {formatDateLabel(selectedDate)} às {selectedTime}</p>
+          </div>
+
+          {/* Public / Private */}
+          <div>
+            <label className="text-sm font-semibold text-gray-700 mb-2 block">Tipo de reserva</label>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setIsPublic(false)}
+                className={`flex-1 py-3 rounded-xl text-sm font-semibold transition-colors border-2 ${
+                  !isPublic ? 'border-lime-500 bg-lime-50 text-lime-700' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                <Lock className="w-4 h-4 inline-block mr-1.5 -mt-0.5" />
+                Privado
+              </button>
+              <button
+                onClick={() => setIsPublic(true)}
+                className={`flex-1 py-3 rounded-xl text-sm font-semibold transition-colors border-2 ${
+                  isPublic ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
+                }`}
+              >
+                <Globe className="w-4 h-4 inline-block mr-1.5 -mt-0.5" />
+                Público
+              </button>
+            </div>
+            <p className="text-xs text-gray-400 mt-1.5">
+              {isPublic
+                ? '🌍 Qualquer jogador pode encontrar e pedir para entrar neste jogo'
+                : '🔒 Apenas jogadores que tu adicionares poderão jogar'}
+            </p>
+          </div>
+
+          {/* Duration */}
+          <div>
+            <label className="text-sm font-semibold text-gray-700 mb-2 block">⏱️ Duração</label>
+            <div className="flex gap-2">
+              {(selectedCourt.durations || [90]).map(d => (
+                <button
+                  key={d}
+                  onClick={() => setDuration(d)}
+                  className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
+                    duration === d ? 'bg-lime-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  {d} min
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Game Type */}
+          <div>
+            <label className="text-sm font-semibold text-gray-700 mb-2 block">🎯 Tipo de jogo</label>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setGameType('friendly')}
+                className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
+                  gameType === 'friendly' ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                🤝 Amigável
+              </button>
+              <button
+                onClick={() => setGameType('competitive')}
+                className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
+                  gameType === 'competitive' ? 'bg-amber-500 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                🏆 Competitivo
+              </button>
+            </div>
+          </div>
+
+          {/* Gender */}
+          <div>
+            <label className="text-sm font-semibold text-gray-700 mb-2 block">👤 Género</label>
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { value: 'all' as const, label: 'Todos', icon: '👥' },
+                { value: 'male' as const, label: 'Masculino', icon: '♂️' },
+                { value: 'female' as const, label: 'Feminino', icon: '♀️' },
+                { value: 'mixed' as const, label: 'Misto', icon: '⚥' },
+              ].map(g => (
+                <button
+                  key={g.value}
+                  onClick={() => setGender(g.value)}
+                  className={`py-2.5 rounded-xl text-sm font-medium transition-colors ${
+                    gender === g.value ? 'bg-lime-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  }`}
+                >
+                  {g.icon} {g.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Price info */}
+          <div className="p-3 bg-blue-50 rounded-xl flex items-center justify-between">
+            <span className="text-sm text-gray-700">Preço por jogador</span>
+            <span className="font-bold text-blue-600 text-lg">{pricePerPlayer.toFixed(2)}€</span>
+          </div>
+
+          <button
+            onClick={() => setStep(4)}
+            className="w-full py-3 bg-lime-600 text-white rounded-xl font-bold text-sm hover:bg-lime-700 transition-colors"
+          >
+            Continuar →
+          </button>
+        </div>
+      )}
+
+      {/* === STEP 4: Players & Teams === */}
+      {step === 4 && (
+        <div className="space-y-5">
+          {/* Summary */}
+          <div className="p-4 bg-gray-50 rounded-xl space-y-1">
+            <p className="font-bold text-gray-900 text-sm">{selectedClub?.name}</p>
+            <p className="text-xs text-gray-500">
+              {selectedCourt?.court_name} • {formatDateLabel(selectedDate)} às {selectedTime} • {duration}min
+            </p>
+            <div className="flex items-center gap-2 mt-1">
+              <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${isPublic ? 'bg-blue-100 text-blue-700' : 'bg-gray-200 text-gray-600'}`}>
+                {isPublic ? '🌍 Público' : '🔒 Privado'}
+              </span>
+              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-gray-200 text-gray-600">
+                {gameType === 'competitive' ? '🏆 Competitivo' : '🤝 Amigável'}
+              </span>
+            </div>
+          </div>
+
+          {/* Teams layout */}
+          <div>
+            <label className="text-sm font-semibold text-gray-700 mb-3 block">🎾 Equipas</label>
+            <div className="flex items-start gap-4">
+              {/* Team A */}
+              <div className="flex-1">
+                <p className="text-center text-xs font-bold text-gray-400 mb-2">EQUIPA A</p>
+                <div className="flex gap-3 justify-center">
+                  {renderSlot(1, 'A')}
+                  {renderSlot(2, 'A')}
+                </div>
+              </div>
+              {/* Divider */}
+              <div className="flex flex-col items-center gap-1 pt-6">
+                <div className="w-px h-16 bg-gray-200" />
+                <span className="text-xs font-bold text-gray-300">VS</span>
+                <div className="w-px h-16 bg-gray-200" />
+              </div>
+              {/* Team B */}
+              <div className="flex-1">
+                <p className="text-center text-xs font-bold text-gray-400 mb-2">EQUIPA B</p>
+                <div className="flex gap-3 justify-center">
+                  {renderSlot(3, 'B')}
+                  {renderSlot(4, 'B')}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Swap buttons */}
+          {players.length >= 2 && (
+            <div className="text-center">
+              <p className="text-xs text-gray-400 mb-2">Trocar jogadores entre equipas</p>
+              <div className="flex gap-2 justify-center flex-wrap">
+                {players.length >= 2 && players.some(p => p.slot <= 2) && players.some(p => p.slot >= 3) && (
+                  <button
+                    onClick={() => {
+                      const teamAPlayer = players.find(p => p.slot <= 2 && p.slot !== 1)
+                        || players.find(p => p.slot <= 2)
+                      const teamBPlayer = players.find(p => p.slot >= 3)
+                      if (teamAPlayer && teamBPlayer) {
+                        handleSwapPlayers(teamAPlayer.slot, teamBPlayer.slot)
+                      }
+                    }}
+                    className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg text-xs font-medium text-gray-600 transition-colors"
+                  >
+                    🔄 Trocar
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Search player panel */}
+          {selectedSlot != null && (
+            <div className="border border-indigo-200 rounded-2xl overflow-hidden bg-white shadow-sm">
+              <div className="p-3 bg-indigo-50 border-b border-indigo-100 flex items-center justify-between">
+                <p className="text-sm font-semibold text-indigo-800">Adicionar jogador (posição {selectedSlot})</p>
+                <button onClick={() => setSelectedSlot(null)} className="p-1 hover:bg-indigo-100 rounded-full">
+                  <X className="w-4 h-4 text-indigo-500" />
+                </button>
+              </div>
+              <div className="p-3">
+                <div className="relative mb-2">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <input
+                    type="text"
+                    placeholder="Pesquisar por nome..."
+                    value={searchQuery}
+                    onChange={(e) => handleSearch(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2.5 bg-gray-100 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                    autoFocus
+                  />
+                </div>
+                {searching && <p className="text-center text-sm text-gray-400 py-3">A pesquisar...</p>}
+                {!searching && searchQuery.length >= 2 && searchResults.length === 0 && (
+                  <p className="text-center text-sm text-gray-400 py-3">Nenhum jogador encontrado</p>
+                )}
+                {searchResults.length > 0 && (
+                  <div className="max-h-48 overflow-y-auto space-y-1">
+                    {searchResults.map(r => {
+                      const rColors = r.player_category ? categoryColors(r.player_category) : null
+                      return (
+                        <button
+                          key={r.id}
+                          onClick={() => handleAddPlayer(r)}
+                          className="w-full flex items-center gap-3 p-2 hover:bg-gray-50 rounded-lg text-left transition-colors"
+                        >
+                          <div className="w-9 h-9 rounded-full overflow-hidden bg-gray-200 flex items-center justify-center flex-shrink-0">
+                            {r.avatar_url ? (
+                              <img src={r.avatar_url} className="w-full h-full object-cover" />
+                            ) : (
+                              <span className="text-sm font-bold text-gray-600">{(r.name || '?').charAt(0).toUpperCase()}</span>
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-gray-900 truncate">{r.name}</p>
+                            <div className="flex items-center gap-1.5">
+                              {r.level != null && (
+                                <span className="text-[9px] font-bold text-white px-1.5 py-0 rounded-full" style={{ backgroundColor: rColors?.hex || '#9ca3af' }}>
+                                  {r.level.toFixed(1)}
+                                </span>
+                              )}
+                              {r.player_category && <span className="text-[10px] text-gray-500">{r.player_category}</span>}
+                            </div>
+                          </div>
+                          <Plus className="w-4 h-4 text-indigo-500 flex-shrink-0" />
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Price summary */}
+          <div className="p-4 bg-green-50 border border-green-200 rounded-xl space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-gray-700">Preço por jogador</span>
+              <span className="font-bold text-green-700">{pricePerPlayer.toFixed(2)}€</span>
+            </div>
+            <div className="flex items-center justify-between border-t border-green-200 pt-2">
+              <span className="text-sm font-semibold text-gray-700">Total ({players.length} jogador{players.length > 1 ? 'es' : ''})</span>
+              <span className="font-bold text-green-700 text-lg">{(pricePerPlayer * players.length).toFixed(2)}€</span>
+            </div>
+          </div>
+
+          {/* Create button */}
+          <button
+            onClick={handleCreateBooking}
+            disabled={creating}
+            className="w-full py-3.5 bg-lime-600 text-white rounded-xl font-bold text-sm hover:bg-lime-700 transition-colors disabled:opacity-50 shadow-sm"
+          >
+            {creating ? (
+              <span className="flex items-center justify-center gap-2">
+                <div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
+                A criar...
+              </span>
+            ) : (
+              isPublic ? '🎾 Criar jogo público' : '📅 Confirmar reserva'
+            )}
+          </button>
+        </div>
+      )}
+
+      {/* === STEP 5: Confirmation === */}
+      {step === 5 && (
+        <div className="text-center py-10 space-y-6">
+          <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-green-100">
+            <CheckCircle className="w-10 h-10 text-green-600" />
+          </div>
+          <div>
+            <h2 className="text-xl font-bold text-gray-900 mb-2">
+              {isPublic ? 'Jogo criado!' : 'Reserva confirmada!'}
+            </h2>
+            <p className="text-sm text-gray-500">
+              {isPublic
+                ? 'O teu jogo está visível para outros jogadores. Boa partida! 🎾'
+                : 'A tua reserva foi registada no calendário do clube. Boa partida! 🎾'}
+            </p>
+          </div>
+
+          <div className="p-4 bg-gray-50 rounded-xl text-left space-y-2 max-w-sm mx-auto">
+            <div className="flex items-center gap-2">
+              <Building2 className="w-4 h-4 text-gray-400" />
+              <span className="text-sm text-gray-700">{selectedClub?.name}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Calendar className="w-4 h-4 text-gray-400" />
+              <span className="text-sm text-gray-700">{formatDateLabel(selectedDate)} às {selectedTime}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Clock className="w-4 h-4 text-gray-400" />
+              <span className="text-sm text-gray-700">{duration} minutos</span>
+            </div>
+            {selectedCourt && (
+              <div className="flex items-center gap-2">
+                <MapPin className="w-4 h-4 text-gray-400" />
+                <span className="text-sm text-gray-700">{selectedCourt.court_name}</span>
+              </div>
+            )}
+            {players.length > 0 && (
+              <div className="flex items-center gap-2">
+                <Users className="w-4 h-4 text-gray-400" />
+                <span className="text-sm text-gray-700">{players.map(p => (p.name || '').split(' ')[0]).join(', ')}</span>
+              </div>
+            )}
+          </div>
+
+          <button
+            onClick={onBack}
+            className="px-8 py-3 bg-lime-600 text-white rounded-xl font-bold text-sm hover:bg-lime-700 transition-colors"
+          >
+            Voltar ao início
+          </button>
+        </div>
+      )}
     </div>
   )
 }
