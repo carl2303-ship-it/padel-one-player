@@ -566,6 +566,7 @@ function App() {
             userId={player?.user_id ?? null}
             playerAccountId={player?.id ?? null}
             player={player}
+            edgePastTournamentDetails={edgePastTournamentDetails}
             onBack={() => setCurrentScreen('home')}
           />
         )}
@@ -3136,6 +3137,7 @@ function CompeteScreen({
   userId,
   playerAccountId,
   player,
+  edgePastTournamentDetails,
   onBack,
 }: {
   dashboardData: PlayerDashboardData | null
@@ -3143,6 +3145,7 @@ function CompeteScreen({
   userId: string | null
   playerAccountId: string | null
   player: PlayerAccount | null
+  edgePastTournamentDetails: Record<string, any> | null
   onBack: () => void
 }) {
   const [activeTab, setActiveTab] = useState<'upcoming' | 'leagues' | 'history'>('upcoming')
