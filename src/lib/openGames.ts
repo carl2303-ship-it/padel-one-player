@@ -484,6 +484,8 @@ export async function createOpenGame(params: {
   gender: 'all' | 'male' | 'female' | 'mixed'
   playerLevel: number
   pricePerPlayer: number
+  isPrivate?: boolean // New: mark as private booking
+  players?: { player_account_id: string; position: number; name: string | null; phone_number: string | null }[] // New: pre-fill players
 }): Promise<{ success: boolean; gameId?: string; error?: string }> {
   // Always use the real auth uid for RLS compliance
   const { data: { user: authUser } } = await supabase.auth.getUser()
@@ -512,7 +514,8 @@ export async function createOpenGame(params: {
       level_max: levelMax,
       price_per_player: params.pricePerPlayer,
       max_players: 4,
-      status: 'open',
+      status: params.isPrivate ? 'full' : 'open', // Set status to 'full' if private
+      is_private: params.isPrivate || false, // Set is_private flag
     })
     .select('id')
     .single()
@@ -566,6 +569,25 @@ export async function createOpenGame(params: {
 
   if (playerError) {
     console.error('[OpenGames] Error adding creator to game:', playerError)
+  }
+
+  // Add other players if provided (for private bookings)
+  if (params.players && params.players.length > 0) {
+    const otherPlayers = params.players.filter(p => p.player_account_id !== resolvedAccountId)
+    if (otherPlayers.length > 0) {
+      const playerInserts = otherPlayers.map(p => ({
+        game_id: game.id,
+        user_id: null, // User ID will be set if they log in later
+        player_account_id: p.player_account_id,
+        status: 'confirmed' as const,
+        position: p.position,
+      }))
+      const { error: otherPlayersError } = await supabase.from('open_game_players').insert(playerInserts)
+      if (otherPlayersError) {
+        console.error('[OpenGames] Error adding other players to game:', otherPlayersError)
+        // Don't fail the whole operation, but log it
+      }
+    }
   }
 
   // === Sync: Create a court_booking in the Manager app's agenda ===

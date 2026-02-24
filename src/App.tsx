@@ -6269,6 +6269,15 @@ function BookingScreen({
     if (isPublic) {
       // Create as open game (public)
       const { createOpenGame } = await import('./lib/openGames')
+      
+      // Prepare players list (excluding creator who is already added)
+      const otherPlayers = players.filter(p => p.slot !== 1).map(p => ({
+        player_account_id: p.id,
+        position: p.slot,
+        name: p.name,
+        phone_number: null, // Will be fetched from player_accounts if needed
+      }))
+
       const result = await createOpenGame({
         userId,
         playerAccountId: player?.id || null,
@@ -6282,17 +6291,11 @@ function BookingScreen({
         gender,
         playerLevel,
         pricePerPlayer,
+        isPrivate: false, // Public game
+        players: otherPlayers, // Pre-fill players
       })
 
       if (result.success && result.gameId) {
-        // Add extra players if any
-        const extraPlayers = players.filter(p => p.slot !== 1)
-        if (extraPlayers.length > 0) {
-          const { addPlayerToOpenGame } = await import('./lib/openGames')
-          for (const ep of extraPlayers) {
-            await addPlayerToOpenGame({ gameId: result.gameId, playerAccountId: ep.id })
-          }
-        }
         setCreating(false)
         setStep(5)
         if (onRefresh) onRefresh()
@@ -6301,9 +6304,17 @@ function BookingScreen({
         alert(result.error || 'Erro ao criar jogo')
       }
     } else {
-      // Private booking: also create via open_game (for court_booking sync + RLS compliance)
-      // but immediately mark as full so nobody else can join
+      // Private booking: create via open_game with isPrivate flag and players pre-filled
       const { createOpenGame } = await import('./lib/openGames')
+      
+      // Prepare players list (excluding creator who is already added)
+      const otherPlayers = players.filter(p => p.slot !== 1).map(p => ({
+        player_account_id: p.id,
+        position: p.slot,
+        name: p.name,
+        phone_number: null, // Will be fetched from player_accounts if needed
+      }))
+
       const result = await createOpenGame({
         userId,
         playerAccountId: player?.id || null,
@@ -6317,21 +6328,11 @@ function BookingScreen({
         gender,
         playerLevel,
         pricePerPlayer,
+        isPrivate: true, // Mark as private
+        players: otherPlayers, // Pre-fill players
       })
 
       if (result.success && result.gameId) {
-        // Add extra players
-        const extraPlayers = players.filter(p => p.slot !== 1)
-        if (extraPlayers.length > 0) {
-          const { addPlayerToOpenGame } = await import('./lib/openGames')
-          for (const ep of extraPlayers) {
-            await addPlayerToOpenGame({ gameId: result.gameId, playerAccountId: ep.id })
-          }
-        }
-
-        // Mark game as full/private so it doesn't show in public searches
-        await supabase.from('open_games').update({ status: 'full' }).eq('id', result.gameId)
-
         // Update the court_booking notes to indicate private
         await supabase
           .from('court_bookings')
