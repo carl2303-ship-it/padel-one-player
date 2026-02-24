@@ -87,6 +87,10 @@ export async function fetchOpenGames(filters?: {
   timeFrom?: string
   timeTo?: string
 }): Promise<OpenGame[]> {
+  // Get current user ID to filter private games
+  const { data: { user: authUser } } = await supabase.auth.getUser()
+  const currentUserId = authUser?.id
+
   let query = supabase
     .from('open_games')
     .select('*')
@@ -209,8 +213,29 @@ export async function fetchOpenGames(filters?: {
     }
   }
 
+  // Filter out private games that the user is not part of
+  // Private games should only be visible to:
+  // 1. The creator
+  // 2. Players who are added to the game
+  const filteredGamesData = gamesData.filter((g: any) => {
+    // If game is not private, show it
+    if (!g.is_private) return true
+    
+    // If no current user, hide private games
+    if (!currentUserId) return false
+    
+    // Show if user is the creator
+    if (g.creator_user_id === currentUserId) return true
+    
+    // Show if user is in the players list
+    const isPlayer = (playersData || []).some((p: any) => 
+      p.game_id === g.id && p.user_id === currentUserId
+    )
+    return isPlayer
+  })
+
   // Build the result
-  const games: OpenGame[] = gamesData.map((g: any) => {
+  const games: OpenGame[] = filteredGamesData.map((g: any) => {
     const gamePlayers = (playersData || [])
       .filter((p: any) => p.game_id === g.id)
       .map((p: any) => {

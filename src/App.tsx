@@ -6304,16 +6304,9 @@ function BookingScreen({
         alert(result.error || 'Erro ao criar jogo')
       }
     } else {
-      // Private booking: create via open_game with isPrivate flag and players pre-filled
+      // Private booking: create via open_game with isPrivate flag
+      // Don't add players now - organizer can add them later
       const { createOpenGame } = await import('./lib/openGames')
-      
-      // Prepare players list (excluding creator who is already added)
-      const otherPlayers = players.filter(p => p.slot !== 1).map(p => ({
-        player_account_id: p.id,
-        position: p.slot,
-        name: p.name,
-        phone_number: null, // Will be fetched from player_accounts if needed
-      }))
 
       const result = await createOpenGame({
         userId,
@@ -6329,7 +6322,7 @@ function BookingScreen({
         playerLevel,
         pricePerPlayer,
         isPrivate: true, // Mark as private
-        players: otherPlayers, // Pre-fill players
+        players: [], // No players added at creation - organizer adds them later
       })
 
       if (result.success && result.gameId) {
