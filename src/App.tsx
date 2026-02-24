@@ -2036,7 +2036,6 @@ function HomeScreen({
   onOpenRewards: () => void
   onOpenBooking: () => void
 }) {
-  void onRefresh
   const [viewingTournament, setViewingTournament] = useState<{ id: string; name: string } | null>(null)
   const [followingCount, setFollowingCount] = useState(0)
   const [followersCount, setFollowersCount] = useState(0)
@@ -2259,12 +2258,7 @@ function HomeScreen({
                       match={match}
                       userId={player?.user_id}
                       playerAccountId={player?.id}
-                      onRefresh={async () => {
-                        // Refresh dashboard data
-                        const { fetchPlayerDashboardData } = await import('./lib/playerDashboardData')
-                        const newData = await fetchPlayerDashboardData(player?.user_id || '')
-                        setDashboardData(newData)
-                      }}
+                      onRefresh={onRefresh}
                     />
                   ) : (
                     <GameCardPlaytomic 
