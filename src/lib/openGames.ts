@@ -539,8 +539,8 @@ export async function createOpenGame(params: {
       level_max: levelMax,
       price_per_player: params.pricePerPlayer,
       max_players: 4,
-      status: params.isPrivate ? 'full' : 'open', // Set status to 'full' if private
-      is_private: params.isPrivate || false, // Set is_private flag
+      status: 'open', // Always start as open - status 'full' only when all 4 players are added
+      is_private: params.isPrivate || false, // Private games are hidden from "Encontrar Jogos"
     })
     .select('id')
     .single()
