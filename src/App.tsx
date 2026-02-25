@@ -8068,6 +8068,7 @@ function OtherPlayerProfileScreen({
   onOpenFollowsList: (userId: string) => void
   onOpenPlayerProfile: (userId: string) => void
 }) {
+  const { t } = useI18n()
   const [profile, setProfile] = useState<PlayerProfile | null>(null)
   const [loading, setLoading] = useState(true)
   const [isFollowing, setIsFollowing] = useState(false)
@@ -8149,7 +8150,7 @@ function OtherPlayerProfileScreen({
   const getHandLabel = (h?: string) => ({ right: 'Direita', left: 'Esquerda', ambidextrous: 'Ambidestro' }[h || ''] || '—')
   const getPositionLabel = (p?: string) => ({ right: 'Direita', left: 'Esquerda', both: 'Ambas' }[p || ''] || '—')
   const getGameTypeLabel = (g?: string) => ({ competitive: 'Competitivo', friendly: 'Amigável', both: 'Ambos' }[g || ''] || '—')
-  const getTimeLabel = (t?: string) => ({ morning: t.common.morning, afternoon: t.common.afternoon, evening: t.common.evening, all_day: t.common.allDay }[t || ''] || '—')
+  const getTimeLabel = (timeStr?: string) => ({ morning: t.common.morning, afternoon: t.common.afternoon, evening: t.common.evening, all_day: t.common.allDay }[timeStr || ''] || '—')
 
   const splitName = (fullName: string): { firstName: string; lastName: string } => {
     const parts = fullName.trim().split(/\s+/)
@@ -8457,6 +8458,7 @@ function ProfileViewScreen({
   onOpenFollowsList: (userId: string) => void
   onOpenPlayerProfile: (userId: string) => void
 }) {
+  const { t } = useI18n()
   const d = dashboardData
   const totalMatches = d?.stats?.totalMatches ?? (player?.wins || 0) + (player?.losses || 0)
   const wins = d?.stats?.wins ?? player?.wins ?? 0
@@ -8564,7 +8566,7 @@ function ProfileViewScreen({
   const getHandLabel = (h?: string) => ({ right: 'Direita', left: 'Esquerda', ambidextrous: 'Ambidestro' }[h || ''] || '—')
   const getPositionLabel = (p?: string) => ({ right: 'Direita', left: 'Esquerda', both: 'Ambas' }[p || ''] || '—')
   const getGameTypeLabel = (g?: string) => ({ competitive: 'Competitivo', friendly: 'Amigável', both: 'Ambos' }[g || ''] || '—')
-  const getTimeLabel = (t?: string) => ({ morning: t.common.morning, afternoon: t.common.afternoon, evening: t.common.evening, all_day: t.common.allDay }[t || ''] || '—')
+  const getTimeLabel = (timeStr?: string) => ({ morning: t.common.morning, afternoon: t.common.afternoon, evening: t.common.evening, all_day: t.common.allDay }[timeStr || ''] || '—')
 
   const splitName = (fullName: string): { firstName: string; lastName: string } => {
     const parts = fullName.trim().split(/\s+/)
