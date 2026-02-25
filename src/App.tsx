@@ -3890,6 +3890,7 @@ function CommunityScreen({ userId, playerAccountId, onOpenPlayerProfile }: { use
 
 // ---------- Clube Favorito (detalhes do clube escolhido no perfil) ----------
 function ClubScreen({ favoriteClubId, onBack }: { favoriteClubId: string | null; onBack: () => void }) {
+  const { t } = useI18n()
   const [club, setClub] = useState<ClubDetail | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -3999,6 +4000,7 @@ function CompeteScreen({
   player: PlayerAccount | null
   onBack: () => void
 }) {
+  const { t } = useI18n()
   const [activeTab, setActiveTab] = useState<'upcoming' | 'leagues' | 'history'>('upcoming')
   const [upcomingFromTour, setUpcomingFromTour] = useState<UpcomingTournamentFromTour[]>([])
   const [loadingUpcoming, setLoadingUpcoming] = useState(true)
