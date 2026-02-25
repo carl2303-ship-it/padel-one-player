@@ -3,6 +3,7 @@
  * Functions to fetch/create/join open games and get club availability.
  */
 import { supabase } from './supabase'
+import { notifyOpenGamePlayers, notifyGameCreator, sendPushToPlayer } from './pushNotifications'
 
 // ============================
 // Types
@@ -18,6 +19,7 @@ export interface OpenGamePlayer {
   avatar_url?: string | null
   level?: number | null
   player_category?: string | null
+  payment_status?: 'pending' | 'paid'
 }
 
 export interface OpenGame {
@@ -42,7 +44,10 @@ export interface OpenGame {
   notes: string | null
   players: OpenGamePlayer[]
   created_at: string
+  club_payment_method?: ClubPaymentMethod
 }
+
+export type ClubPaymentMethod = 'at_club' | 'per_player' | 'full_court' | 'at_club_or_per_player' | 'at_club_or_full_court' | 'all'
 
 export interface ClubWithAvailability {
   id: string
@@ -54,6 +59,8 @@ export interface ClubWithAvailability {
   operating_hours: { start: string; end: string }
   // Key = date string (YYYY-MM-DD), Value = list of available time slots
   availability: { [date: string]: TimeSlot[] }
+  // Payment settings
+  payment_method: ClubPaymentMethod
 }
 
 export interface CourtSlot {
@@ -181,17 +188,17 @@ export async function fetchOpenGames(filters?: {
 
   // Fetch club details for all games
   const clubIds = [...new Set(gamesData.map((g: any) => g.club_id))]
-  let clubsMap: { [id: string]: { name: string; logo_url: string | null; city: string | null } } = {}
+  let clubsMap: { [id: string]: { name: string; logo_url: string | null; city: string | null; payment_method: ClubPaymentMethod } } = {}
   
   if (clubIds.length > 0) {
     const { data: clubs } = await supabase
       .from('clubs')
-      .select('id, name, logo_url, city')
+      .select('id, name, logo_url, city, payment_method')
       .in('id', clubIds)
     
     if (clubs) {
       clubs.forEach((c: any) => {
-        clubsMap[c.id] = { name: c.name, logo_url: c.logo_url, city: c.city }
+        clubsMap[c.id] = { name: c.name, logo_url: c.logo_url, city: c.city, payment_method: c.payment_method || 'at_club' }
       })
     }
   }
@@ -251,10 +258,11 @@ export async function fetchOpenGames(filters?: {
           avatar_url: account?.avatar_url || null,
           level: account?.level || null,
           player_category: account?.player_category || null,
+          payment_status: p.payment_status || 'pending',
         }
       })
 
-    const club = clubsMap[g.club_id] || { name: 'Clube', logo_url: null, city: null }
+    const club = clubsMap[g.club_id] || { name: 'Clube', logo_url: null, city: null, payment_method: 'at_club' as ClubPaymentMethod }
     const court = g.court_id ? courtsMap[g.court_id] : null
 
     return {
@@ -279,6 +287,7 @@ export async function fetchOpenGames(filters?: {
       notes: g.notes,
       players: gamePlayers,
       created_at: g.created_at,
+      club_payment_method: club.payment_method,
     }
   })
 
@@ -303,7 +312,7 @@ export async function fetchClubsWithAvailability(): Promise<ClubWithAvailability
   // 1. Fetch all active clubs
   const { data: clubs, error: clubsError } = await supabase
     .from('clubs')
-    .select('id, owner_id, name, logo_url, city, address')
+    .select('id, owner_id, name, logo_url, city, address, payment_method')
     .eq('is_active', true)
     .order('name')
 
@@ -459,6 +468,7 @@ export async function fetchClubsWithAvailability(): Promise<ClubWithAvailability
         })),
         operating_hours: { start: startTime, end: endTime },
         availability,
+        payment_method: (club as any).payment_method || 'at_club',
       })
     }
   }
@@ -910,6 +920,35 @@ export async function joinOpenGame(params: {
     } catch {}
   }
 
+  // 🔔 Push: notify game creator and other players
+  try {
+    const playerName = await getPlayerName(resolvedAccountId)
+    if (joinStatus === 'confirmed') {
+      // Notify creator: someone joined
+      notifyGameCreator(params.gameId, {
+        title: 'Novo jogador no teu jogo! 🎾',
+        body: `${playerName} entrou no teu jogo.`,
+        url: '/?screen=games',
+        tag: `join-${params.gameId}`,
+      })
+      // Notify other players
+      notifyOpenGamePlayers(params.gameId, resolvedAccountId, {
+        title: 'Novo jogador no jogo! 🎾',
+        body: `${playerName} juntou-se ao jogo.`,
+        url: '/?screen=games',
+        tag: `join-${params.gameId}`,
+      })
+    } else {
+      // Pending request - notify confirmed players
+      notifyOpenGamePlayers(params.gameId, resolvedAccountId, {
+        title: 'Pedido para entrar no jogo 📋',
+        body: `${playerName} quer juntar-se ao teu jogo. Vota para aceitar ou rejeitar.`,
+        url: '/?screen=games',
+        tag: `request-${params.gameId}`,
+      })
+    }
+  } catch {}
+
   return { success: true, status: joinStatus }
 }
 
@@ -942,6 +981,30 @@ export async function leaveOpenGame(gameId: string, userId: string): Promise<boo
 
   // Sync player details to court_booking
   await syncBookingPlayers(gameId)
+
+  // 🔔 Push: notify game players that someone left
+  try {
+    // Get player_account_id for the leaving user
+    const { data: pa } = await supabase
+      .from('player_accounts')
+      .select('id, name')
+      .eq('user_id', realUserId)
+      .maybeSingle()
+    const leavingName = pa?.name || 'Um jogador'
+    
+    notifyGameCreator(gameId, {
+      title: 'Jogador saiu do jogo 😔',
+      body: `${leavingName} saiu do teu jogo.`,
+      url: '/?screen=games',
+      tag: `leave-${gameId}`,
+    })
+    notifyOpenGamePlayers(gameId, pa?.id || null, {
+      title: 'Jogador saiu do jogo 😔',
+      body: `${leavingName} saiu do jogo.`,
+      url: '/?screen=games',
+      tag: `leave-${gameId}`,
+    })
+  } catch {}
 
   return true
 }
@@ -1002,6 +1065,24 @@ export async function addPlayerToOpenGame(params: {
   // Sync player details to court_booking
   await syncBookingPlayers(params.gameId)
 
+  // 🔔 Push: notify the added player
+  try {
+    const playerName = await getPlayerName(params.playerAccountId)
+    sendPushToPlayer(params.playerAccountId, {
+      title: 'Foste adicionado a um jogo! 🎾',
+      body: 'Um organizador adicionou-te a um jogo. Verifica os teus jogos.',
+      url: '/?screen=games',
+      tag: `added-${params.gameId}`,
+    })
+    // Also notify other players
+    notifyOpenGamePlayers(params.gameId, params.playerAccountId, {
+      title: 'Novo jogador no jogo! 🎾',
+      body: `${playerName} foi adicionado ao jogo.`,
+      url: '/?screen=games',
+      tag: `added-${params.gameId}`,
+    })
+  } catch {}
+
   return { success: true }
 }
 
@@ -1026,6 +1107,36 @@ export async function voteOnJoinRequest(
   const result = data as any
   if (!result?.success) {
     return { success: false, error: result?.error || 'Erro desconhecido' }
+  }
+
+  // 🔔 Push: notify player if vote was resolved (accepted/rejected)
+  if (result.resolved && result.new_status) {
+    try {
+      // requestPlayerId is the open_game_players.id, need to get the player_account_id
+      const { data: reqPlayer } = await supabase
+        .from('open_game_players')
+        .select('player_account_id, game_id')
+        .eq('id', requestPlayerId)
+        .maybeSingle()
+      
+      if (reqPlayer?.player_account_id) {
+        if (result.new_status === 'confirmed') {
+          sendPushToPlayer(reqPlayer.player_account_id, {
+            title: 'Pedido aprovado! ✅',
+            body: 'O teu pedido para entrar no jogo foi aceite. Bom jogo!',
+            url: '/?screen=games',
+            tag: `approved-${reqPlayer.game_id}`,
+          })
+        } else if (result.new_status === 'rejected') {
+          sendPushToPlayer(reqPlayer.player_account_id, {
+            title: 'Pedido rejeitado ❌',
+            body: 'O teu pedido para entrar no jogo foi rejeitado.',
+            url: '/?screen=find-game',
+            tag: `rejected-${reqPlayer.game_id}`,
+          })
+        }
+      }
+    } catch {}
   }
 
   return {
@@ -1232,6 +1343,23 @@ export async function submitGameResult(params: {
   // Award reward points for submitting result
   try {
     await awardGameRewardPoints(params.gameId, 'submit_result')
+  } catch {}
+
+  // 🔔 Push: notify other players that result was submitted
+  try {
+    const { data: { user: me } } = await supabase.auth.getUser()
+    const { data: myAccount } = await supabase
+      .from('player_accounts')
+      .select('id')
+      .eq('user_id', me?.id || '')
+      .maybeSingle()
+
+    notifyOpenGamePlayers(params.gameId, myAccount?.id || null, {
+      title: 'Resultado submetido 📊',
+      body: 'Um resultado foi introduzido no teu jogo. Confirma ou disputa.',
+      url: '/?screen=games',
+      tag: `result-${params.gameId}`,
+    })
   } catch {}
 
   return { success: true, submittedByTeam: result.submitted_by_team }
@@ -1724,4 +1852,22 @@ export async function fetchGamesAwaitingResult(userId: string): Promise<OpenGame
       _resultStatus: resultStatus, // extra field for UI
     } as OpenGame & { _resultStatus?: string | null }
   })
+}
+
+// ============================
+// Helper: Get player name from account ID
+// ============================
+
+async function getPlayerName(playerAccountId: string | null): Promise<string> {
+  if (!playerAccountId) return 'Um jogador'
+  try {
+    const { data } = await supabase
+      .from('player_accounts')
+      .select('name')
+      .eq('id', playerAccountId)
+      .maybeSingle()
+    return data?.name || 'Um jogador'
+  } catch {
+    return 'Um jogador'
+  }
 }

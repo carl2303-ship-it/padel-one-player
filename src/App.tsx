@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { supabase, PlayerAccount } from './lib/supabase'
+import { useI18n } from './lib/i18nContext'
 import {
   fetchPlayerDashboardData,
   enrichDashboardWithEdgeFunction,
@@ -91,10 +92,12 @@ import {
 import { fetchAllClubs, fetchClubById, fetchUpcomingTournaments, fetchEnrolledByCategory, getTournamentRegistrationUrl, type ClubDetail, type UpcomingTournamentFromTour, type EnrolledByCategory } from './lib/clubAndTournaments'
 import { fetchAvailableClasses, fetchMyClasses, enrollInClass, type Class as ClassData } from './lib/classes'
 import { preloadAllPlayerData, getCachedPlayerData } from './lib/playerDataCache'
+import { isPushSupported, checkIsSubscribed, subscribeToPush, unsubscribeFromPush } from './lib/pushNotifications'
 
-type Screen = 'home' | 'games' | 'profile-view' | 'profile-edit' | 'club' | 'club-detail' | 'compete' | 'community' | 'player-profile' | 'follows-list' | 'learn' | 'find-game' | 'rewards' | 'booking'
+type Screen = 'home' | 'games' | 'profile-view' | 'profile-edit' | 'club' | 'club-detail' | 'compete' | 'community' | 'player-profile' | 'follows-list' | 'learn' | 'find-game' | 'rewards' | 'booking' | 'payments'
 
 function App() {
+  const { t, language, setLanguage, languageNames, languageFlags } = useI18n()
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [player, setPlayer] = useState<PlayerAccount | null>(null)
   const [authUserId, setAuthUserId] = useState<string | null>(null) // The real auth.uid() from Supabase
@@ -118,12 +121,61 @@ function App() {
   const [edgeEnrichedData, setEdgeEnrichedData] = useState<Partial<PlayerDashboardData> | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const [showChangePassword, setShowChangePassword] = useState(false)
+  // Push notifications
+  const [pushSupported] = useState(isPushSupported())
+  const [pushSubscribed, setPushSubscribed] = useState(false)
+  const [pushLoading, setPushLoading] = useState(false)
   const [showInfoModal, setShowInfoModal] = useState<'help' | 'howItWorks' | 'privacy' | null>(null)
   const [showRegister, setShowRegister] = useState(false)
+  const [languageDropdownOpen, setLanguageDropdownOpen] = useState(false)
 
   useEffect(() => {
     checkAuth()
   }, [])
+
+  // Handle Stripe payment return
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const paymentStatus = params.get('payment')
+    const gameId = params.get('game_id')
+    if (paymentStatus === 'success' && gameId) {
+      // Clean URL
+      window.history.replaceState({}, '', window.location.pathname)
+      // Show success and navigate to games
+      setTimeout(() => {
+        alert(t.payments.paymentSuccess)
+        setCurrentScreen('games')
+      }, 500)
+    } else if (paymentStatus === 'cancelled') {
+      window.history.replaceState({}, '', window.location.pathname)
+      setTimeout(() => {
+        alert(t.payments.paymentCancelled)
+      }, 500)
+    }
+  }, [])
+
+  // Check push subscription status when player is loaded
+  useEffect(() => {
+    if (player?.id && pushSupported) {
+      checkIsSubscribed(player.id).then(setPushSubscribed)
+    }
+  }, [player?.id, pushSupported])
+
+  const handleTogglePush = async () => {
+    if (!player?.id) return
+    setPushLoading(true)
+    try {
+      if (pushSubscribed) {
+        const ok = await unsubscribeFromPush(player.id)
+        if (ok) setPushSubscribed(false)
+      } else {
+        const ok = await subscribeToPush(player.id)
+        if (ok) setPushSubscribed(true)
+      }
+    } finally {
+      setPushLoading(false)
+    }
+  }
 
   const checkAuth = async () => {
     setIsLoading(true)
@@ -257,7 +309,7 @@ function App() {
       .select()
       .single()
     if (error) {
-      console.error('[PROFILE] Erro ao guardar perfil:', error)
+      console.error('[PROFILE]', t.common.profileSaveError + ':', error)
       throw error
     }
     if (updated) {
@@ -294,11 +346,11 @@ function App() {
       const emailData = await response.json()
       if (!response.ok || !emailData?.success || !emailData?.email) {
         if (emailData?.error === 'Player account not found') {
-          setAuthError('Telefone não encontrado')
+          setAuthError(t.common.phoneNotFound)
         } else if (emailData?.error === 'Player account has no email') {
-          setAuthError('Conta sem email associado. Contacta o organizador.')
+          setAuthError(t.common.accountNoEmail)
         } else {
-          setAuthError(emailData?.error || 'Erro ao verificar telefone')
+          setAuthError(emailData?.error || t.common.verifyPhoneError)
         }
         setIsAuthLoading(false)
         return
@@ -313,9 +365,9 @@ function App() {
 
       if (authError) {
         if (authError.message.includes('Invalid login')) {
-          setAuthError('Password incorreta')
+          setAuthError(t.auth.incorrectPassword)
         } else {
-          setAuthError('Erro ao fazer login: ' + authError.message)
+          setAuthError(t.common.loginError + ': ' + authError.message)
         }
         setIsAuthLoading(false)
         return
@@ -368,7 +420,7 @@ function App() {
       setIsAuthenticated(true)
     } catch (err) {
       console.error('Login error:', err)
-      setAuthError('Erro ao fazer login')
+      setAuthError(t.common.loginError)
     }
     
     setIsAuthLoading(false)
@@ -397,7 +449,7 @@ function App() {
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center animate-fade-in">
           <div className="w-16 h-16 border-4 border-red-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-gray-500">A carregar...</p>
+          <p className="text-gray-500">{t.common.loading}</p>
         </div>
       </div>
     )
@@ -432,7 +484,7 @@ function App() {
     />
   }
 
-  const displayName = effectiveDashboard?.playerName || player?.name?.split(' ')[0] || 'Jogador'
+  const displayName = effectiveDashboard?.playerName || player?.name?.split(' ')[0] || t.common.player
 
   return (
     <div className="min-h-screen bg-gray-50 pb-20">
@@ -446,7 +498,7 @@ function App() {
               className="w-10 h-10 rounded-xl shadow-sm"
             />
             <div>
-              <p className="text-xs text-gray-500">Olá,</p>
+              <p className="text-xs text-gray-500">{t.common.hello},</p>
               <p className="font-semibold text-gray-900">{displayName}</p>
             </div>
           </div>
@@ -472,7 +524,7 @@ function App() {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="p-4 border-b flex items-center justify-between">
-              <h2 className="font-bold text-gray-900">Menu</h2>
+              <h2 className="font-bold text-gray-900">{t.common.menu}</h2>
               <button onClick={() => setMenuOpen(false)} className="p-2 rounded-lg hover:bg-gray-100">
                 <X className="w-5 h-5" />
               </button>
@@ -480,50 +532,93 @@ function App() {
             <nav className="p-2 overflow-y-auto max-h-[calc(100vh-60px)]">
               <button onClick={() => { setCurrentScreen('profile-edit'); setMenuOpen(false) }} className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 text-left">
                 <Settings className="w-5 h-5 text-gray-500" />
-                <span className="font-medium text-gray-900">Definições do perfil</span>
+                <span className="font-medium text-gray-900">{t.menu.settings}</span>
               </button>
-              <button onClick={() => { setMenuOpen(false); alert('Escolha de idioma estará disponível em breve!') }} className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 text-left">
-                <Globe className="w-5 h-5 text-gray-500" />
-                <div>
-                  <span className="font-medium text-gray-900">Escolha de idioma</span>
-                  <span className="ml-2 text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-medium">Em breve</span>
-                </div>
-              </button>
+              <div className="w-full">
+                <button
+                  onClick={() => setLanguageDropdownOpen(!languageDropdownOpen)}
+                  className="w-full flex items-center justify-between gap-3 p-3 rounded-lg hover:bg-gray-50 text-left"
+                >
+                  <div className="flex items-center gap-3">
+                    <Globe className="w-5 h-5 text-gray-500" />
+                    <span className="font-medium text-gray-900">{t.menu.language}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">{languageFlags[language]}</span>
+                    <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${languageDropdownOpen ? 'rotate-180' : ''}`} />
+                  </div>
+                </button>
+                {languageDropdownOpen && (
+                  <div className="px-3 pb-2 space-y-1 animate-fade-in">
+                    {(['pt', 'en', 'es', 'fr'] as const).map((lang) => (
+                      <button
+                        key={lang}
+                        onClick={() => {
+                          setLanguage(lang)
+                          setLanguageDropdownOpen(false)
+                        }}
+                        className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
+                          language === lang
+                            ? 'bg-blue-50 text-blue-700 font-medium'
+                            : 'text-gray-700 hover:bg-gray-50'
+                        }`}
+                      >
+                        <span className="text-lg">{languageFlags[lang]}</span>
+                        <span>{languageNames[lang]}</span>
+                        {language === lang && (
+                          <CheckCircle className="w-4 h-4 ml-auto text-blue-600" />
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
               <button onClick={() => { setShowChangePassword(true); setMenuOpen(false) }} className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 text-left">
                 <KeyRound className="w-5 h-5 text-gray-500" />
-                <span className="font-medium text-gray-900">Mudar a password</span>
+                <span className="font-medium text-gray-900">{t.menu.changePassword}</span>
               </button>
-              <button onClick={() => { setMenuOpen(false); alert('Notificações push estarão disponíveis em breve!') }} className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 text-left">
-                <Bell className="w-5 h-5 text-gray-500" />
-                <div>
-                  <span className="font-medium text-gray-900">Ativar notificações</span>
-                  <span className="ml-2 text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-medium">Em breve</span>
+              <button 
+                onClick={async () => {
+                  if (!pushSupported) {
+                    alert(t.menu.notificationsNotSupported)
+                    return
+                  }
+                  await handleTogglePush()
+                  setMenuOpen(false)
+                }} 
+                className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 text-left"
+                disabled={pushLoading}
+              >
+                <Bell className={`w-5 h-5 ${pushSubscribed ? 'text-green-500' : 'text-gray-500'}`} />
+                <div className="flex-1">
+                  <span className="font-medium text-gray-900">
+                    {pushLoading ? t.menu.notificationsLoading : pushSubscribed ? t.menu.deactivateNotifications : t.menu.activateNotifications}
+                  </span>
+                  {pushSubscribed && (
+                    <span className="ml-2 text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full font-medium">{t.menu.notificationsActive}</span>
+                  )}
+                  {!pushSupported && (
+                    <span className="ml-2 text-[10px] bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full font-medium">{t.menu.notificationsNotSupportedBadge}</span>
+                  )}
                 </div>
               </button>
               <div className="border-t my-2" />
               <button onClick={() => { setShowInfoModal('help'); setMenuOpen(false) }} className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 text-left">
                 <HelpCircle className="w-5 h-5 text-gray-500" />
-                <span className="font-medium text-gray-900">Ajuda</span>
-              </button>
-              <button onClick={() => { setShowInfoModal('howItWorks'); setMenuOpen(false) }} className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 text-left">
-                <GraduationCap className="w-5 h-5 text-gray-500" />
-                <span className="font-medium text-gray-900">Como funciona a Padel One</span>
+                <span className="font-medium text-gray-900">{t.common.help}</span>
               </button>
               <button onClick={() => { setShowInfoModal('privacy'); setMenuOpen(false) }} className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 text-left">
                 <Shield className="w-5 h-5 text-gray-500" />
-                <span className="font-medium text-gray-900">Privacidade</span>
+                <span className="font-medium text-gray-900">{t.menu.privacy}</span>
               </button>
-              <button onClick={() => { setMenuOpen(false); alert('Histórico de pagamentos estará disponível em breve!') }} className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 text-left">
+              <button onClick={() => { setMenuOpen(false); setCurrentScreen('payments') }} className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 text-left">
                 <CreditCard className="w-5 h-5 text-gray-500" />
-                <div>
-                  <span className="font-medium text-gray-900">Os seus Pagamentos</span>
-                  <span className="ml-2 text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-medium">Em breve</span>
-                </div>
+                <span className="font-medium text-gray-900">{t.menu.payments}</span>
               </button>
               <div className="border-t my-2" />
               <button onClick={() => { handleLogout(); setMenuOpen(false) }} className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-red-50 text-left text-red-600">
                 <LogOut className="w-5 h-5" />
-                <span className="font-medium">Terminar Sessão</span>
+                <span className="font-medium">{t.menu.logout}</span>
               </button>
             </nav>
           </div>
@@ -633,6 +728,14 @@ function App() {
             onBack={() => setCurrentScreen('home')}
           />
         )}
+
+        {currentScreen === 'payments' && player && (
+          <PaymentsScreen
+            player={player}
+            userId={authUserId}
+            onBack={() => setCurrentScreen('home')}
+          />
+        )}
         {currentScreen === 'community' && player?.user_id && (
           <CommunityScreen userId={player.user_id} playerAccountId={player.id} onOpenPlayerProfile={(uid: string) => { setSelectedPlayerUserId(uid); setCurrentScreen('player-profile') }} />
         )}
@@ -717,6 +820,7 @@ function LoginScreen({ phone, setPhone, password, setPassword, showPassword, set
   onLogin: () => void
   onRegister?: () => void
 }) {
+  const { t } = useI18n()
 
   return (
     <div className="min-h-screen bg-white flex flex-col">
@@ -734,9 +838,9 @@ function LoginScreen({ phone, setPhone, password, setPassword, showPassword, set
         {/* Title */}
         <div className="text-center mb-10 animate-slide-up">
           <h1 className="text-4xl font-black text-gray-900 mb-2">
-            PADEL <span className="text-red-600">ONE</span>
+            {t.common.appName.split(' ')[0]} <span className="text-red-600">{t.common.appName.split(' ')[1]}</span>
           </h1>
-          <p className="text-gray-500">A tua app de Padel</p>
+          <p className="text-gray-500">{t.common.appTagline}</p>
         </div>
 
         {/* Login Form */}
@@ -798,9 +902,9 @@ function LoginScreen({ phone, setPhone, password, setPassword, showPassword, set
 
           {onRegister && (
             <div className="text-center pt-2">
-              <span className="text-gray-500 text-sm">Ainda não tens conta? </span>
+              <span className="text-gray-500 text-sm">{t.common.stillNoAccount}</span>
               <button onClick={onRegister} className="text-red-600 font-semibold text-sm hover:underline">
-                Criar conta
+                {t.common.createAccount}
               </button>
             </div>
           )}
@@ -896,7 +1000,7 @@ function MatchCard({ match }: { match: PlayerMatchForCard }) {
             </span>
             <span className="flex items-center gap-1">
               <MapPin className="w-4 h-4" />
-              Campo {match.court || '-'}
+              {t.common.court} {match.court || '-'}
             </span>
           </div>
           <p className="text-sm text-gray-600 mt-1">{match.team1_name} vs {match.team2_name}</p>
@@ -971,6 +1075,7 @@ function GameCardPlaytomic({
   currentPlayerName?: string
   onPlayerClick?: (playerName: string) => void
 }) {
+  const { t } = useI18n()
   const p1 = match.player1_name ?? twoPlayersPerTeam(match.team1_name)[0]
   const p2 = match.player2_name ?? twoPlayersPerTeam(match.team1_name)[1]
   const p3 = match.player3_name ?? twoPlayersPerTeam(match.team2_name)[0]
@@ -1052,7 +1157,7 @@ function GameCardPlaytomic({
             {match.status === 'completed' && (hasSets || match.score1 != null) && (
               <div className="flex items-center gap-1.5 flex-shrink-0">
                 {team1Won && (
-                  <span className="w-7 h-7 rounded-full bg-sky-100 flex items-center justify-center text-sm flex-shrink-0" title="Equipa vencedora">🏆</span>
+                  <span className="w-7 h-7 rounded-full bg-sky-100 flex items-center justify-center text-sm flex-shrink-0" title={t.games.winnerTeam}>🏆</span>
                 )}
                 <span className={team1Won ? 'text-2xl font-bold text-gray-900' : 'text-2xl font-medium text-gray-400'}>
                   {hasSets ? team1Scores.join(' ') : match.score1}
@@ -1073,7 +1178,7 @@ function GameCardPlaytomic({
             {match.status === 'completed' && (hasSets || match.score1 != null) && (
               <div className="flex items-center gap-1.5 flex-shrink-0">
                 {team2Won && (
-                  <span className="w-7 h-7 rounded-full bg-sky-100 flex items-center justify-center text-sm flex-shrink-0" title="Equipa vencedora">🏆</span>
+                  <span className="w-7 h-7 rounded-full bg-sky-100 flex items-center justify-center text-sm flex-shrink-0" title={t.games.winnerTeam}>🏆</span>
                 )}
                 <span className={team2Won ? 'text-2xl font-bold text-gray-900' : 'text-2xl font-medium text-gray-400'}>
                   {hasSets ? team2Scores.join(' ') : match.score2}
@@ -1086,7 +1191,7 @@ function GameCardPlaytomic({
           {match.status !== 'completed' && (
             <div className="text-xs text-gray-500 text-center mt-1">
               {match.start_time ? formatDateWithTime(match.start_time).split(' | ')[1] : ''}
-              {match.court ? ` · C.${match.court}` : ''}
+              {match.court ? ` · ${t.games.courtShort}${match.court}` : ''}
             </div>
           )}
         </div>
@@ -1102,6 +1207,7 @@ function TournamentCard({
   tournament: TournamentForCard
   onViewStandings?: () => void
 }) {
+  const { t } = useI18n()
   return (
     <div className="card overflow-hidden">
       <div className="p-4">
@@ -1123,7 +1229,7 @@ function TournamentCard({
               ? 'bg-green-100 text-green-700'
               : 'bg-gray-100 text-gray-600'
           }`}>
-            {tournament.status === 'active' || tournament.status === 'in_progress' ? 'Em curso' : tournament.status}
+            {tournament.status === 'active' || tournament.status === 'in_progress' ? t.games.inProgress : tournament.status}
           </span>
         </div>
         {onViewStandings && (
@@ -1151,6 +1257,7 @@ function OpenGameCard({
   playerAccountId?: string | null
   onRefresh: () => Promise<void>
 }) {
+  const { t } = useI18n()
   const [game, setGame] = useState<import('./lib/openGames').OpenGame | null>(null)
   const [loading, setLoading] = useState(true)
   const [showAddPlayer, setShowAddPlayer] = useState(false)
@@ -1209,7 +1316,7 @@ function OpenGameCard({
           const account = playerAccountsMap[p.user_id] || playerAccountsMap[p.player_account_id]
           return {
             ...p,
-            name: account?.name || p.name || 'Jogador',
+            name: account?.name || p.name || t.common.player,
             avatar_url: account?.avatar_url || null,
             level: account?.level || null,
             player_category: account?.player_category || null,
@@ -1219,7 +1326,7 @@ function OpenGameCard({
         // Fetch club data
         const { data: clubData } = await supabase
           .from('clubs')
-          .select('name, logo_url, city')
+          .select('name, logo_url, city, payment_method')
           .eq('id', data.club_id)
           .single()
 
@@ -1242,6 +1349,7 @@ function OpenGameCard({
           court_name: courtData?.name || null,
           court_type: courtData?.type || null,
           players: enrichedPlayers,
+          club_payment_method: clubData?.payment_method || 'at_club',
         })
       }
       setLoading(false)
@@ -1271,7 +1379,7 @@ function OpenGameCard({
   const isCreator = game.creator_user_id === userId || game.players.some(p => p.position === 1 && (p.user_id === userId || p.player_account_id === playerAccountId))
 
   const handleLeaveGame = async () => {
-    if (!confirm('Tens a certeza que queres sair deste jogo?')) return
+    if (!confirm(t.games.leaveConfirm)) return
     setActionLoading(true)
     const { leaveOpenGame } = await import('./lib/openGames')
     const success = await leaveOpenGame(game.id, userId || '')
@@ -1279,12 +1387,12 @@ function OpenGameCard({
     if (success) {
       await onRefresh()
     } else {
-      alert('Erro ao sair do jogo')
+      alert(t.common.leaveGameError)
     }
   }
 
   const handleCancelGame = async () => {
-    if (!confirm('Tens a certeza que queres cancelar este jogo? Todos os jogadores serão removidos.')) return
+    if (!confirm(t.games.cancelConfirm)) return
     setActionLoading(true)
     const { cancelOpenGame } = await import('./lib/openGames')
     const success = await cancelOpenGame(game.id)
@@ -1292,12 +1400,12 @@ function OpenGameCard({
     if (success) {
       await onRefresh()
     } else {
-      alert('Erro ao cancelar jogo')
+      alert(t.common.cancelGameError)
     }
   }
 
   const handleLeaveGameCreator = async () => {
-    if (!confirm('Tens a certeza que queres sair deste jogo? O jogo continuará para os outros jogadores.')) return
+    if (!confirm(t.games.leaveConfirmCreator)) return
     setActionLoading(true)
     const { leaveOpenGame } = await import('./lib/openGames')
     const success = await leaveOpenGame(game.id, userId || '')
@@ -1305,7 +1413,7 @@ function OpenGameCard({
     if (success) {
       await onRefresh()
     } else {
-      alert('Erro ao sair do jogo')
+      alert(t.common.leaveGameError)
     }
   }
 
@@ -1371,7 +1479,7 @@ function OpenGameCard({
         })
       }
     } else {
-      alert(result.error || 'Erro ao adicionar jogador')
+      alert(result.error || t.common.addPlayerError)
     }
   }
 
@@ -1515,7 +1623,7 @@ function OpenGameCard({
             />
           </div>
           {searchLoading && (
-            <p className="text-xs text-gray-500 mt-2 text-center">A pesquisar...</p>
+            <p className="text-xs text-gray-500 mt-2 text-center">{t.games.searching}</p>
           )}
           {addPlayerResults.length > 0 && (
             <div className="mt-2 max-h-[150px] overflow-y-auto space-y-1">
@@ -1550,7 +1658,7 @@ function OpenGameCard({
             </div>
           )}
           {addPlayerSearch.length >= 2 && !searchLoading && addPlayerResults.length === 0 && (
-            <p className="text-xs text-gray-500 mt-2 text-center">Nenhum jogador encontrado</p>
+            <p className="text-xs text-gray-500 mt-2 text-center">{t.games.noPlayersFound}</p>
           )}
         </div>
       )}
@@ -1569,10 +1677,58 @@ function OpenGameCard({
             <p className="text-xs font-medium text-gray-900 truncate max-w-[120px]">{game.club_name}</p>
           </div>
         </div>
-        {game.price_per_player > 0 && (
-          <p className="text-sm font-bold text-blue-600">{game.price_per_player.toFixed(2)}€</p>
-        )}
+        <div className="text-right">
+          {game.price_per_player > 0 && (
+            <p className="text-sm font-bold text-blue-600">{game.price_per_player.toFixed(2)}€</p>
+          )}
+          {(() => {
+            const myP = game.players.find(p => p.user_id === userId || p.player_account_id === playerAccountId)
+            if (myP?.payment_status === 'paid') {
+              return <span className="text-[9px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full font-medium">✅ Pago</span>
+            }
+            if (game.club_payment_method && game.club_payment_method !== 'at_club' && game.price_per_player > 0) {
+              return <span className="text-[9px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full font-medium">💳 Online</span>
+            }
+            return null
+          })()}
+        </div>
       </div>
+
+      {/* Pay online button */}
+      {isInGame && (() => {
+        const myP = game.players.find(p => p.user_id === userId || p.player_account_id === playerAccountId)
+        return myP?.payment_status !== 'paid' && game.club_payment_method && game.club_payment_method !== 'at_club' && game.price_per_player > 0
+      })() && (
+        <div className="px-4 pb-2 pt-0">
+          <button
+            onClick={async () => {
+              if (!playerAccountId) return
+              try {
+                const { supabase } = await import('./lib/supabase')
+                const { data: checkoutData, error: checkoutErr } = await supabase.functions.invoke('create-game-checkout', {
+                  body: {
+                    gameId: game.id,
+                    paymentType: 'per_player',
+                    playerAccountId,
+                    successUrl: window.location.origin,
+                    cancelUrl: window.location.origin,
+                  },
+                })
+                if (!checkoutErr && checkoutData?.url) {
+                  window.location.href = checkoutData.url
+                } else {
+                  alert(t.common.paymentError)
+                }
+              } catch (e) {
+                alert('Erro ao iniciar pagamento.')
+              }
+            }}
+            className="w-full py-2 rounded-xl text-sm font-semibold bg-blue-600 hover:bg-blue-700 text-white transition-colors"
+          >
+            💳 Pagar {game.price_per_player.toFixed(2)}€
+          </button>
+        </div>
+      )}
 
       {/* Actions */}
       {isInGame && (
@@ -1602,7 +1758,166 @@ function OpenGameCard({
 }
 
 // ==================== REWARDS SCREEN ====================
+// ==================== PAYMENTS SCREEN ====================
+function PaymentsScreen({ player, userId, onBack }: { player: PlayerAccount; userId: string | null; onBack: () => void }) {
+  const { t, language } = useI18n()
+  const [payments, setPayments] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    loadPayments()
+  }, [])
+
+  const loadPayments = async () => {
+    setLoading(true)
+    try {
+      // Fetch payments for this player
+      const { data, error } = await supabase
+        .from('open_game_payments')
+        .select(`
+          id,
+          game_id,
+          amount,
+          currency,
+          payment_type,
+          status,
+          created_at,
+          open_games (
+            scheduled_at,
+            club_id,
+            duration_minutes
+          )
+        `)
+        .or(`player_account_id.eq.${player.id}${userId ? `,user_id.eq.${userId}` : ''}`)
+        .order('created_at', { ascending: false })
+        .limit(50)
+
+      if (!error && data) {
+        // Fetch club names for the games
+        const clubIds = [...new Set(data.map((p: any) => (p.open_games as any)?.club_id).filter(Boolean))]
+        let clubsMap: { [id: string]: string } = {}
+        if (clubIds.length > 0) {
+          const { data: clubs } = await supabase
+            .from('clubs')
+            .select('id, name')
+            .in('id', clubIds)
+          if (clubs) clubs.forEach((c: any) => { clubsMap[c.id] = c.name })
+        }
+
+        setPayments(data.map((p: any) => ({
+          ...p,
+          club_name: clubsMap[(p.open_games as any)?.club_id] || 'Clube',
+          game_date: (p.open_games as any)?.scheduled_at || null,
+        })))
+      }
+    } catch (e) {
+      console.error('Error loading payments:', e)
+    }
+    setLoading(false)
+  }
+
+  const statusLabel = (s: string) => {
+    switch (s) {
+      case 'succeeded': return { text: t.payments.paid, color: 'bg-green-100 text-green-700' }
+      case 'pending': return { text: t.payments.pending, color: 'bg-amber-100 text-amber-700' }
+      case 'failed': return { text: t.payments.failed, color: 'bg-red-100 text-red-700' }
+      case 'refunded': return { text: t.payments.refunded, color: 'bg-blue-100 text-blue-700' }
+      default: return { text: s, color: 'bg-gray-100 text-gray-600' }
+    }
+  }
+
+  const typeLabel = (type: string) => type === 'full_court' ? t.payments.fullCourt : t.payments.perPlayer
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
+      <div className="bg-white border-b sticky top-0 z-30">
+        <div className="max-w-lg mx-auto px-4 py-3 flex items-center gap-3">
+          <button onClick={onBack} className="p-1.5 hover:bg-gray-100 rounded-lg transition">
+            <ArrowLeft className="w-5 h-5 text-gray-700" />
+          </button>
+          <h1 className="text-lg font-bold text-gray-900">{t.payments.title}</h1>
+        </div>
+      </div>
+
+      <div className="max-w-lg mx-auto px-4 py-4">
+        {loading ? (
+          <div className="space-y-3">
+            {[1, 2, 3].map(i => (
+              <div key={i} className="bg-white rounded-xl p-4 animate-pulse">
+                <div className="h-4 bg-gray-200 rounded w-3/4 mb-2" />
+                <div className="h-3 bg-gray-200 rounded w-1/2" />
+              </div>
+            ))}
+          </div>
+        ) : payments.length === 0 ? (
+          <div className="text-center py-16">
+            <CreditCard className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+            <h3 className="text-lg font-medium text-gray-900 mb-2">{t.payments.noPayments}</h3>
+            <p className="text-sm text-gray-500">{t.payments.noPaymentsMessage}</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {/* Summary card */}
+            {(() => {
+              const totalPaid = payments.filter(p => p.status === 'succeeded').reduce((sum: number, p: any) => sum + parseFloat(p.amount), 0)
+              const totalPending = payments.filter(p => p.status === 'pending').reduce((sum: number, p: any) => sum + parseFloat(p.amount), 0)
+              return (
+                <div className="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-2xl p-4 text-white mb-2">
+                  <p className="text-xs font-medium text-blue-200 mb-1">{t.payments.totalPaid}</p>
+                  <p className="text-2xl font-bold">{totalPaid.toFixed(2)}€</p>
+                  {totalPending > 0 && (
+                    <p className="text-xs text-blue-200 mt-1">{totalPending.toFixed(2)}€ {t.payments.pending}</p>
+                  )}
+                  <p className="text-xs text-blue-200 mt-2">{payments.length} {payments.length > 1 ? t.payments.transactionsPlural : t.payments.transactions}</p>
+                </div>
+              )
+            })()}
+
+            {/* Payments list */}
+            {payments.map((p: any) => {
+              const st = statusLabel(p.status)
+              const gameDate = p.game_date ? new Date(p.game_date) : null
+              const payDate = new Date(p.created_at)
+              return (
+                <div key={p.id} className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm">
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-gray-900">{p.club_name}</p>
+                      {gameDate && (
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          {t.payments.game}: {gameDate.toLocaleDateString(language === 'pt' ? 'pt-PT' : language === 'es' ? 'es-ES' : language === 'fr' ? 'fr-FR' : 'en-GB')} {language === 'pt' ? 'às' : language === 'es' ? 'a las' : language === 'fr' ? 'à' : 'at'} {gameDate.getHours().toString().padStart(2, '0')}:{gameDate.getMinutes().toString().padStart(2, '0')}
+                        </p>
+                      )}
+                      <div className="flex items-center gap-2 mt-1.5">
+                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${st.color}`}>
+                          {st.text}
+                        </span>
+                        <span className="text-[10px] text-gray-400">{typeLabel(p.payment_type)}</span>
+                      </div>
+                      <p className="text-[10px] text-gray-400 mt-1">
+                        {payDate.toLocaleDateString('pt-PT')} {payDate.getHours().toString().padStart(2, '0')}:{payDate.getMinutes().toString().padStart(2, '0')}
+                      </p>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <p className={`text-lg font-bold ${p.status === 'succeeded' ? 'text-green-600' : p.status === 'pending' ? 'text-amber-600' : 'text-gray-600'}`}>
+                        {parseFloat(p.amount).toFixed(2)}€
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ==================== REWARDS SCREEN ====================
 function RewardsScreen({ player, onBack }: { player: PlayerAccount; onBack: () => void }) {
+  const { t } = useI18n()
   const [activeTab, setActiveTab] = useState<'catalog' | 'history'>('catalog')
   const [catalogItems, setCatalogItems] = useState<import('./lib/openGames').CatalogItem[]>([])
   const [pointsByClub, setPointsByClub] = useState<Map<string, number>>(new Map())
@@ -1626,7 +1941,7 @@ function RewardsScreen({ player, onBack }: { player: PlayerAccount; onBack: () =
   const CATEGORY_LABELS: Record<string, { emoji: string; label: string }> = {
     drink: { emoji: '🍺', label: 'Bebidas' },
     food: { emoji: '🍕', label: 'Comida' },
-    court: { emoji: '🏟️', label: 'Campo' },
+    court: { emoji: '🏟️', label: t.games.court },
     merchandise: { emoji: '👕', label: 'Merchandise' },
     lesson: { emoji: '🎓', label: 'Aulas' },
     discount: { emoji: '💰', label: 'Descontos' },
@@ -1668,10 +1983,10 @@ function RewardsScreen({ player, onBack }: { player: PlayerAccount; onBack: () =
         // Auto-dismiss after 5 seconds
         setTimeout(() => setSuccessMessage(null), 5000)
       } else {
-        alert(result.error || 'Erro ao resgatar recompensa')
+        alert(result.error || t.common.redeemError)
       }
     } catch (err) {
-      alert('Erro de ligação. Tenta novamente.')
+      alert(t.common.connectionError)
     }
     setRedeeming(null)
   }
@@ -1766,7 +2081,7 @@ function RewardsScreen({ player, onBack }: { player: PlayerAccount; onBack: () =
       {loading && (
         <div className="text-center py-12">
           <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-red-500 mx-auto mb-3"></div>
-          <p className="text-sm text-gray-500">A carregar recompensas...</p>
+          <p className="text-sm text-gray-500">{t.common.loadingRewards}</p>
         </div>
       )}
 
@@ -1979,7 +2294,7 @@ function RewardsScreen({ player, onBack }: { player: PlayerAccount; onBack: () =
                   onClick={() => setConfirmItem(null)}
                   className="flex-1 py-3 rounded-xl border border-gray-300 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors"
                 >
-                  Cancelar
+                  {t.common.cancel}
                 </button>
                 <button
                   onClick={() => handleRedeem(confirmItem)}
@@ -2036,6 +2351,7 @@ function HomeScreen({
   onOpenRewards: () => void
   onOpenBooking: () => void
 }) {
+  const { t } = useI18n()
   const [viewingTournament, setViewingTournament] = useState<{ id: string; name: string } | null>(null)
   const [followingCount, setFollowingCount] = useState(0)
   const [followersCount, setFollowersCount] = useState(0)
@@ -2060,7 +2376,7 @@ function HomeScreen({
   }
 
   const d = dashboardData
-  const name = d?.playerName || player?.name?.split(' ')[0] || 'Jogador'
+  const name = d?.playerName || player?.name?.split(' ')[0] || t.common.player
   const wins = d?.stats.wins ?? player?.wins ?? 0
   const points = d?.leagueStandings?.[0]?.points ?? player?.points ?? 0
   const upcomingMatches = d?.upcomingMatches ?? []
@@ -2112,11 +2428,11 @@ function HomeScreen({
     <div className="space-y-6 animate-fade-in">
       {/* Quick Actions */}
       <div className="grid grid-cols-5 gap-3">
-        <ActionButton icon={Calendar} label="Reservar" color="lime" onClick={onOpenBooking} />
-        <ActionButton icon={Building2} label="Clube Favorito" color="blue" onClick={onOpenClub} />
-        <ActionButton icon={Trophy} label="Competir" color="amber" onClick={onOpenCompete} />
-        <ActionButton icon={Gamepad2} label="Encontrar Jogo" color="purple" emoji="🎾" onClick={onOpenFindGame} />
-        <ActionButton icon={GraduationCap} label="Aprender" color="emerald" onClick={onOpenLearn} />
+        <ActionButton icon={Calendar} label={t.home.book} color="lime" onClick={onOpenBooking} />
+        <ActionButton icon={Building2} label={t.home.favoriteClub} color="blue" onClick={onOpenClub} />
+        <ActionButton icon={Trophy} label={t.home.compete} color="amber" onClick={onOpenCompete} />
+        <ActionButton icon={Gamepad2} label={t.home.findGame} color="purple" emoji="🎾" onClick={onOpenFindGame} />
+        <ActionButton icon={GraduationCap} label={t.home.learn} color="emerald" onClick={onOpenLearn} />
       </div>
 
       {/* Profile Card - Foto + Nome + Bio */}
@@ -2138,7 +2454,7 @@ function HomeScreen({
             )}
           </div>
           <div className="flex-1 min-w-0">
-            <h2 className="font-bold text-xl text-gray-900">{player?.name || name || 'Jogador'}</h2>
+            <h2 className="font-bold text-xl text-gray-900">{player?.name || name || t.common.player}</h2>
             {truncatedBio && (
               <p className="text-sm text-gray-600 mt-1 leading-relaxed">{truncatedBio}</p>
             )}
@@ -2162,10 +2478,10 @@ function HomeScreen({
             <div className="flex items-center justify-between">
               <div className="flex-1">
                 <p className={`text-5xl font-bold ${hasGradient ? 'text-white' : 'text-red-600'}`}>
-                  Nível {player?.level?.toFixed(1) || '3.0'}
+                  {t.home.level} {player?.level?.toFixed(1) || '3.0'}
                 </p>
                 <p className={`text-sm mt-2 flex items-center gap-1.5 ${hasGradient ? 'text-white/90' : 'text-gray-600'}`}>
-                  <span>📊</span> Fiabilidade {player?.level_reliability_percent?.toFixed(0) ?? '85'}%
+                  <span>📊</span> {t.home.reliability} {player?.level_reliability_percent?.toFixed(0) ?? '85'}%
                 </p>
               </div>
               {player?.player_category && colors && hasGradient && (
@@ -2214,7 +2530,7 @@ function HomeScreen({
         <div className="flex items-center justify-between">
           <div>
             <p className={`text-sm font-medium mb-1 flex items-center gap-1.5 ${rewardTier.textColor}`}>
-              <span className="text-lg">{rewardTier.emoji}</span> Pontos Reward · {rewardTier.name}
+              <span className="text-lg">{rewardTier.emoji}</span> {t.home.rewardPoints} · {rewardTier.name}
             </p>
             <p className={`text-4xl font-bold ${rewardTier.textColor}`}>{rewardPoints}</p>
           </div>
@@ -2233,7 +2549,7 @@ function HomeScreen({
               rewardTier.textColor === 'text-amber-700' ? 'bg-amber-600 text-white hover:bg-amber-700' :
               'bg-gray-600 text-white hover:bg-gray-700'}`}
         >
-          🎁 Gastar os meus pontos
+          🎁 {t.home.spendPoints}
         </button>
       </div>
 
@@ -2241,10 +2557,10 @@ function HomeScreen({
       <div>
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-            <span>📅</span> Próximos Jogos
+            <span>📅</span> {t.home.upcomingGames}
           </h2>
           <button onClick={onOpenGames} className="text-red-600 text-sm font-medium flex items-center gap-1">
-            Ver todos <ChevronRight className="w-4 h-4" />
+            {t.home.viewAll} <ChevronRight className="w-4 h-4" />
           </button>
         </div>
         {upcomingMatches.length > 0 ? (
@@ -2275,8 +2591,8 @@ function HomeScreen({
         ) : (
           <div className="card p-6 text-center">
             <span className="text-4xl mb-2 block">🎾</span>
-            <p className="text-gray-700 font-medium">Sem jogos agendados</p>
-            <p className="text-sm text-gray-500 mt-1">Inscreve-te num torneio e entra na ação 🚀</p>
+            <p className="text-gray-700 font-medium">{t.home.noGamesScheduled}</p>
+            <p className="text-sm text-gray-500 mt-1">{t.home.enrollTournament}</p>
           </div>
         )}
       </div>
@@ -2285,10 +2601,10 @@ function HomeScreen({
       <div>
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-            <span>🏆</span> Os Meus Torneios
+            <span>🏆</span> {t.home.myTournaments}
           </h2>
           <button onClick={onOpenCompete} className="text-red-600 text-sm font-medium flex items-center gap-1">
-            Ver todos <ChevronRight className="w-4 h-4" />
+            {t.home.viewAll} <ChevronRight className="w-4 h-4" />
           </button>
         </div>
         <div className="space-y-3">
@@ -2304,7 +2620,7 @@ function HomeScreen({
             <div className="card p-6 text-center">
               <span className="text-4xl mb-2 block">🏆</span>
               <p className="text-gray-700 font-medium">Nenhum torneio em que estejas inscrito</p>
-              <p className="text-sm text-gray-500 mt-1">Entra na Padel One Tour e compete 🔥</p>
+              <p className="text-sm text-gray-500 mt-1">{t.common.enterTourApp}</p>
             </div>
           )}
         </div>
@@ -2315,10 +2631,10 @@ function HomeScreen({
         <div>
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-              <span>📊</span> Resultados Recentes
+              <span>📊</span> {t.home.recentResults}
             </h2>
             <button onClick={onOpenGames} className="text-red-600 text-sm font-medium flex items-center gap-1">
-              Ver todos <ChevronRight className="w-4 h-4" />
+              {t.home.viewAll} <ChevronRight className="w-4 h-4" />
             </button>
           </div>
           <div className="overflow-x-auto pb-2 -mx-4 px-4 sm:mx-0 sm:px-0 snap-x snap-mandatory scroll-smooth games-horizontal-scroll">
@@ -2404,7 +2720,7 @@ function HomeScreen({
                         <div><p className="font-medium text-gray-900">{m.team1_name}</p><p className="text-sm text-gray-500">vs</p><p className="font-medium text-gray-900">{m.team2_name}</p></div>
                         <div className="text-right">
                           {m.status === 'completed' ? <span className="text-lg font-bold">{scoreDisplay}</span> : <span className="text-sm text-gray-500">{formatDateTime(m.scheduled_time)}</span>}
-                          {m.is_winner !== undefined && <span className={`block text-xs mt-1 ${m.is_winner ? 'text-green-600' : 'text-red-600'}`}>{m.is_winner ? 'Vitória' : 'Derrota'}</span>}
+                          {m.is_winner !== undefined && <span className={`block text-xs mt-1 ${m.is_winner ? 'text-green-600' : 'text-red-600'}`}>{m.is_winner ? t.common.victory : t.common.defeat}</span>}
                         </div>
                       </div>
                     </div>
@@ -2421,6 +2737,7 @@ function HomeScreen({
 
 // ---------- Comunidade ----------
 function CommunityScreen({ userId, playerAccountId, onOpenPlayerProfile }: { userId: string; playerAccountId: string; onOpenPlayerProfile: (userId: string) => void }) {
+  const { t } = useI18n()
   const [activeTab, setActiveTab] = useState<'feed' | 'grupos'>('feed')
 
   // Feed state
@@ -2707,7 +3024,7 @@ function CommunityScreen({ userId, playerAccountId, onOpenPlayerProfile }: { use
         )}
 
         {groupMembersLoading ? (
-          <div className="text-center py-8 text-gray-400">A carregar membros...</div>
+          <div className="text-center py-8 text-gray-400">{t.common.loadingMembers}</div>
         ) : (
           <div className="space-y-2">
             {groupMembers.map(m => {
@@ -2768,7 +3085,7 @@ function CommunityScreen({ userId, playerAccountId, onOpenPlayerProfile }: { use
               }
             }}
             onFocus={() => { if (playerSearchQuery.trim().length >= 2) setShowPlayerSearch(true) }}
-            placeholder="Pesquisar jogadores..."
+            placeholder={t.games.searchPlayers}
             className="w-full pl-9 pr-10 py-2.5 bg-gray-100 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-500 focus:bg-white transition-colors"
           />
           {playerSearchQuery && (
@@ -2859,7 +3176,7 @@ function CommunityScreen({ userId, playerAccountId, onOpenPlayerProfile }: { use
       {activeTab === 'feed' && (
         <div>
           {feedLoading ? (
-            <div className="text-center py-12 text-gray-400">A carregar...</div>
+            <div className="text-center py-12 text-gray-400">{t.common.loading}</div>
           ) : (
             <>
               {/* Sugestões de jogadores */}
@@ -3025,7 +3342,7 @@ function CommunityScreen({ userId, playerAccountId, onOpenPlayerProfile }: { use
                           {/* Footer */}
                           <div className="px-3 py-1.5 border-t border-gray-50 flex items-center justify-between">
                             <span className="text-[10px] text-gray-400">
-                              {match.round && match.round !== 'null' ? `Ronda ${match.round}` : ''} {match.court ? `· Campo ${match.court}` : ''}
+                              {match.round && match.round !== 'null' ? `${t.games.round} ${match.round}` : ''} {match.court ? `· ${t.games.court} ${match.court}` : ''}
                             </span>
                             <button className="flex items-center gap-1 text-gray-400 hover:text-red-500 transition-colors">
                               <Heart className="w-3.5 h-3.5" />
@@ -3107,7 +3424,7 @@ function CommunityScreen({ userId, playerAccountId, onOpenPlayerProfile }: { use
       {activeTab === 'grupos' && (
         <div>
           {groupsLoading ? (
-            <div className="text-center py-12 text-gray-400">A carregar...</div>
+            <div className="text-center py-12 text-gray-400">{t.common.loading}</div>
           ) : (
             <>
               {/* Create group button */}
@@ -3240,7 +3557,7 @@ function ClubScreen({ favoriteClubId, onBack }: { favoriteClubId: string | null;
     return (
       <div className="space-y-4">
         <button onClick={onBack} className="flex items-center gap-2 text-gray-600 hover:text-gray-900">
-          <ArrowLeft className="w-5 h-5" /> Voltar
+          <ArrowLeft className="w-5 h-5" /> {t.common.back}
         </button>
         <div className="flex items-center justify-center py-12">
           <div className="w-10 h-10 border-2 border-red-600 border-t-transparent rounded-full animate-spin" />
@@ -3253,12 +3570,12 @@ function ClubScreen({ favoriteClubId, onBack }: { favoriteClubId: string | null;
     return (
       <div className="space-y-4">
         <button onClick={onBack} className="flex items-center gap-2 text-gray-600 hover:text-gray-900">
-          <ArrowLeft className="w-5 h-5" /> Voltar
+          <ArrowLeft className="w-5 h-5" /> {t.common.back}
         </button>
         <div className="card p-8 text-center">
           <Building2 className="w-16 h-16 text-gray-300 mx-auto mb-3" />
-          <p className="text-gray-500">Ainda não escolheste o teu clube.</p>
-          <p className="text-sm text-gray-400 mt-1">Vai ao Perfil e escolhe o teu clube favorito na lista de clubes Padel One.</p>
+              <p className="text-gray-500">{t.common.noClubSelected}</p>
+          <p className="text-sm text-gray-400 mt-1">{t.common.goToProfile}</p>
         </div>
       </div>
     )
@@ -3694,7 +4011,7 @@ function CompeteScreen({
                   </div>
                 ) : (
                   <div className="card p-8 text-center text-gray-500">
-                    Nenhum torneio onde estejas inscrito. Consulta a Padel One Tour para mais torneios.
+                    {t.common.noTournamentsEnrolled}
                   </div>
                 )}
 
@@ -3723,7 +4040,7 @@ function CompeteScreen({
                           <div className="card p-6 text-center">
                             <span className="text-4xl mb-2 block">🎯</span>
                             <p className="text-gray-700 font-medium">Nenhum torneio disponível para o teu género</p>
-                            <p className="text-sm text-gray-500 mt-1">Consulta a Padel One Tour para mais torneios</p>
+                            <p className="text-sm text-gray-500 mt-1">{t.common.checkTourApp}</p>
                           </div>
                         )}
                       </div>
@@ -3764,7 +4081,7 @@ function CompeteScreen({
             <div className="card p-8 text-center">
               <Trophy className="w-16 h-16 text-gray-200 mx-auto mb-3" />
               <p className="text-gray-500">Ainda não participas em nenhuma liga.</p>
-              <p className="text-sm text-gray-400 mt-1">Inscreve-te em torneios associados a ligas na Padel One Tour.</p>
+              <p className="text-sm text-gray-400 mt-1">{t.common.enrollInTournaments}</p>
             </div>
           )}
         </div>
@@ -3812,7 +4129,7 @@ function CompeteScreen({
                           )}
                         </div>
                         {!details && !pastTournamentLoading && (
-                          <span className="text-xs text-gray-400 animate-pulse flex-shrink-0">A carregar...</span>
+                          <span className="text-xs text-gray-400 animate-pulse flex-shrink-0">{t.common.loading}</span>
                         )}
                       </div>
 
@@ -4116,7 +4433,7 @@ function CompeteScreen({
                         <div><p className="font-medium text-gray-900">{m.team1_name}</p><p className="text-sm text-gray-500">vs</p><p className="font-medium text-gray-900">{m.team2_name}</p></div>
                         <div className="text-right">
                           {m.status === 'completed' ? <span className="text-lg font-bold">{scoreDisplay}</span> : <span className="text-sm text-gray-500">{formatDateTime(m.scheduled_time)}</span>}
-                          {m.is_winner !== undefined && <span className={`block text-xs mt-1 ${m.is_winner ? 'text-green-600' : 'text-red-600'}`}>{m.is_winner ? 'Vitória' : 'Derrota'}</span>}
+                          {m.is_winner !== undefined && <span className={`block text-xs mt-1 ${m.is_winner ? 'text-green-600' : 'text-red-600'}`}>{m.is_winner ? t.common.victory : t.common.defeat}</span>}
                         </div>
                       </div>
                     </div>
@@ -4146,6 +4463,7 @@ function FindGameScreen({
   onOpenPlayerProfile: (userId: string) => void
   onRefresh?: () => Promise<void>
 }) {
+  const { t } = useI18n()
   const [activeSection, setActiveSection] = useState<'existing' | 'request' | 'create' | 'results'>('existing')
   const [loading, setLoading] = useState(true)
   const [games, setGames] = useState<import('./lib/openGames').OpenGame[]>([])
@@ -4309,9 +4627,31 @@ function FindGameScreen({
       setGames(data)
       if (result.status === 'pending') {
         alert('Pedido enviado! Os jogadores terão que aceitar o teu pedido.')
+      } else if (result.status === 'confirmed' && game.club_payment_method && game.club_payment_method !== 'at_club' && game.price_per_player > 0 && player?.id) {
+        // Offer online payment after joining
+        const wantsToPay = confirm(`Entraste no jogo! Queres pagar ${game.price_per_player.toFixed(2)}€ online agora?`)
+        if (wantsToPay) {
+          try {
+            const { data: checkoutData, error: checkoutErr } = await supabase.functions.invoke('create-game-checkout', {
+              body: {
+                gameId: game.id,
+                paymentType: 'per_player',
+                playerAccountId: player.id,
+                successUrl: window.location.origin,
+                cancelUrl: window.location.origin,
+              },
+            })
+            if (!checkoutErr && checkoutData?.url) {
+              window.location.href = checkoutData.url
+              return
+            }
+          } catch (e) {
+            console.error('Stripe checkout error:', e)
+          }
+        }
       }
     } else {
-      alert(result.error || 'Erro ao entrar no jogo')
+      alert(result.error || t.common.joinGameError)
     }
   }
 
@@ -4390,7 +4730,7 @@ function FindGameScreen({
 
   // Cancel a game
   const handleCancelGame = async (game: import('./lib/openGames').OpenGame) => {
-    if (!confirm('Tens a certeza que queres cancelar este jogo?')) return
+                if (!confirm(t.games.cancelConfirmSimple)) return
     const { cancelOpenGame } = await import('./lib/openGames')
     const success = await cancelOpenGame(game.id)
     if (success) {
@@ -4398,7 +4738,7 @@ function FindGameScreen({
       const data = await fetchOpenGames({})
       setGames(data)
     } else {
-      alert('Erro ao cancelar jogo')
+      alert(t.common.cancelGameError)
     }
   }
 
@@ -4435,7 +4775,7 @@ function FindGameScreen({
       const data = await fetchOpenGames({})
       setGames(data)
     } else {
-      alert(result.error || 'Erro ao adicionar jogador')
+      alert(result.error || t.common.addPlayerError)
     }
   }
 
@@ -4446,6 +4786,7 @@ function FindGameScreen({
     const isInGame = isPlayerInGame(game)
     const isCreator = isGameCreator(game)
     const levelColors = categoryColors(player?.player_category)
+    const myPlayer = game.players.find(p => p.user_id === userId || (player?.id && p.player_account_id === player.id))
 
     return (
       <div key={game.id} className="border border-gray-200 rounded-2xl overflow-hidden bg-white shadow-sm">
@@ -4458,14 +4799,14 @@ function FindGameScreen({
           {/* Game Type & Level Range */}
           <div className="flex items-center gap-3 text-xs text-gray-500 mb-3 flex-wrap">
             <span className="flex items-center gap-1">
-              {game.game_type === 'competitive' ? '🏆' : '🤝'} {game.game_type === 'competitive' ? 'Competitivo' : 'Amigável'}
+              {game.game_type === 'competitive' ? '🏆' : '🤝'} {game.game_type === 'competitive' ? t.games.competitive : t.games.friendly}
             </span>
             <span className="flex items-center gap-1">
               📊 {game.level_min.toFixed(1)} - {game.level_max.toFixed(1)}
             </span>
             {game.gender !== 'all' && (
               <span className="flex items-center gap-1">
-                {game.gender === 'male' ? '♂️' : game.gender === 'female' ? '♀️' : '⚥'} {game.gender === 'male' ? 'Masc.' : game.gender === 'female' ? 'Fem.' : 'Misto'}
+                {game.gender === 'male' ? '♂️' : game.gender === 'female' ? '♀️' : '⚥'} {game.gender === 'male' ? t.games.male : game.gender === 'female' ? t.games.female : t.games.mixed}
               </span>
             )}
             {game.court_name && (
@@ -4618,7 +4959,7 @@ function FindGameScreen({
                     <span className="text-lg">⏳</span>
                     <div className="flex-1">
                       <p className="text-sm font-semibold text-amber-800">Pedido pendente</p>
-                      <p className="text-xs text-amber-600">A aguardar aprovação dos jogadores</p>
+                      <p className="text-xs text-amber-600">{t.common.awaitingApproval}</p>
                     </div>
                   </div>
                 </div>
@@ -4689,7 +5030,7 @@ function FindGameScreen({
                                     })
                                     setGames(data)
                                   } else {
-                                    alert(result.error || 'Erro ao votar')
+                                    alert(result.error || t.common.voteError)
                                   }
                                 }}
                                 className="px-2.5 py-1.5 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors text-xs font-semibold"
@@ -4715,7 +5056,7 @@ function FindGameScreen({
                                     })
                                     setGames(data)
                                   } else {
-                                    alert(result.error || 'Erro ao votar')
+                                    alert(result.error || t.common.voteError)
                                   }
                                 }}
                                 className="px-2.5 py-1.5 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors text-xs font-semibold"
@@ -4754,8 +5095,46 @@ function FindGameScreen({
               <p className="text-lg font-bold text-blue-600">{game.price_per_player.toFixed(2)}€</p>
             )}
             <p className="text-[10px] text-gray-500">{game.duration_minutes}min</p>
+            {game.club_payment_method && game.club_payment_method !== 'at_club' && game.price_per_player > 0 && (
+              <span className="text-[9px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full font-medium">💳 Online</span>
+            )}
+            {isInGame && myPlayer?.payment_status === 'paid' && (
+              <span className="text-[9px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full font-medium mt-0.5 inline-block">✅ Pago</span>
+            )}
           </div>
         </div>
+
+        {/* Pay online button for players who joined but haven't paid */}
+        {isInGame && myPlayer?.payment_status !== 'paid' && game.club_payment_method && game.club_payment_method !== 'at_club' && game.price_per_player > 0 && (
+          <div className="px-4 pb-2 pt-0">
+            <button
+              onClick={async () => {
+                if (!player?.id) return
+                try {
+                  const { data: checkoutData, error: checkoutErr } = await supabase.functions.invoke('create-game-checkout', {
+                    body: {
+                      gameId: game.id,
+                      paymentType: 'per_player',
+                      playerAccountId: player.id,
+                      successUrl: window.location.origin,
+                      cancelUrl: window.location.origin,
+                    },
+                  })
+                  if (!checkoutErr && checkoutData?.url) {
+                    window.location.href = checkoutData.url
+                  } else {
+                    alert(t.common.paymentError)
+                  }
+                } catch (e) {
+                  alert(t.common.paymentError)
+                }
+              }}
+              className="w-full py-2 rounded-xl text-sm font-semibold bg-blue-600 hover:bg-blue-700 text-white transition-colors"
+            >
+              💳 Pagar {game.price_per_player.toFixed(2)}€
+            </button>
+          </div>
+        )}
 
         {/* Join/Request/Cancel buttons */}
         {!isInGame && !game.players.some(p => (p.status === 'pending' || p.status === 'rejected') && (p.user_id === userId || (player?.id && p.player_account_id === player.id))) && (
@@ -4792,12 +5171,12 @@ function FindGameScreen({
                   setGames(data)
                   if (onRefresh) onRefresh()
                 } else {
-                  alert('Erro ao sair do jogo')
+                  alert(t.common.leaveGameError)
                 }
               }}
               className="w-full py-2 rounded-xl text-sm font-semibold text-orange-600 bg-orange-50 border border-orange-200 hover:bg-orange-100 transition-colors"
             >
-              🚪 Sair do jogo
+              🚪 {t.common.leaveGame}
             </button>
             {/* Cancelar jogo — só para o criador */}
             {isCreator && (
@@ -4805,7 +5184,7 @@ function FindGameScreen({
                 onClick={() => handleCancelGame(game)}
                 className="w-full py-1.5 rounded-xl text-xs font-medium text-red-500 hover:text-red-700 hover:bg-red-50 transition-colors"
               >
-                ❌ Cancelar jogo
+                ❌ {t.common.cancelGame}
               </button>
             )}
           </div>
@@ -4858,7 +5237,7 @@ function FindGameScreen({
           { value: 'all', label: 'Todo o dia', icon: '🕐' },
           { value: 'morning', label: 'Manhã', icon: '🌅' },
           { value: 'afternoon', label: 'Tarde', icon: '☀️' },
-          { value: 'night', label: 'Noite', icon: '🌙' },
+          { value: 'night', label: t.common.evening, icon: '🌙' },
         ].map(p => (
           <button
             key={p.value}
@@ -5033,7 +5412,7 @@ function FindGameScreen({
                             >
                               <p className="font-bold text-gray-900 text-sm">{slot.time}</p>
                               <p className="text-[10px] text-gray-500">
-                                {(slot.courts?.length || 1)} campo{(slot.courts?.length || 1) > 1 ? 's' : ''} • {slot.durations.includes(90) ? '90min' : '60min'}
+                                {(slot.courts?.length || 1)} {(slot.courts?.length || 1) > 1 ? t.games.courts : t.games.court} • {slot.durations.includes(90) ? '90min' : '60min'}
                               </p>
                               {slot.courts && slot.courts.length === 1 && slot.courts[0].court_type && (
                                 <p className="text-[9px] text-gray-400">
@@ -5095,7 +5474,7 @@ function FindGameScreen({
                           {new Date(game.scheduled_at).toLocaleDateString('pt-PT', { weekday: 'short', day: '2-digit', month: '2-digit' })} às {new Date(game.scheduled_at).toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' })}
                         </p>
                         {isConfirmed && (
-                          <span className="px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs font-medium">✓ Confirmado</span>
+                          <span className="px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs font-medium">✓ {t.games.confirmed}</span>
                         )}
                         {isPending && (
                           <span className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full text-xs font-medium">⏳ Aguarda confirmação</span>
@@ -5481,10 +5860,10 @@ function FindGameScreen({
               {/* Court Selector */}
               {createModal.courts.length > 1 && (
                 <div>
-                  <label className="text-sm font-semibold text-gray-700 mb-2 block">🏟️ Campo</label>
+                  <label className="text-sm font-semibold text-gray-700 mb-2 block">🏟️ {t.games.court}</label>
                   <div className="flex gap-2 flex-wrap">
                     {createModal.courts.map((c, i) => {
-                      const typeLabel = c.court_type === 'indoor' ? '🏠 Indoor' : c.court_type === 'outdoor' ? '☀️ Outdoor' : c.court_type === 'covered' ? '🏗️ Coberto' : ''
+                      const typeLabel = c.court_type === 'indoor' ? `🏠 ${t.games.indoor}` : c.court_type === 'outdoor' ? `☀️ ${t.games.outdoor}` : c.court_type === 'covered' ? `🏗️ ${t.games.covered}` : ''
                       return (
                         <button
                           key={c.court_id}
@@ -5508,7 +5887,7 @@ function FindGameScreen({
               )}
               {createModal.courts.length === 1 && (
                 <div className="p-3 bg-indigo-50 rounded-xl flex items-center gap-2">
-                  <span className="text-sm text-gray-600">🏟️ Campo:</span>
+                  <span className="text-sm text-gray-600">🏟️ {t.games.court}:</span>
                   <span className="font-semibold text-indigo-700 text-sm">
                     {createModal.courts[0].court_name}
                     {createModal.courts[0].court_type && (
@@ -5955,6 +6334,7 @@ function ClassCard({
   onOpenPlayerProfile?: (userId: string) => void
   onOpenClub?: (clubId: string) => void
 }) {
+  const { t } = useI18n()
   const { scheduled_at, title, professor, professor_phone, professor_avatar, club, club_id, level, gender, maxPlayers, participants, price } = classItem
   const dateStr = scheduled_at.split('T')[0]
   const timeStr = formatTime(scheduled_at)
@@ -6096,7 +6476,7 @@ function ClassCard({
                     : 'bg-blue-600 hover:bg-blue-700'
                 }`}
               >
-                {isEnrolling ? 'A inscrever...' : isFull ? 'Aula cheia' : `Inscrever-me - ${price}€`}
+                {isEnrolling ? t.common.enrolling : isFull ? t.common.classFull : `${t.common.enrollMe} - ${price}€`}
               </button>
             )}
           </div>
@@ -6120,6 +6500,7 @@ function BookingScreen({
   onOpenPlayerProfile: (userId: string) => void
   onRefresh?: () => Promise<void>
 }) {
+  const { t } = useI18n()
   // Wizard step: 1=club, 2=date/time, 3=config, 4=players/teams, 5=confirmation
   const [step, setStep] = useState<1 | 2 | 3 | 4 | 5>(1)
   const [loading, setLoading] = useState(false)
@@ -6147,10 +6528,26 @@ function BookingScreen({
   const [searching, setSearching] = useState(false)
   const [selectedSlot, setSelectedSlot] = useState<number | null>(null)
 
-  // Booking
+  // Booking + Payment
   const [creating, setCreating] = useState(false)
+  const [paymentChoice, setPaymentChoice] = useState<'at_club' | 'per_player' | 'full_court'>('at_club')
 
   const playerLevel = player?.level || 3.0
+
+  // Determine payment options from selected club
+  const clubPaymentMethod = selectedClub?.payment_method || 'at_club'
+  const hasOnlinePayment = clubPaymentMethod !== 'at_club'
+  const paymentOptions: { value: 'at_club' | 'per_player' | 'full_court'; label: string; icon: string; desc: string }[] = (() => {
+    const opts: { value: 'at_club' | 'per_player' | 'full_court'; label: string; icon: string; desc: string }[] = []
+    const allowsAtClub = ['at_club', 'at_club_or_per_player', 'at_club_or_full_court', 'all'].includes(clubPaymentMethod)
+    const allowsPerPlayer = ['per_player', 'at_club_or_per_player', 'all'].includes(clubPaymentMethod)
+    const allowsFullCourt = ['full_court', 'at_club_or_full_court', 'all'].includes(clubPaymentMethod)
+    if (allowsAtClub) opts.push({ value: 'at_club', label: t.booking.paymentAtClubDesc, icon: '🏢', desc: t.booking.paymentAtClubDesc })
+    if (allowsPerPlayer) opts.push({ value: 'per_player', label: t.common.payOnline, icon: '💳', desc: t.common.eachPlayerPays })
+    if (allowsFullCourt) opts.push({ value: 'full_court', label: t.games.paymentOnlineFullCourt, icon: '💳', desc: t.booking.paymentOnlineFullCourtDesc })
+    if (opts.length === 0) opts.push({ value: 'at_club', label: t.games.paymentAtClub, icon: '🏢', desc: t.booking.paymentAtClubDesc })
+    return opts
+  })()
 
   // Load clubs with availability
   useEffect(() => {
@@ -6290,6 +6687,26 @@ function BookingScreen({
       })
 
       if (result.success && result.gameId) {
+        // Handle online payment if selected
+        if (paymentChoice !== 'at_club' && pricePerPlayer > 0 && player?.id) {
+          try {
+            const { data: checkoutData, error: checkoutErr } = await supabase.functions.invoke('create-game-checkout', {
+              body: {
+                gameId: result.gameId,
+                paymentType: paymentChoice,
+                playerAccountId: player.id,
+                successUrl: window.location.origin,
+                cancelUrl: window.location.origin,
+              },
+            })
+            if (!checkoutErr && checkoutData?.url) {
+              window.location.href = checkoutData.url
+              return
+            }
+          } catch (e) {
+            console.error('Stripe checkout error:', e)
+          }
+        }
         setCreating(false)
         setStep(5)
         if (onRefresh) onRefresh()
@@ -6320,6 +6737,27 @@ function BookingScreen({
       })
 
       if (result.success && result.gameId) {
+        // Handle online payment for private bookings
+        if (paymentChoice !== 'at_club' && pricePerPlayer > 0 && player?.id) {
+          try {
+            const { data: checkoutData, error: checkoutErr } = await supabase.functions.invoke('create-game-checkout', {
+              body: {
+                gameId: result.gameId,
+                paymentType: paymentChoice,
+                playerAccountId: player.id,
+                successUrl: window.location.origin,
+                cancelUrl: window.location.origin,
+              },
+            })
+            if (!checkoutErr && checkoutData?.url) {
+              window.location.href = checkoutData.url
+              return
+            }
+          } catch (e) {
+            console.error('Stripe checkout error:', e)
+          }
+        }
+
         // Update the court_booking notes to indicate private
         await supabase
           .from('court_bookings')
@@ -6436,7 +6874,7 @@ function BookingScreen({
                     <p className="font-bold text-gray-900">{club.name}</p>
                     {club.city && <p className="text-xs text-gray-500 flex items-center gap-1"><MapPin className="w-3 h-3" /> {club.city}</p>}
                     <p className="text-xs text-gray-400 mt-0.5">
-                      {club.courts.length} campo{club.courts.length > 1 ? 's' : ''} • {club.operating_hours.start} - {club.operating_hours.end}
+                      {club.courts.length} {club.courts.length > 1 ? t.games.courts : t.games.court} • {club.operating_hours.start} - {club.operating_hours.end}
                     </p>
                   </div>
                   <ChevronRight className="w-5 h-5 text-gray-300 flex-shrink-0" />
@@ -6829,23 +7267,69 @@ function BookingScreen({
               <span className="text-sm text-gray-700">Preço por jogador</span>
               <span className="font-bold text-green-700">{pricePerPlayer.toFixed(2)}€</span>
             </div>
-            <div className="flex items-center justify-between border-t border-green-200 pt-2">
-              <span className="text-sm font-semibold text-gray-700">Total ({players.length} jogador{players.length > 1 ? 'es' : ''})</span>
-              <span className="font-bold text-green-700 text-lg">{(pricePerPlayer * players.length).toFixed(2)}€</span>
-            </div>
+            {paymentChoice === 'full_court' ? (
+              <div className="flex items-center justify-between border-t border-green-200 pt-2">
+                <span className="text-sm font-semibold text-gray-700">Total (campo inteiro)</span>
+                <span className="font-bold text-green-700 text-lg">{(pricePerPlayer * 4).toFixed(2)}€</span>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between border-t border-green-200 pt-2">
+                <span className="text-sm font-semibold text-gray-700">Total ({players.length} jogador{players.length > 1 ? 'es' : ''})</span>
+                <span className="font-bold text-green-700 text-lg">{(pricePerPlayer * players.length).toFixed(2)}€</span>
+              </div>
+            )}
           </div>
+
+          {/* Payment method selection */}
+          {pricePerPlayer > 0 && paymentOptions.length > 0 && (
+            <div className="space-y-2">
+              <label className="text-sm font-semibold text-gray-700 block">💳 Como queres pagar?</label>
+              <div className="space-y-2">
+                {paymentOptions.map(opt => (
+                  <button
+                    key={opt.value}
+                    onClick={() => setPaymentChoice(opt.value)}
+                    className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-colors text-left ${
+                      paymentChoice === opt.value
+                        ? 'border-lime-500 bg-lime-50 ring-1 ring-lime-500'
+                        : 'border-gray-200 hover:bg-gray-50'
+                    }`}
+                  >
+                    <span className="text-xl">{opt.icon}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-sm font-medium ${paymentChoice === opt.value ? 'text-lime-700' : 'text-gray-900'}`}>{opt.label}</p>
+                      <p className="text-[11px] text-gray-500">{opt.desc}</p>
+                    </div>
+                    {paymentChoice === opt.value && (
+                      <div className="w-5 h-5 rounded-full bg-lime-600 flex items-center justify-center flex-shrink-0">
+                        <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                      </div>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Create button */}
           <button
             onClick={handleCreateBooking}
             disabled={creating}
-            className="w-full py-3.5 bg-lime-600 text-white rounded-xl font-bold text-sm hover:bg-lime-700 transition-colors disabled:opacity-50 shadow-sm"
+            className={`w-full py-3.5 text-white rounded-xl font-bold text-sm transition-colors disabled:opacity-50 shadow-sm ${
+              paymentChoice !== 'at_club' && pricePerPlayer > 0
+                ? 'bg-blue-600 hover:bg-blue-700'
+                : 'bg-lime-600 hover:bg-lime-700'
+            }`}
           >
             {creating ? (
               <span className="flex items-center justify-center gap-2">
                 <div className="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full" />
                 A criar...
               </span>
+            ) : paymentChoice !== 'at_club' && pricePerPlayer > 0 ? (
+              `💳 Criar e pagar ${paymentChoice === 'full_court' ? (pricePerPlayer * 4).toFixed(2) : pricePerPlayer.toFixed(2)}€`
             ) : (
               isPublic ? '🎾 Criar jogo público' : '📅 Confirmar reserva'
             )}
@@ -7234,7 +7718,7 @@ function OtherPlayerProfileScreen({
   const getHandLabel = (h?: string) => ({ right: 'Direita', left: 'Esquerda', ambidextrous: 'Ambidestro' }[h || ''] || '—')
   const getPositionLabel = (p?: string) => ({ right: 'Direita', left: 'Esquerda', both: 'Ambas' }[p || ''] || '—')
   const getGameTypeLabel = (g?: string) => ({ competitive: 'Competitivo', friendly: 'Amigável', both: 'Ambos' }[g || ''] || '—')
-  const getTimeLabel = (t?: string) => ({ morning: 'Manhã', afternoon: 'Tarde', evening: 'Noite', all_day: 'Dia todo' }[t || ''] || '—')
+  const getTimeLabel = (t?: string) => ({ morning: t.common.morning, afternoon: t.common.afternoon, evening: t.common.evening, all_day: t.common.allDay }[t || ''] || '—')
 
   const splitName = (fullName: string): { firstName: string; lastName: string } => {
     const parts = fullName.trim().split(/\s+/)
@@ -7649,7 +8133,7 @@ function ProfileViewScreen({
   const getHandLabel = (h?: string) => ({ right: 'Direita', left: 'Esquerda', ambidextrous: 'Ambidestro' }[h || ''] || '—')
   const getPositionLabel = (p?: string) => ({ right: 'Direita', left: 'Esquerda', both: 'Ambas' }[p || ''] || '—')
   const getGameTypeLabel = (g?: string) => ({ competitive: 'Competitivo', friendly: 'Amigável', both: 'Ambos' }[g || ''] || '—')
-  const getTimeLabel = (t?: string) => ({ morning: 'Manhã', afternoon: 'Tarde', evening: 'Noite', all_day: 'Dia todo' }[t || ''] || '—')
+  const getTimeLabel = (t?: string) => ({ morning: t.common.morning, afternoon: t.common.afternoon, evening: t.common.evening, all_day: t.common.allDay }[t || ''] || '—')
 
   const splitName = (fullName: string): { firstName: string; lastName: string } => {
     const parts = fullName.trim().split(/\s+/)
@@ -8258,10 +8742,10 @@ function ProfileEditScreen({
               <label className="block text-sm font-medium text-gray-700 mb-1">Horário de Jogo Preferido <span className="text-red-600">*</span></label>
               <div className="grid grid-cols-4 gap-2">
                 {[
-                  { value: 'morning', label: 'Manhã' },
-                  { value: 'afternoon', label: 'Tarde' },
-                  { value: 'evening', label: 'Noite' },
-                  { value: 'all_day', label: 'Dia todo' },
+                  { value: 'morning', label: t.common.morning },
+                  { value: 'afternoon', label: t.common.afternoon },
+                  { value: 'evening', label: t.common.evening },
+                  { value: 'all_day', label: t.common.allDay },
                 ].map((opt) => (
                   <button
                     key={opt.value}
@@ -8358,8 +8842,8 @@ function ProfileEditScreen({
 
 // ---------- Registo (Criar Conta com Questionário de Nível — 12 perguntas) ----------
 
-// Definição das 12 perguntas do questionário
-const QUIZ_QUESTIONS: { id: string; title: string; options: { value: number; label: string }[] }[] = [
+// Definição das 12 perguntas do questionário (função que recebe traduções)
+const getQuizQuestions = (t: typeof translations.pt): { id: string; title: string; options: { value: number; label: string }[] }[] => [
   {
     id: 'q1', title: '1. Com que frequência jogas por semana?',
     options: [
@@ -8373,8 +8857,8 @@ const QUIZ_QUESTIONS: { id: string; title: string; options: { value: number; lab
     id: 'q2', title: '2. Já participaste em torneios ou ligas?',
     options: [
       { value: 0, label: 'Nunca joguei torneios' },
-      { value: 1, label: 'Participei ocasionalmente' },
-      { value: 2, label: 'Participo regularmente' },
+      { value: 1, label: t.common.participatedOccasionally },
+      { value: 2, label: t.common.participateRegularly },
       { value: 3, label: 'Compito a nível regional/nacional' },
     ],
   },
@@ -8382,7 +8866,7 @@ const QUIZ_QUESTIONS: { id: string; title: string; options: { value: number; lab
     id: 'q3', title: '3. Treinas técnica além de jogar partidas?',
     options: [
       { value: 0, label: 'Não treino' },
-      { value: 1, label: 'Treino esporadicamente' },
+      { value: 1, label: t.common.trainSporadically },
       { value: 2, label: 'Treino 1 vez por semana' },
       { value: 3, label: 'Treino 2 ou mais vezes por semana' },
     ],
@@ -8446,7 +8930,7 @@ const QUIZ_QUESTIONS: { id: string; title: string; options: { value: number; lab
     options: [
       { value: 0, label: 'Tenho dificuldade em antecipar' },
       { value: 1, label: 'Às vezes antecipo' },
-      { value: 2, label: 'Boa leitura' },
+      { value: 2, label: t.common.goodReading },
       { value: 3, label: 'Excelente antecipação' },
     ],
   },
@@ -8470,18 +8954,22 @@ const QUIZ_QUESTIONS: { id: string; title: string; options: { value: number; lab
   },
 ]
 
-// Agrupar perguntas em páginas de 3
-const QUIZ_PAGES = [
-  { label: 'Experiência & Hábitos', questions: QUIZ_QUESTIONS.slice(0, 3) },
-  { label: 'Técnica Base', questions: QUIZ_QUESTIONS.slice(3, 6) },
-  { label: 'Pancadas', questions: QUIZ_QUESTIONS.slice(6, 9) },
-  { label: 'Estratégia & Mental', questions: QUIZ_QUESTIONS.slice(9, 12) },
-]
+// Agrupar perguntas em páginas de 3 (função que recebe traduções)
+const getQuizPages = (t: typeof translations.pt) => {
+  const questions = getQuizQuestions(t)
+  return [
+    { label: 'Experiência & Hábitos', questions: questions.slice(0, 3) },
+    { label: 'Técnica Base', questions: questions.slice(3, 6) },
+    { label: 'Pancadas', questions: questions.slice(6, 9) },
+    { label: 'Estratégia & Mental', questions: questions.slice(9, 12) },
+  ]
+}
 
 function RegisterScreen({ onBack, onSuccess }: {
   onBack: () => void
   onSuccess: (playerAccount: any) => void
 }) {
+  const { t } = useI18n()
   const [step, setStep] = useState<1 | 2 | 3>(1)
   const [quizPage, setQuizPage] = useState(0) // 0-3 for the 4 quiz sub-pages
   const [saving, setSaving] = useState(false)
@@ -8546,11 +9034,11 @@ function RegisterScreen({ onBack, onSuccess }: {
       }
 
       // Validações
-      if (!name.trim()) { setError('Nome é obrigatório'); setSaving(false); return }
-      if (!normalizedPhone || normalizedPhone.length < 9) { setError('Telefone inválido'); setSaving(false); return }
-      if (!email.trim() || !email.includes('@')) { setError('Email inválido'); setSaving(false); return }
-      if (regPassword.length < 6) { setError('Password deve ter pelo menos 6 caracteres'); setSaving(false); return }
-      if (regPassword !== confirmPwd) { setError('Passwords não coincidem'); setSaving(false); return }
+      if (!name.trim()) { setError(t.auth.nameRequired); setSaving(false); return }
+      if (!normalizedPhone || normalizedPhone.length < 9) { setError(t.auth.invalidPhone); setSaving(false); return }
+      if (!email.trim() || !email.includes('@')) { setError(t.auth.invalidEmail); setSaving(false); return }
+      if (regPassword.length < 6) { setError(t.auth.passwordMinLength); setSaving(false); return }
+      if (regPassword !== confirmPwd) { setError(t.auth.passwordsDontMatch); setSaving(false); return }
 
       // Verificar se telefone ou email já existem
       const { data: existingPhone } = await supabase
@@ -8640,6 +9128,9 @@ function RegisterScreen({ onBack, onSuccess }: {
   const totalSegments = 6
   const currentSegment = step === 1 ? 1 : step === 2 ? 2 + quizPage : 6
 
+  // Obter páginas do questionário com traduções
+  const QUIZ_PAGES = getQuizPages(t)
+
   // Quantas perguntas da página actual estão respondidas
   const currentPageQuestions = step === 2 ? QUIZ_PAGES[quizPage]?.questions ?? [] : []
   const currentPageAnswered = currentPageQuestions.filter(q => answers[q.id] !== undefined).length
@@ -8708,7 +9199,7 @@ function RegisterScreen({ onBack, onSuccess }: {
               <label className="text-sm font-medium text-gray-700 mb-1 block">Confirmar password</label>
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                <input value={confirmPwd} onChange={e => setConfirmPwd(e.target.value)} placeholder="Repetir password" type="password" className="w-full pl-11 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-red-500/20 focus:border-red-500" />
+                <input value={confirmPwd} onChange={e => setConfirmPwd(e.target.value)} placeholder={t.auth.repeatPassword} type="password" className="w-full pl-11 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-red-500/20 focus:border-red-500" />
               </div>
             </div>
 
@@ -8860,7 +9351,7 @@ function RegisterScreen({ onBack, onSuccess }: {
                 }}
                 className="flex-1 py-3 bg-red-600 text-white rounded-xl font-semibold hover:bg-red-700 transition-colors"
               >
-                {(selfLevel !== null || quizPage === QUIZ_PAGES.length - 1) ? 'Ver resultado' : 'Seguinte'}
+                {(selfLevel !== null || quizPage === QUIZ_PAGES.length - 1) ? t.common.viewResult : t.common.nextButton}
               </button>
             </div>
           </div>
@@ -8950,7 +9441,7 @@ function RegisterScreen({ onBack, onSuccess }: {
                     <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                     A criar...
                   </div>
-                ) : 'Criar conta'}
+                ) : t.common.createAccount}
               </button>
             </div>
           </div>
@@ -9015,7 +9506,7 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
               value={confirmPassword}
               onChange={e => setConfirmPassword(e.target.value)}
               className="w-full mt-1 px-3 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-transparent"
-              placeholder="Repetir password"
+              placeholder={t.common.repeatPassword}
             />
           </div>
           {message && (
@@ -9041,9 +9532,9 @@ function InfoModal({ type, onClose }: { type: 'help' | 'howItWorks' | 'privacy';
       title: 'Ajuda',
       icon: HelpCircle,
       sections: [
-        { title: 'Contacto', text: 'Para qualquer questão, envie um email para suporte@padelone.pt ou contacte-nos via WhatsApp.' },
+        { title: 'Contacto', text: 'Para qualquer questão, envie um email para info@boostpadel.store ou contacte-nos via WhatsApp: +351 969 365 059.' },
         { title: 'Problemas com a conta', text: 'Se tem problemas para fazer login ou aceder à sua conta, contacte o organizador do torneio ou o clube onde joga.' },
-        { title: 'Resultados incorretos', text: 'Se algum resultado está incorreto, contacte o organizador do torneio para que ele possa corrigir.' },
+        { title: t.common.incorrectResults, text: t.common.incorrectResultsText },
         { title: 'Nível e Fiabilidade', text: 'O seu nível é calculado automaticamente com base nos resultados dos seus jogos. Quanto mais jogos fizer, mais fiável será o seu nível.' },
       ]
     },
@@ -9062,10 +9553,10 @@ function InfoModal({ type, onClose }: { type: 'help' | 'howItWorks' | 'privacy';
       title: 'Privacidade',
       icon: Shield,
       sections: [
-        { title: 'Dados pessoais', text: 'Recolhemos apenas os dados necessários para o funcionamento da plataforma: nome, telefone, email e resultados de jogos.' },
+        { title: t.common.personalData, text: t.common.personalDataText },
         { title: 'Visibilidade', text: 'O seu perfil (nome e nível) é visível para outros jogadores. O seu número de telefone e email são privados.' },
         { title: 'Partilha de dados', text: 'Não partilhamos os seus dados com terceiros. Os organizadores de torneios têm acesso apenas aos dados necessários para a gestão dos eventos.' },
-        { title: 'Eliminação de conta', text: 'Pode solicitar a eliminação da sua conta e todos os dados associados contactando suporte@padelone.pt.' },
+        { title: 'Eliminação de conta', text: 'Pode solicitar a eliminação da sua conta e todos os dados associados contactando info@boostpadel.store.' },
       ]
     }
   }

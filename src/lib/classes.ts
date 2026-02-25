@@ -259,26 +259,47 @@ export async function fetchAvailableClasses(clubId?: string | null): Promise<Cla
     .in('status', ['enrolled', 'attended'])
 
   // Buscar dados dos jogadores inscritos
-  const playerIds = enrollments?.filter(e => e.organizer_player_id).map(e => e.organizer_player_id) || []
+  const playerIds = enrollments?.filter(e => e.organizer_player_id != null && e.organizer_player_id !== '').map(e => e.organizer_player_id).filter((id): id is string => typeof id === 'string') || []
   let playersData: any[] = []
   if (playerIds.length > 0) {
-    const { data: players } = await supabase
-      .from('organizer_players')
-      .select('id, name, avatar_url')
-      .in('id', playerIds)
-    playersData = players || []
+    // Remover duplicados e garantir que é um array válido
+    const uniquePlayerIds = [...new Set(playerIds)].filter(id => id) // Filtrar IDs vazios/nulos
+    
+    if (uniquePlayerIds.length > 0) {
+      let query = supabase
+        .from('organizer_players')
+        .select('id, name')
+      
+      if (uniquePlayerIds.length === 1) {
+        query = query.eq('id', uniquePlayerIds[0])
+      } else {
+        query = query.in('id', uniquePlayerIds)
+      }
+      
+      const { data: players, error } = await query
+      if (error) {
+        console.error('[Classes] Error fetching organizer_players:', error)
+        playersData = []
+      } else {
+        // Adicionar avatar_url como null já que organizer_players não tem essa coluna
+        playersData = (players || []).map(p => ({ ...p, avatar_url: null }))
+      }
+    } else {
+      playersData = []
+    }
   }
   
-  // Buscar avatares dos professores (organizer_players pelo telefone)
+  // Buscar avatares dos professores (player_accounts pelo telefone, já que organizer_players não tem avatar_url)
   const coachPhones = coachesData?.filter(c => c.phone).map(c => c.phone) || []
   let coachAvatars: Map<string, string | null> = new Map()
   if (coachPhones.length > 0) {
-    const { data: coachPlayers } = await supabase
-      .from('organizer_players')
+    // Buscar avatares de player_accounts em vez de organizer_players
+    const { data: coachAccounts } = await supabase
+      .from('player_accounts')
       .select('phone_number, avatar_url')
       .in('phone_number', coachPhones)
-    coachPlayers?.forEach(cp => {
-      coachAvatars.set(cp.phone_number, cp.avatar_url || null)
+    coachAccounts?.forEach(ca => {
+      coachAvatars.set(ca.phone_number, ca.avatar_url || null)
     })
   }
 
@@ -305,7 +326,7 @@ export async function fetchAvailableClasses(clubId?: string | null): Promise<Cla
       id: cls.id,
       scheduled_at: cls.scheduled_at,
       title: classType?.name || 'Aula',
-      professor: coach?.name || 'Sem professor',
+      professor: coach?.name || 'Sem professor', // TODO: traduzir
       professor_phone: coach?.phone || null,
       professor_avatar: professorAvatar,
       club: club?.name || 'Clube',
@@ -382,13 +403,22 @@ export async function fetchMyClasses(userId: string): Promise<Class[]> {
     .in('class_id', classIds)
     .in('status', ['enrolled', 'attended'])
 
-  const playerIds = allEnrollments?.filter(e => e.organizer_player_id).map(e => e.organizer_player_id) || []
+  const playerIds = allEnrollments?.filter(e => e.organizer_player_id != null && e.organizer_player_id !== '').map(e => e.organizer_player_id).filter((id): id is string => typeof id === 'string') || []
   let playersData: any[] = []
   if (playerIds.length > 0) {
-    const { data: players } = await supabase
+    // Remover duplicados e garantir que é um array válido
+    const uniquePlayerIds = [...new Set(playerIds)]
+    let query = supabase
       .from('organizer_players')
       .select('id, name')
-      .in('id', playerIds)
+    
+    if (uniquePlayerIds.length === 1) {
+      query = query.eq('id', uniquePlayerIds[0])
+    } else {
+      query = query.in('id', uniquePlayerIds)
+    }
+    
+    const { data: players } = await query
     playersData = players || []
   }
 

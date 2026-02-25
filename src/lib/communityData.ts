@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import { sendPushToPlayer } from './pushNotifications'
 
 // ============================================
 // Helpers
@@ -149,6 +150,32 @@ export async function followUser(followerId: string, followingId: string): Promi
     console.error('[Community] Error following:', error)
     return false
   }
+
+  // 🔔 Push: notify the followed user
+  try {
+    // Get follower name
+    const { data: followerAccount } = await supabase
+      .from('player_accounts')
+      .select('name')
+      .eq('user_id', followerId)
+      .maybeSingle()
+    // Get followed user's player_account_id
+    const { data: followedAccount } = await supabase
+      .from('player_accounts')
+      .select('id')
+      .eq('user_id', followingId)
+      .maybeSingle()
+    
+    if (followedAccount?.id) {
+      sendPushToPlayer(followedAccount.id, {
+        title: 'Novo seguidor! 👋',
+        body: `${followerAccount?.name || 'Alguém'} começou a seguir-te.`,
+        url: '/?screen=community',
+        tag: `follow-${followerId}`,
+      })
+    }
+  } catch {}
+
   return true
 }
 
