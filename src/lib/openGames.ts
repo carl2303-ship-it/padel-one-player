@@ -1757,15 +1757,25 @@ export async function fetchMyRedemptions(playerAccountId: string): Promise<Redem
 // ============================
 
 export async function fetchGamesAwaitingResult(userId: string, playerAccountId?: string): Promise<OpenGame[]> {
-  // Get games where user is confirmed (by user_id OR player_account_id)
-  const queries = [
-    supabase
-      .from('open_game_players')
-      .select('game_id')
-      .eq('user_id', userId)
-      .eq('status', 'confirmed'),
-  ]
+  // IMPORTANT: First, update any open_game_players records that have player_account_id but missing user_id
+  // This happens when a player was added by another player before they logged in
+  if (playerAccountId) {
+    try {
+      await supabase
+        .from('open_game_players')
+        .update({ user_id: userId })
+        .eq('player_account_id', playerAccountId)
+        .is('user_id', null)
+        .eq('status', 'confirmed')
+    } catch (err) {
+      console.error('[OpenGames] Error updating user_id for open_game_players:', err)
+    }
+  }
 
+  // Get games where user is confirmed (by user_id OR player_account_id)
+  // Priority: player_account_id is more reliable, but also check user_id
+  const queries = []
+  
   if (playerAccountId) {
     queries.push(
       supabase
@@ -1775,6 +1785,14 @@ export async function fetchGamesAwaitingResult(userId: string, playerAccountId?:
         .eq('status', 'confirmed')
     )
   }
+  
+  queries.push(
+    supabase
+      .from('open_game_players')
+      .select('game_id')
+      .eq('user_id', userId)
+      .eq('status', 'confirmed')
+  )
 
   const results = await Promise.all(queries)
   const gameIdSet = new Set<string>()
@@ -1924,14 +1942,23 @@ export interface OpenGameMatchResult {
 }
 
 export async function fetchConfirmedOpenGameResults(userId: string, playerAccountId?: string): Promise<OpenGameMatchResult[]> {
-  // Get all games where user participated
-  const queries = [
-    supabase
-      .from('open_game_players')
-      .select('game_id')
-      .eq('user_id', userId)
-      .eq('status', 'confirmed'),
-  ]
+  // IMPORTANT: First, update any open_game_players records that have player_account_id but missing user_id
+  if (playerAccountId) {
+    try {
+      await supabase
+        .from('open_game_players')
+        .update({ user_id: userId })
+        .eq('player_account_id', playerAccountId)
+        .is('user_id', null)
+        .eq('status', 'confirmed')
+    } catch (err) {
+      console.error('[OpenGames] Error updating user_id for open_game_players:', err)
+    }
+  }
+
+  // Get all games where user participated (priority: player_account_id, then user_id)
+  const queries = []
+  
   if (playerAccountId) {
     queries.push(
       supabase
@@ -1941,6 +1968,14 @@ export async function fetchConfirmedOpenGameResults(userId: string, playerAccoun
         .eq('status', 'confirmed')
     )
   }
+  
+  queries.push(
+    supabase
+      .from('open_game_players')
+      .select('game_id')
+      .eq('user_id', userId)
+      .eq('status', 'confirmed')
+  )
 
   const results = await Promise.all(queries)
   const gameIdSet = new Set<string>()
