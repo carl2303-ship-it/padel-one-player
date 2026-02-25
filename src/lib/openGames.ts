@@ -1062,6 +1062,27 @@ export async function addPlayerToOpenGame(params: {
     return { success: false, error: result?.error || 'Erro desconhecido' }
   }
 
+  // IMPORTANT: Always update user_id to ensure it's correct
+  // The SQL function may have used a fallback, so we need to fix it
+  try {
+    const { data: account } = await supabase
+      .from('player_accounts')
+      .select('user_id')
+      .eq('id', params.playerAccountId)
+      .maybeSingle()
+    
+    if (account?.user_id) {
+      // Update user_id even if it already has a value (to fix SQL fallback issue)
+      await supabase
+        .from('open_game_players')
+        .update({ user_id: account.user_id })
+        .eq('game_id', params.gameId)
+        .eq('player_account_id', params.playerAccountId)
+    }
+  } catch (err) {
+    console.error('[OpenGames] Error updating user_id after adding player:', err)
+  }
+
   // Sync player details to court_booking
   await syncBookingPlayers(params.gameId)
 

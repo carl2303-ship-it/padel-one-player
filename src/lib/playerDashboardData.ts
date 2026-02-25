@@ -99,16 +99,51 @@ const emptyStats: PlayerStats = {
 /**
  * Helper: Fetch open games where the player is enrolled (consolidated from duplicate code)
  */
-async function fetchOpenGameMatches(playerAccountId: string): Promise<PlayerMatch[]> {
+async function fetchOpenGameMatches(playerAccountId: string, userId?: string): Promise<PlayerMatch[]> {
   if (!playerAccountId) return []
 
   try {
-    const { data: playerGames } = await supabase
-      .from('open_game_players')
-      .select('game_id')
-      .eq('player_account_id', playerAccountId)
+    // IMPORTANT: Update user_id for records that have player_account_id but missing user_id
+    if (userId) {
+      try {
+        await supabase
+          .from('open_game_players')
+          .update({ user_id: userId })
+          .eq('player_account_id', playerAccountId)
+          .is('user_id', null)
+          .eq('status', 'confirmed')
+      } catch (err) {
+        console.error('[PlayerDashboard] Error updating user_id for open_game_players:', err)
+      }
+    }
 
-    if (!playerGames || playerGames.length === 0) return []
+    // Get games by player_account_id OR user_id
+    const queries = [
+      supabase
+        .from('open_game_players')
+        .select('game_id')
+        .eq('player_account_id', playerAccountId)
+        .eq('status', 'confirmed'),
+    ]
+
+    if (userId) {
+      queries.push(
+        supabase
+          .from('open_game_players')
+          .select('game_id')
+          .eq('user_id', userId)
+          .eq('status', 'confirmed')
+      )
+    }
+
+    const results = await Promise.all(queries)
+    const gameIdSet = new Set<string>()
+    results.forEach(r => {
+      (r.data || []).forEach((g: any) => gameIdSet.add(g.game_id))
+    })
+
+    if (gameIdSet.size === 0) return []
+    const playerGames = Array.from(gameIdSet).map(id => ({ game_id: id }))
 
     const gameIds = playerGames.map((pg: any) => pg.game_id).filter(Boolean)
     if (gameIds.length === 0) return []
@@ -531,7 +566,7 @@ export async function fetchPlayerDashboardData(
     const recentMatches = matches.filter((m) => m.status === 'completed').reverse()
     
     // Fetch open games and combine with tournament matches (consolidated, was duplicated)
-    const openGameMatches = await fetchOpenGameMatches(playerAccount.id)
+    const openGameMatches = await fetchOpenGameMatches(playerAccount.id, userId)
     result.upcomingMatches = [...upcomingMatches, ...openGameMatches].sort((a, b) =>
       new Date(a.start_time).getTime() - new Date(b.start_time).getTime()
     )
