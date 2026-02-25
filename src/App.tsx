@@ -9889,6 +9889,7 @@ function RegisterScreen({ onBack, onSuccess }: {
 
 // ---------- Modal: Mudar Password ----------
 function ChangePasswordModal({ onClose }: { onClose: () => void }) {
+  const { t } = useI18n()
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [saving, setSaving] = useState(false)
