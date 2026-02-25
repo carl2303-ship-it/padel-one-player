@@ -9962,6 +9962,7 @@ function ChangePasswordModal({ onClose }: { onClose: () => void }) {
 
 // ---------- Modal: Informações (Ajuda, Como funciona, Privacidade) ----------
 function InfoModal({ type, onClose }: { type: 'help' | 'howItWorks' | 'privacy'; onClose: () => void }) {
+  const { t } = useI18n()
   const content = {
     help: {
       title: 'Ajuda',
