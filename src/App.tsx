@@ -2384,6 +2384,7 @@ function HomeScreen({
       try {
         const { fetchPendingResultGames } = await import('./lib/openGames')
         const data = await fetchPendingResultGames(userId, player?.id)
+        console.log('[Home] Fetched pending results:', data.length, 'games for userId:', userId, 'playerAccountId:', player?.id)
         if (active) setPendingResultGames(data)
       } catch (err) {
         console.error('[Home] Error fetching pending results:', err)

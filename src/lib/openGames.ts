@@ -1782,12 +1782,19 @@ export async function fetchGamesAwaitingResult(userId: string, playerAccountId?:
   // This happens when a player was added by another player before they logged in
   if (playerAccountId) {
     try {
-      await supabase
+      const { data: updateResult, error: updateError } = await supabase
         .from('open_game_players')
         .update({ user_id: userId })
         .eq('player_account_id', playerAccountId)
         .is('user_id', null)
         .eq('status', 'confirmed')
+      
+      if (updateError) {
+        console.error('[OpenGames] Error updating user_id for open_game_players:', updateError)
+        console.error('[OpenGames] This may be due to RLS - ensure migration 20260225100003 is applied')
+      } else {
+        console.log('[OpenGames] Successfully updated user_id for player_account_id:', playerAccountId)
+      }
     } catch (err) {
       console.error('[OpenGames] Error updating user_id for open_game_players:', err)
     }
@@ -1818,8 +1825,12 @@ export async function fetchGamesAwaitingResult(userId: string, playerAccountId?:
   const results = await Promise.all(queries)
   const gameIdSet = new Set<string>()
   results.forEach(r => {
-    (r.data || []).forEach((g: any) => gameIdSet.add(g.game_id))
+    if (r.data) {
+      r.data.forEach((g: any) => gameIdSet.add(g.game_id))
+    }
   })
+
+  console.log('[OpenGames] fetchGamesAwaitingResult found', gameIdSet.size, 'games for userId:', userId, 'playerAccountId:', playerAccountId)
 
   if (gameIdSet.size === 0) return []
   const myGames = Array.from(gameIdSet).map(id => ({ game_id: id }))
