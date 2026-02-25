@@ -8834,6 +8834,7 @@ function ProfileEditScreen({
   onSaveFavoriteClub: (clubId: string | null) => Promise<void>
   onSaveProfile: (updates: Partial<PlayerAccount>) => Promise<void>
 }) {
+  const { t } = useI18n()
   const [clubs, setClubs] = useState<ClubDetail[]>([])
   const [loadingClubs, setLoadingClubs] = useState(true)
   const [saving, setSaving] = useState(false)
