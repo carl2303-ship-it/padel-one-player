@@ -536,7 +536,53 @@ export async function fetchPlayerDashboardData(
       new Date(a.start_time).getTime() - new Date(b.start_time).getTime()
     )
 
-    result.recentMatches = recentMatches
+    // Fetch confirmed open game results and merge with tournament recentMatches
+    try {
+      const { fetchConfirmedOpenGameResults } = await import('./openGames')
+      const openGameResults = await fetchConfirmedOpenGameResults(userId, playerAccount.id)
+      
+      // Convert to PlayerMatch format and merge
+      const openResultMatches: PlayerMatch[] = openGameResults.map(r => ({
+        id: r.id,
+        tournament_id: r.tournament_id,
+        tournament_name: r.tournament_name,
+        court: r.court,
+        start_time: r.start_time,
+        team1_name: r.team1_name,
+        team2_name: r.team2_name,
+        player1_name: r.player1_name,
+        player2_name: r.player2_name,
+        player3_name: r.player3_name,
+        player4_name: r.player4_name,
+        score1: r.score1,
+        score2: r.score2,
+        status: r.status,
+        round: r.round,
+        is_winner: r.is_winner,
+        set1: r.set1,
+        set2: r.set2,
+        set3: r.set3,
+        is_open_game: true,
+        open_game_id: r.open_game_id,
+        club_name: r.club_name,
+      }))
+      
+      // Merge and sort by date descending
+      const allRecent = [...recentMatches, ...openResultMatches]
+        .sort((a, b) => new Date(b.start_time).getTime() - new Date(a.start_time).getTime())
+      
+      result.recentMatches = allRecent
+      
+      // Count open game wins/losses for stats
+      openGameResults.forEach(r => {
+        if (r.is_winner === true) wins++
+        else if (r.is_winner === false) losses++
+      })
+    } catch (err) {
+      console.error('[PlayerDashboard] Error fetching open game results:', err)
+      result.recentMatches = recentMatches
+    }
+
     const totalMatches = wins + losses
     result.stats.totalMatches = totalMatches
     result.stats.wins = wins

@@ -2367,6 +2367,41 @@ function HomeScreen({
   } | null>(null)
   const [detailTab, setDetailTab] = useState<'standings' | 'matches'>('standings')
 
+  // Pending results state
+  const [pendingResultGames, setPendingResultGames] = useState<(import('./lib/openGames').OpenGame & { _resultStatus?: string | null; _submittedByTeam?: number })[]>([])
+  const [pendingLoading, setPendingLoading] = useState(false)
+  const [pendingResultModal, setPendingResultModal] = useState<{ game: any } | null>(null)
+  const [pendingConfirmModal, setPendingConfirmModal] = useState<{ game: any; result: any } | null>(null)
+  const [pendingResultScores, setPendingResultScores] = useState({ t1s1: '', t2s1: '', t1s2: '', t2s2: '', t1s3: '', t2s3: '' })
+  const [pendingSubmitting, setPendingSubmitting] = useState(false)
+
+  // Fetch pending results
+  useEffect(() => {
+    if (!userId) return
+    let active = true
+    ;(async () => {
+      setPendingLoading(true)
+      try {
+        const { fetchPendingResultGames } = await import('./lib/openGames')
+        const data = await fetchPendingResultGames(userId, player?.id)
+        if (active) setPendingResultGames(data)
+      } catch (err) {
+        console.error('[Home] Error fetching pending results:', err)
+      }
+      if (active) setPendingLoading(false)
+    })()
+    return () => { active = false }
+  }, [userId, player?.id])
+
+  const refreshPendingResults = async () => {
+    if (!userId) return
+    try {
+      const { fetchPendingResultGames } = await import('./lib/openGames')
+      const data = await fetchPendingResultGames(userId, player?.id)
+      setPendingResultGames(data)
+    } catch {}
+  }
+
   const handlePlayerClick = async (playerName: string) => {
     const { findPlayerUserIdByName } = await import('./lib/classes')
     const userId = await findPlayerUserIdByName(playerName)
@@ -2625,6 +2660,330 @@ function HomeScreen({
           )}
         </div>
       </div>
+
+      {/* Resultados Pendentes – jogos que precisam de resultado ou confirmação */}
+      {(pendingResultGames.length > 0 || pendingLoading) && (
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+              <span>⏳</span> Resultados Pendentes
+            </h2>
+            <span className="bg-red-600 text-white text-xs font-bold px-2 py-0.5 rounded-full">
+              {pendingResultGames.length}
+            </span>
+          </div>
+          <div className="space-y-3">
+            {pendingResultGames.slice(0, 5).map(game => {
+              const confirmedPlayers = game.players.filter(p => p.status === 'confirmed')
+              const team1 = confirmedPlayers.filter(p => (p.position || 0) <= 2)
+              const team2 = confirmedPlayers.filter(p => (p.position || 0) > 2)
+              const resultStatus = (game as any)._resultStatus as string | null
+              const isPending = resultStatus === 'pending'
+              const myPlayer = confirmedPlayers.find(p => p.user_id === userId || (player?.id && p.player_account_id === player.id))
+              const myTeam = myPlayer ? ((myPlayer.position || 0) <= 2 ? 1 : 2) : 0
+
+              return (
+                <div key={game.id} className="border border-amber-200 rounded-2xl overflow-hidden bg-amber-50/50 shadow-sm">
+                  <div className="p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-sm font-bold text-gray-900">
+                        {new Date(game.scheduled_at).toLocaleDateString('pt-PT', { weekday: 'short', day: '2-digit', month: '2-digit' })} às {new Date(game.scheduled_at).toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' })}
+                      </p>
+                      {isPending ? (
+                        <span className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full text-xs font-medium">⏳ Aguarda confirmação</span>
+                      ) : (
+                        <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded-full text-xs font-medium">Sem resultado</span>
+                      )}
+                    </div>
+                    
+                    {/* Teams compact display */}
+                    <div className="flex items-center gap-3 mb-3">
+                      <div className="flex-1 text-center">
+                        <div className="flex justify-center gap-1.5">
+                          {team1.map(p => (
+                            <div key={p.id} className="flex flex-col items-center">
+                              <div className="w-8 h-8 rounded-full overflow-hidden bg-gray-200 flex items-center justify-center">
+                                {p.avatar_url ? (
+                                  <img src={p.avatar_url} className="w-full h-full object-cover" />
+                                ) : (
+                                  <span className="text-xs font-bold text-gray-600">{(p.name || '?').charAt(0).toUpperCase()}</span>
+                                )}
+                              </div>
+                              <span className="text-[9px] text-gray-600 mt-0.5 truncate max-w-[50px]">{(p.name || '').split(' ')[0]}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      <span className="text-gray-300 text-sm font-bold">VS</span>
+                      <div className="flex-1 text-center">
+                        <div className="flex justify-center gap-1.5">
+                          {team2.map(p => (
+                            <div key={p.id} className="flex flex-col items-center">
+                              <div className="w-8 h-8 rounded-full overflow-hidden bg-gray-200 flex items-center justify-center">
+                                {p.avatar_url ? (
+                                  <img src={p.avatar_url} className="w-full h-full object-cover" />
+                                ) : (
+                                  <span className="text-xs font-bold text-gray-600">{(p.name || '?').charAt(0).toUpperCase()}</span>
+                                )}
+                              </div>
+                              <span className="text-[9px] text-gray-600 mt-0.5 truncate max-w-[50px]">{(p.name || '').split(' ')[0]}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Club info */}
+                    <div className="flex items-center gap-2 mb-3">
+                      {game.club_logo_url ? (
+                        <img src={game.club_logo_url} alt="" className="w-5 h-5 rounded-lg object-cover" />
+                      ) : (
+                        <div className="w-5 h-5 rounded-lg bg-gray-200 flex items-center justify-center">
+                          <Building2 className="w-3 h-3 text-gray-400" />
+                        </div>
+                      )}
+                      <span className="text-xs text-gray-600">{game.club_name}</span>
+                    </div>
+
+                    {/* Actions */}
+                    {!isPending ? (
+                      <button
+                        onClick={() => {
+                          setPendingResultModal({ game })
+                          setPendingResultScores({ t1s1: '', t2s1: '', t1s2: '', t2s2: '', t1s3: '', t2s3: '' })
+                        }}
+                        className="w-full py-2.5 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 transition-colors"
+                      >
+                        📊 Introduzir resultado
+                      </button>
+                    ) : (
+                      <button
+                        onClick={async () => {
+                          const { fetchGameResult } = await import('./lib/openGames')
+                          const res = await fetchGameResult(game.id)
+                          if (res) {
+                            setPendingConfirmModal({ game, result: res })
+                          } else {
+                            alert('Erro ao carregar resultado')
+                          }
+                        }}
+                        className={`w-full py-2.5 rounded-xl text-sm font-semibold transition-colors ${
+                          myTeam && myTeam !== ((game as any)._submittedByTeam || 0)
+                            ? 'bg-green-600 text-white hover:bg-green-700'
+                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                        }`}
+                      >
+                        {myTeam && myTeam !== ((game as any)._submittedByTeam || 0)
+                          ? '✓ Confirmar resultado'
+                          : '👁️ Ver resultado'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Introduzir Resultado (Homepage) */}
+      {pendingResultModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setPendingResultModal(null)}>
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-fade-in" onClick={e => e.stopPropagation()}>
+            <div className="p-4 border-b border-gray-100 flex items-center justify-between">
+              <h3 className="font-bold text-lg text-gray-900">📊 Introduzir resultado</h3>
+              <button onClick={() => setPendingResultModal(null)} className="p-1">
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              {(() => {
+                const cp = pendingResultModal.game.players.filter((p: any) => p.status === 'confirmed')
+                const t1 = cp.filter((p: any) => (p.position || 0) <= 2)
+                const t2 = cp.filter((p: any) => (p.position || 0) > 2)
+                return (
+                  <div className="flex items-center gap-4">
+                    <div className="flex-1 text-center">
+                      <p className="text-xs font-bold text-blue-600 mb-1">Equipa 1</p>
+                      {t1.map((p: any) => <p key={p.id} className="text-xs text-gray-700">{(p.name || '').split(' ')[0]}</p>)}
+                    </div>
+                    <span className="text-gray-300 font-bold">VS</span>
+                    <div className="flex-1 text-center">
+                      <p className="text-xs font-bold text-red-600 mb-1">Equipa 2</p>
+                      {t2.map((p: any) => <p key={p.id} className="text-xs text-gray-700">{(p.name || '').split(' ')[0]}</p>)}
+                    </div>
+                  </div>
+                )
+              })()}
+              <div className="space-y-3">
+                {['Set 1', 'Set 2', 'Set 3'].map((label, idx) => (
+                  <div key={label} className="flex items-center gap-3">
+                    <span className={`text-sm font-medium w-12 ${idx === 2 ? 'text-gray-400' : 'text-gray-700'}`}>{label}</span>
+                    <input type="number" min="0" max="7" placeholder="E1"
+                      value={idx === 0 ? pendingResultScores.t1s1 : idx === 1 ? pendingResultScores.t1s2 : pendingResultScores.t1s3}
+                      onChange={e => {
+                        const key = idx === 0 ? 't1s1' : idx === 1 ? 't1s2' : 't1s3'
+                        setPendingResultScores(prev => ({ ...prev, [key]: e.target.value }))
+                      }}
+                      className="flex-1 text-center py-2 border border-gray-200 rounded-lg text-sm font-bold focus:ring-2 focus:ring-blue-500"
+                    />
+                    <span className="text-gray-300">-</span>
+                    <input type="number" min="0" max="7" placeholder="E2"
+                      value={idx === 0 ? pendingResultScores.t2s1 : idx === 1 ? pendingResultScores.t2s2 : pendingResultScores.t2s3}
+                      onChange={e => {
+                        const key = idx === 0 ? 't2s1' : idx === 1 ? 't2s2' : 't2s3'
+                        setPendingResultScores(prev => ({ ...prev, [key]: e.target.value }))
+                      }}
+                      className="flex-1 text-center py-2 border border-gray-200 rounded-lg text-sm font-bold focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                ))}
+              </div>
+              <p className="text-xs text-gray-400 text-center">O 3° set é opcional</p>
+              <button
+                disabled={pendingSubmitting || !pendingResultScores.t1s1 || !pendingResultScores.t2s1 || !pendingResultScores.t1s2 || !pendingResultScores.t2s2}
+                onClick={async () => {
+                  setPendingSubmitting(true)
+                  const { submitGameResult } = await import('./lib/openGames')
+                  const res = await submitGameResult({
+                    gameId: pendingResultModal.game.id,
+                    t1Set1: parseInt(pendingResultScores.t1s1) || 0,
+                    t2Set1: parseInt(pendingResultScores.t2s1) || 0,
+                    t1Set2: parseInt(pendingResultScores.t1s2) || 0,
+                    t2Set2: parseInt(pendingResultScores.t2s2) || 0,
+                    t1Set3: parseInt(pendingResultScores.t1s3) || 0,
+                    t2Set3: parseInt(pendingResultScores.t2s3) || 0,
+                  })
+                  if (res.success) {
+                    alert('Resultado submetido! A equipa adversária precisa confirmar.')
+                    setPendingResultModal(null)
+                    refreshPendingResults()
+                    onRefresh()
+                  } else {
+                    alert(res.error || 'Erro ao submeter resultado')
+                  }
+                  setPendingSubmitting(false)
+                }}
+                className="w-full py-3 bg-blue-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50"
+              >
+                {pendingSubmitting ? 'A submeter...' : '✓ Submeter resultado'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Confirmar/Disputar Resultado (Homepage) */}
+      {pendingConfirmModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setPendingConfirmModal(null)}>
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-fade-in" onClick={e => e.stopPropagation()}>
+            <div className="p-4 border-b border-gray-100 flex items-center justify-between">
+              <h3 className="font-bold text-lg text-gray-900">📊 Resultado submetido</h3>
+              <button onClick={() => setPendingConfirmModal(null)} className="p-1">
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              {(() => {
+                const cp = pendingConfirmModal.game.players.filter((p: any) => p.status === 'confirmed')
+                const t1 = cp.filter((p: any) => (p.position || 0) <= 2)
+                const t2 = cp.filter((p: any) => (p.position || 0) > 2)
+                const r = pendingConfirmModal.result
+                const s1 = [r.team1_score_set1 || 0, r.team2_score_set1 || 0]
+                const s2 = [r.team1_score_set2 || 0, r.team2_score_set2 || 0]
+                const s3 = [r.team1_score_set3 || 0, r.team2_score_set3 || 0]
+                const sets1 = (s1[0] > s1[1] ? 1 : 0) + (s2[0] > s2[1] ? 1 : 0) + (s3[0] > s3[1] ? 1 : 0)
+                const sets2 = (s1[1] > s1[0] ? 1 : 0) + (s2[1] > s2[0] ? 1 : 0) + (s3[1] > s3[0] ? 1 : 0)
+                const team1Won = sets1 > sets2
+                return (
+                  <>
+                    <div className="flex items-center gap-4">
+                      <div className={`flex-1 text-center p-3 rounded-xl ${team1Won ? 'bg-green-50 border border-green-200' : 'bg-gray-50'}`}>
+                        <p className="text-xs font-bold text-blue-600 mb-1">Equipa 1 {team1Won ? '🏆' : ''}</p>
+                        {t1.map((p: any) => <p key={p.id} className="text-xs text-gray-700">{(p.name || '').split(' ')[0]}</p>)}
+                      </div>
+                      <span className="text-gray-300 font-bold">VS</span>
+                      <div className={`flex-1 text-center p-3 rounded-xl ${!team1Won ? 'bg-green-50 border border-green-200' : 'bg-gray-50'}`}>
+                        <p className="text-xs font-bold text-red-600 mb-1">Equipa 2 {!team1Won ? '🏆' : ''}</p>
+                        {t2.map((p: any) => <p key={p.id} className="text-xs text-gray-700">{(p.name || '').split(' ')[0]}</p>)}
+                      </div>
+                    </div>
+                    <div className="bg-gray-50 rounded-xl p-4">
+                      <div className="grid grid-cols-3 gap-3 text-center">
+                        <div><p className="text-[10px] text-gray-500 mb-1">Set 1</p><p className="text-lg font-bold">{r.team1_score_set1} - {r.team2_score_set1}</p></div>
+                        <div><p className="text-[10px] text-gray-500 mb-1">Set 2</p><p className="text-lg font-bold">{r.team1_score_set2} - {r.team2_score_set2}</p></div>
+                        {(r.team1_score_set3 > 0 || r.team2_score_set3 > 0) && (
+                          <div><p className="text-[10px] text-gray-500 mb-1">Set 3</p><p className="text-lg font-bold">{r.team1_score_set3} - {r.team2_score_set3}</p></div>
+                        )}
+                      </div>
+                      <p className="text-xs text-gray-400 text-center mt-2">Submetido pela Equipa {r.submitted_by_team}</p>
+                    </div>
+                  </>
+                )
+              })()}
+              {(() => {
+                const myPlayer = pendingConfirmModal.game.players.find((p: any) => p.user_id === userId || (player?.id && p.player_account_id === player.id))
+                const myTeam = myPlayer ? ((myPlayer.position || 0) <= 2 ? 1 : 2) : 0
+                const canConfirm = myTeam !== 0 && myTeam !== pendingConfirmModal.result.submitted_by_team
+                if (!canConfirm) {
+                  return (
+                    <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-center">
+                      <p className="text-sm text-amber-700 font-medium">⏳ A aguardar confirmação da equipa adversária</p>
+                    </div>
+                  )
+                }
+                return (
+                  <div className="space-y-2">
+                    <p className="text-xs text-gray-500 text-center">Confirmas este resultado?</p>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={async () => {
+                          setPendingSubmitting(true)
+                          const { confirmGameResult } = await import('./lib/openGames')
+                          const res = await confirmGameResult(pendingConfirmModal.game.id)
+                          if (res.success) {
+                            alert('Resultado confirmado! Os níveis serão atualizados.')
+                            setPendingConfirmModal(null)
+                            refreshPendingResults()
+                            onRefresh()
+                          } else {
+                            alert(res.error || 'Erro ao confirmar')
+                          }
+                          setPendingSubmitting(false)
+                        }}
+                        disabled={pendingSubmitting}
+                        className="flex-1 py-3 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 disabled:opacity-50"
+                      >
+                        ✓ Confirmar
+                      </button>
+                      <button
+                        onClick={async () => {
+                          if (!confirm('Queres disputar este resultado?')) return
+                          setPendingSubmitting(true)
+                          const { disputeGameResult } = await import('./lib/openGames')
+                          const res = await disputeGameResult(pendingConfirmModal.game.id)
+                          if (res.success) {
+                            alert('Resultado disputado. Um novo resultado pode ser submetido.')
+                            setPendingConfirmModal(null)
+                            refreshPendingResults()
+                          } else {
+                            alert(res.error || 'Erro ao disputar')
+                          }
+                          setPendingSubmitting(false)
+                        }}
+                        disabled={pendingSubmitting}
+                        className="flex-1 py-3 bg-red-100 text-red-700 rounded-xl text-sm font-semibold hover:bg-red-200 disabled:opacity-50"
+                      >
+                        ✗ Disputar
+                      </button>
+                    </div>
+                  </div>
+                )
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Resultados Recentes – lista horizontal ao estilo Playtomic */}
       {d && d.recentMatches.length > 0 && (
@@ -3662,6 +4021,9 @@ function CompeteScreen({
   const [historyFetched, setHistoryFetched] = useState(false)
   const [availableTournaments, setAvailableTournaments] = useState<UpcomingTournamentFromTour[]>([])
   const [loadingAvailable, setLoadingAvailable] = useState(false)
+  const [openGameHistory, setOpenGameHistory] = useState<import('./lib/openGames').OpenGameMatchResult[]>([])
+  const [openGameHistoryLoading, setOpenGameHistoryLoading] = useState(false)
+  const [openGameHistoryFetched, setOpenGameHistoryFetched] = useState(false)
 
   const d = dashboardData
   const name = d?.playerName ?? ''
@@ -3806,6 +4168,26 @@ function CompeteScreen({
     })()
     return () => { active = false }
   }, [activeTab, d?.leagueStandings?.length, leaguesFetched, playerAccountId])
+
+  // Carregar resultados de jogos abertos quando abre o tab history
+  useEffect(() => {
+    if (activeTab !== 'history') return
+    if (!userId) return
+    if (openGameHistoryFetched) return
+    let active = true
+    setOpenGameHistoryLoading(true)
+    ;(async () => {
+      try {
+        const { fetchConfirmedOpenGameResults } = await import('./lib/openGames')
+        const data = await fetchConfirmedOpenGameResults(userId, playerAccountId || undefined)
+        if (active) setOpenGameHistory(data)
+      } catch (err) {
+        console.error('[History] Error fetching open game results:', err)
+      }
+      if (active) { setOpenGameHistoryLoading(false); setOpenGameHistoryFetched(true) }
+    })()
+    return () => { active = false }
+  }, [activeTab, userId, playerAccountId, openGameHistoryFetched])
 
   // Carregar detalhes dos torneios passados via client-side quando abre o tab history
   // NOTA: O render usa effectivePastDetails que SEMPRE prioriza edge function data,
@@ -4226,6 +4608,55 @@ function CompeteScreen({
               <Trophy className="w-16 h-16 text-gray-200 mx-auto mb-3" />
               <p className="text-gray-500">Ainda não tens torneios concluídos.</p>
               <p className="text-sm text-gray-400 mt-1">Os torneios em que participares aparecerão aqui.</p>
+            </div>
+          )}
+
+          {/* Resultados de Jogos Abertos */}
+          {openGameHistoryLoading ? (
+            <div className="flex justify-center py-6">
+              <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : openGameHistory.length > 0 && (
+            <div className="space-y-3">
+              <p className="text-sm text-gray-600 font-medium flex items-center gap-2">
+                <span>🎾</span> Jogos Abertos ({openGameHistory.length})
+              </p>
+              {openGameHistory.map((game) => {
+                const setScores = [game.set1, game.set2, game.set3].filter(Boolean)
+                const scoreDisplay = setScores.length > 0 ? setScores.join(' ') : '-'
+                return (
+                  <div key={game.id} className="card overflow-hidden p-0">
+                    <div className="p-4">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <p className="text-xs text-gray-500 mb-1">
+                            {new Date(game.start_time).toLocaleDateString('pt-PT', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' })}
+                            {game.club_name && <span className="ml-1">· {game.club_name}</span>}
+                          </p>
+                          <div className="flex justify-between items-start text-sm py-1">
+                            <div className="flex-1 mr-2 min-w-0">
+                              <div className={`text-gray-700 ${game.score1 != null && game.score2 != null && game.score1 > game.score2 ? 'font-semibold' : ''}`}>
+                                {game.team1_name}
+                              </div>
+                              <div className={`text-gray-700 mt-1 ${game.score1 != null && game.score2 != null && game.score2 > game.score1 ? 'font-semibold' : ''}`}>
+                                {game.team2_name}
+                              </div>
+                            </div>
+                            <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                              <span className="font-semibold text-gray-900">{scoreDisplay}</span>
+                              {game.is_winner !== undefined && (
+                                <span className={`text-xs font-medium ${game.is_winner ? 'text-green-600' : 'text-red-600'}`}>
+                                  {game.is_winner ? 'V' : 'D'}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
             </div>
           )}
         </div>
@@ -5283,7 +5714,7 @@ function FindGameScreen({
             if (pastGames.length === 0 && userId) {
               setLoadingPastGames(true)
               const { fetchGamesAwaitingResult } = await import('./lib/openGames')
-              const data = await fetchGamesAwaitingResult(userId)
+              const data = await fetchGamesAwaitingResult(userId, player?.id)
               setPastGames(data)
               setLoadingPastGames(false)
             }
@@ -5678,7 +6109,7 @@ function FindGameScreen({
                     // Refresh past games
                     if (userId) {
                       const { fetchGamesAwaitingResult } = await import('./lib/openGames')
-                      const data = await fetchGamesAwaitingResult(userId)
+                      const data = await fetchGamesAwaitingResult(userId, player?.id)
                       setPastGames(data)
                     }
                   } else {
@@ -5790,7 +6221,7 @@ function FindGameScreen({
                             setConfirmModal(null)
                             if (userId) {
                               const { fetchGamesAwaitingResult } = await import('./lib/openGames')
-                              const data = await fetchGamesAwaitingResult(userId)
+                              const data = await fetchGamesAwaitingResult(userId, player?.id)
                               setPastGames(data)
                             }
                           } else {
@@ -5814,7 +6245,7 @@ function FindGameScreen({
                             setConfirmModal(null)
                             if (userId) {
                               const { fetchGamesAwaitingResult } = await import('./lib/openGames')
-                              const data = await fetchGamesAwaitingResult(userId)
+                              const data = await fetchGamesAwaitingResult(userId, player?.id)
                               setPastGames(data)
                             }
                           } else {

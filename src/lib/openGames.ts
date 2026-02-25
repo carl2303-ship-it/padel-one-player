@@ -1394,6 +1394,23 @@ export async function confirmGameResult(gameId: string): Promise<{ success: bool
     console.error('[OpenGames] Error awarding reward points:', err)
   }
 
+  // 🔔 Push: notify all players that result was confirmed
+  try {
+    const { data: { user: me } } = await supabase.auth.getUser()
+    const { data: myAccount } = await supabase
+      .from('player_accounts')
+      .select('id')
+      .eq('user_id', me?.id || '')
+      .maybeSingle()
+
+    notifyOpenGamePlayers(gameId, myAccount?.id || null, {
+      title: 'Resultado confirmado ✅',
+      body: 'O resultado do teu jogo foi confirmado. O teu nível será atualizado!',
+      url: '/?screen=games',
+      tag: `result-confirmed-${gameId}`,
+    })
+  } catch {}
+
   return { success: true }
 }
 
@@ -1739,15 +1756,34 @@ export async function fetchMyRedemptions(playerAccountId: string): Promise<Redem
 // Fetch games awaiting result (past games with status full/completed but no result)
 // ============================
 
-export async function fetchGamesAwaitingResult(userId: string): Promise<OpenGame[]> {
-  // Get games where user is confirmed
-  const { data: myGames } = await supabase
-    .from('open_game_players')
-    .select('game_id')
-    .eq('user_id', userId)
-    .eq('status', 'confirmed')
+export async function fetchGamesAwaitingResult(userId: string, playerAccountId?: string): Promise<OpenGame[]> {
+  // Get games where user is confirmed (by user_id OR player_account_id)
+  const queries = [
+    supabase
+      .from('open_game_players')
+      .select('game_id')
+      .eq('user_id', userId)
+      .eq('status', 'confirmed'),
+  ]
 
-  if (!myGames || myGames.length === 0) return []
+  if (playerAccountId) {
+    queries.push(
+      supabase
+        .from('open_game_players')
+        .select('game_id')
+        .eq('player_account_id', playerAccountId)
+        .eq('status', 'confirmed')
+    )
+  }
+
+  const results = await Promise.all(queries)
+  const gameIdSet = new Set<string>()
+  results.forEach(r => {
+    (r.data || []).forEach((g: any) => gameIdSet.add(g.game_id))
+  })
+
+  if (gameIdSet.size === 0) return []
+  const myGames = Array.from(gameIdSet).map(id => ({ game_id: id }))
 
   const gameIds = myGames.map(g => g.game_id)
 
@@ -1776,10 +1812,11 @@ export async function fetchGamesAwaitingResult(userId: string): Promise<OpenGame
   const pastGameIds = pastGames.map(g => g.id)
   const { data: existingResults } = await supabase
     .from('open_game_results')
-    .select('game_id, status')
+    .select('game_id, status, submitted_by_team')
     .in('game_id', pastGameIds)
 
   const resultsMap = new Map((existingResults || []).map(r => [r.game_id, r.status]))
+  const submittedByTeamMap = new Map((existingResults || []).map(r => [r.game_id, r.submitted_by_team]))
 
   // Fetch full data for these games using fetchOpenGames pattern
   const gameIdsForFetch = pastGames.map(g => g.id)
@@ -1850,7 +1887,205 @@ export async function fetchGamesAwaitingResult(userId: string): Promise<OpenGame
       max_players: g.max_players, status: g.status, notes: g.notes,
       players: gamePlayers, created_at: g.created_at,
       _resultStatus: resultStatus, // extra field for UI
-    } as OpenGame & { _resultStatus?: string | null }
+      _submittedByTeam: submittedByTeamMap.get(g.id) || 0, // which team submitted the result
+    } as OpenGame & { _resultStatus?: string | null; _submittedByTeam?: number }
+  })
+}
+
+// ============================
+// Fetch confirmed open game results for dashboard/history
+// Returns PlayerMatch-compatible objects for recentMatches
+// ============================
+
+export interface OpenGameMatchResult {
+  id: string
+  game_id: string
+  start_time: string
+  tournament_id: string
+  tournament_name: string
+  court: string
+  team1_name: string
+  team2_name: string
+  player1_name?: string
+  player2_name?: string
+  player3_name?: string
+  player4_name?: string
+  score1: number | null
+  score2: number | null
+  status: string
+  round: string
+  is_winner?: boolean
+  set1?: string
+  set2?: string
+  set3?: string
+  is_open_game: boolean
+  open_game_id: string
+  club_name?: string
+}
+
+export async function fetchConfirmedOpenGameResults(userId: string, playerAccountId?: string): Promise<OpenGameMatchResult[]> {
+  // Get all games where user participated
+  const queries = [
+    supabase
+      .from('open_game_players')
+      .select('game_id')
+      .eq('user_id', userId)
+      .eq('status', 'confirmed'),
+  ]
+  if (playerAccountId) {
+    queries.push(
+      supabase
+        .from('open_game_players')
+        .select('game_id')
+        .eq('player_account_id', playerAccountId)
+        .eq('status', 'confirmed')
+    )
+  }
+
+  const results = await Promise.all(queries)
+  const gameIdSet = new Set<string>()
+  results.forEach(r => {
+    (r.data || []).forEach((g: any) => gameIdSet.add(g.game_id))
+  })
+
+  if (gameIdSet.size === 0) return []
+  const gameIds = Array.from(gameIdSet)
+
+  // Fetch confirmed results for these games
+  const { data: confirmedResults } = await supabase
+    .from('open_game_results')
+    .select('*')
+    .in('game_id', gameIds)
+    .eq('status', 'confirmed')
+    .order('created_at', { ascending: false })
+    .limit(20)
+
+  if (!confirmedResults || confirmedResults.length === 0) return []
+
+  const confirmedGameIds = confirmedResults.map(r => r.game_id)
+
+  // Fetch game details
+  const { data: gamesData } = await supabase
+    .from('open_games')
+    .select('id, scheduled_at, club_id, court_id')
+    .in('id', confirmedGameIds)
+
+  // Fetch players
+  const { data: playersData } = await supabase
+    .from('open_game_players')
+    .select('game_id, user_id, player_account_id, position')
+    .in('game_id', confirmedGameIds)
+    .eq('status', 'confirmed')
+    .order('position', { ascending: true })
+
+  // Fetch player accounts
+  const userIds = [...new Set((playersData || []).map((p: any) => p.user_id).filter(Boolean))]
+  const paIds = [...new Set((playersData || []).map((p: any) => p.player_account_id).filter(Boolean))]
+  const accountsMap = new Map<string, { name: string; avatar_url: string | null }>()
+
+  if (userIds.length > 0 || paIds.length > 0) {
+    const accountQueries = []
+    if (userIds.length > 0) {
+      accountQueries.push(supabase.from('player_accounts').select('id, user_id, name, avatar_url').in('user_id', userIds))
+    }
+    if (paIds.length > 0) {
+      accountQueries.push(supabase.from('player_accounts').select('id, user_id, name, avatar_url').in('id', paIds))
+    }
+    const accountResults = await Promise.all(accountQueries)
+    accountResults.forEach(r => {
+      (r.data || []).forEach((a: any) => {
+        if (a.user_id) accountsMap.set('u_' + a.user_id, { name: a.name, avatar_url: a.avatar_url })
+        accountsMap.set('pa_' + a.id, { name: a.name, avatar_url: a.avatar_url })
+      })
+    })
+  }
+
+  // Fetch clubs
+  const clubIds = [...new Set((gamesData || []).map(g => g.club_id).filter(Boolean))]
+  const clubsMap = new Map<string, string>()
+  if (clubIds.length > 0) {
+    const { data: clubs } = await supabase.from('clubs').select('id, name').in('id', clubIds)
+    ;(clubs || []).forEach((c: any) => clubsMap.set(c.id, c.name))
+  }
+
+  const gamesMap = new Map((gamesData || []).map(g => [g.id, g]))
+
+  return confirmedResults.map(result => {
+    const game = gamesMap.get(result.game_id)
+    const gamePlayers = (playersData || [])
+      .filter((p: any) => p.game_id === result.game_id)
+      .sort((a: any, b: any) => (a.position || 0) - (b.position || 0))
+
+    const getPlayerName = (idx: number) => {
+      const p = gamePlayers[idx]
+      if (!p) return 'TBD'
+      const acct = (p.player_account_id ? accountsMap.get('pa_' + p.player_account_id) : null) || accountsMap.get('u_' + p.user_id)
+      return acct?.name || 'Jogador'
+    }
+
+    const p1Name = getPlayerName(0)
+    const p2Name = getPlayerName(1)
+    const p3Name = getPlayerName(2)
+    const p4Name = getPlayerName(3)
+
+    const s1 = `${result.team1_score_set1 || 0}-${result.team2_score_set1 || 0}`
+    const s2 = (result.team1_score_set2 > 0 || result.team2_score_set2 > 0) ? `${result.team1_score_set2}-${result.team2_score_set2}` : undefined
+    const s3 = (result.team1_score_set3 > 0 || result.team2_score_set3 > 0) ? `${result.team1_score_set3}-${result.team2_score_set3}` : undefined
+
+    // Calculate who won
+    const sets1 = (result.team1_score_set1 > result.team2_score_set1 ? 1 : 0) +
+      (result.team1_score_set2 > result.team2_score_set2 ? 1 : 0) +
+      (result.team1_score_set3 > result.team2_score_set3 ? 1 : 0)
+    const sets2 = (result.team2_score_set1 > result.team1_score_set1 ? 1 : 0) +
+      (result.team2_score_set2 > result.team1_score_set2 ? 1 : 0) +
+      (result.team2_score_set3 > result.team1_score_set3 ? 1 : 0)
+
+    // Determine if current user is in team 1 (positions 1,2) or team 2 (positions 3,4)
+    const myPlayer = gamePlayers.find((p: any) => p.user_id === userId || (playerAccountId && p.player_account_id === playerAccountId))
+    const myTeam = myPlayer ? ((myPlayer.position || 0) <= 2 ? 1 : 2) : 0
+    const is_winner = myTeam === 1 ? sets1 > sets2 : myTeam === 2 ? sets2 > sets1 : undefined
+
+    const clubName = game ? clubsMap.get(game.club_id) || 'Clube' : 'Clube'
+
+    return {
+      id: `open_result_${result.game_id}`,
+      game_id: result.game_id,
+      start_time: game?.scheduled_at || result.created_at,
+      tournament_id: '',
+      tournament_name: 'Jogo Aberto',
+      court: '',
+      team1_name: `${p1Name} / ${p2Name}`,
+      team2_name: `${p3Name} / ${p4Name}`,
+      player1_name: p1Name,
+      player2_name: p2Name,
+      player3_name: p3Name,
+      player4_name: p4Name,
+      score1: sets1,
+      score2: sets2,
+      status: 'completed',
+      round: '',
+      is_winner,
+      set1: s1,
+      set2: s2,
+      set3: s3,
+      is_open_game: true,
+      open_game_id: result.game_id,
+      club_name: clubName,
+    } as OpenGameMatchResult
+  })
+}
+
+// ============================
+// Fetch games with PENDING results that need action from current user
+// (either no result at all, or result submitted by other team waiting confirmation)
+// ============================
+
+export async function fetchPendingResultGames(userId: string, playerAccountId?: string): Promise<(OpenGame & { _resultStatus?: string | null; _submittedByTeam?: number })[]> {
+  const allGames = await fetchGamesAwaitingResult(userId, playerAccountId)
+  // Return only games without confirmed results (pending or no result)
+  return allGames.filter(g => {
+    const status = (g as any)._resultStatus
+    return status !== 'confirmed'
   })
 }
 
