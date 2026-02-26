@@ -5008,7 +5008,6 @@ function FindGameScreen({
 
   // Add player modal
   const [addPlayerModal, setAddPlayerModal] = useState<{ gameId: string } | null>(null)
-  const [joinPositionModal, setJoinPositionModal] = useState<{ game: import('./lib/openGames').OpenGame } | null>(null)
   const [playerSearchQuery, setPlayerSearchQuery] = useState('')
   const [playerSearchResults, setPlayerSearchResults] = useState<{ id: string; name: string; avatar_url: string | null; level: number | null; player_category: string | null; phone_number: string | null }[]>([])
   const [searchingPlayers, setSearchingPlayers] = useState(false)
@@ -5115,7 +5114,6 @@ function FindGameScreen({
   // Join a game with selected position
   const handleJoinGameWithPosition = async (game: import('./lib/openGames').OpenGame, position: number) => {
     if (!userId) return
-    setJoinPositionModal(null)
     const { joinOpenGame } = await import('./lib/openGames')
     const result = await joinOpenGame({
       gameId: game.id,
@@ -5653,7 +5651,18 @@ function FindGameScreen({
         {!isInGame && !game.players.some(p => (p.status === 'pending' || p.status === 'rejected') && (p.user_id === userId || (player?.id && p.player_account_id === player.id))) && (
           <div className="px-4 pb-3 pt-0 bg-gray-50/50">
             <button
-              onClick={() => setJoinPositionModal({ game })}
+              onClick={() => {
+                // Find first available position
+                const occupiedPositions = new Set(confirmedPlayers.map(p => p.position).filter(Boolean))
+                let firstAvailable = 1
+                for (let pos = 1; pos <= 4; pos++) {
+                  if (!occupiedPositions.has(pos)) {
+                    firstAvailable = pos
+                    break
+                  }
+                }
+                handleJoinGameWithPosition(game, firstAvailable)
+              }}
               className={`w-full py-2 rounded-xl text-sm font-semibold transition-colors ${
                 isRequest 
                   ? 'bg-amber-500 hover:bg-amber-600 text-white' 
