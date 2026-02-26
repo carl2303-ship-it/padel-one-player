@@ -4183,6 +4183,7 @@ function CompeteScreen({
       try {
         const { fetchConfirmedOpenGameResults } = await import('./lib/openGames')
         const data = await fetchConfirmedOpenGameResults(userId, playerAccountId || undefined)
+        console.log('[History] Fetched open game history:', data.length, 'games for userId:', userId, 'playerAccountId:', playerAccountId)
         if (active) setOpenGameHistory(data)
       } catch (err) {
         console.error('[History] Error fetching open game results:', err)

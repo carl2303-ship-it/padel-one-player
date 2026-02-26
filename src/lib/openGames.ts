@@ -2343,7 +2343,7 @@ export async function fetchConfirmedOpenGameResults(userId: string, playerAccoun
   const gameIds = Array.from(gameIdSet)
 
   // Fetch confirmed results for these games
-  const { data: confirmedResults } = await supabase
+  const { data: confirmedResults, error: resultsError } = await supabase
     .from('open_game_results')
     .select('*')
     .in('game_id', gameIds)
@@ -2351,7 +2351,15 @@ export async function fetchConfirmedOpenGameResults(userId: string, playerAccoun
     .order('created_at', { ascending: false })
     .limit(20)
 
-  if (!confirmedResults || confirmedResults.length === 0) return []
+  if (resultsError) {
+    console.error('[OpenGames] Error fetching confirmed results:', resultsError)
+  }
+  console.log('[OpenGames] fetchConfirmedOpenGameResults: found', confirmedResults?.length || 0, 'confirmed results for', gameIds.length, 'games')
+
+  if (!confirmedResults || confirmedResults.length === 0) {
+    console.log('[OpenGames] No confirmed results found for games:', gameIds)
+    return []
+  }
 
   const confirmedGameIds = confirmedResults.map(r => r.game_id)
   console.log('[OpenGames] fetchConfirmedOpenGameResults: found', confirmedResults.length, 'confirmed results for', confirmedGameIds.length, 'games')
