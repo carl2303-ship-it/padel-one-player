@@ -7942,7 +7942,17 @@ function GamesScreen({
         <div className="space-y-3">
           {list.map((match) => (
             <div key={match.id} className="w-full">
-              {match.is_open_game && match.open_game_id ? (
+              {match.is_open_game && match.open_game_id && (match.status === 'completed' || (match.score1 != null && match.score2 != null)) ? (
+                // For completed open games with results, use GameCardPlaytomic (same as tournaments)
+                <GameCardPlaytomic 
+                  match={match} 
+                  fullWidth 
+                  currentPlayerAvatar={player?.avatar_url} 
+                  currentPlayerName={player?.name}
+                  onPlayerClick={handlePlayerClick}
+                />
+              ) : match.is_open_game && match.open_game_id ? (
+                // For upcoming open games, use OpenGameCard (with action buttons)
                 <OpenGameCard
                   gameId={match.open_game_id}
                   match={match}
@@ -7951,6 +7961,7 @@ function GamesScreen({
                   onRefresh={onRefresh}
                 />
               ) : (
+                // Tournament matches
                 <GameCardPlaytomic 
                   match={match} 
                   fullWidth 
