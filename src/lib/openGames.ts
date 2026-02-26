@@ -1887,37 +1887,116 @@ export async function fetchGamesAwaitingResult(userId: string, playerAccountId?:
     
     // Try alternative: fetch through open_game_players with JOIN
     console.log('[OpenGames] Trying alternative: fetch through open_game_players JOIN')
-    const { data: gamesViaPlayers, error: joinError } = await supabase
+    console.log('[OpenGames] JOIN query params - gameIds:', gameIds, 'userId:', userId, 'playerAccountId:', playerAccountId)
+    
+    // First, verify we can see the open_game_players record
+    const { data: playersCheck, error: playersCheckError } = await supabase
       .from('open_game_players')
-      .select(`
-        game_id,
-        open_games!inner (
-          id,
-          status,
-          scheduled_at,
-          duration_minutes,
-          created_at,
-          club_id,
-          court_id,
-          game_type,
-          gender,
-          level_min,
-          level_max,
-          price_per_player,
-          max_players,
-          notes,
-          creator_user_id
-        )
-      `)
+      .select('id, game_id, user_id, player_account_id, status')
       .in('game_id', gameIds)
       .eq('status', 'confirmed')
-      .in('user_id', [userId])
     
+    console.log('[OpenGames] Players check (no user filter):', playersCheck?.length || 0, 'records found')
+    if (playersCheck && playersCheck.length > 0) {
+      playersCheck.forEach((p: any) => {
+        console.log('[OpenGames] Player record:', {
+          id: p.id,
+          game_id: p.game_id,
+          user_id: p.user_id,
+          player_account_id: p.player_account_id,
+          matches_userId: p.user_id === userId,
+          matches_playerAccountId: p.player_account_id === playerAccountId
+        })
+      })
+    }
+    if (playersCheckError) {
+      console.error('[OpenGames] Players check error:', playersCheckError)
+    }
+    
+    // Try with OR condition for user_id OR player_account_id
+    // Since Supabase doesn't support OR directly, we'll try both queries
+    const queries: Promise<any>[] = []
+    
+    if (userId) {
+      queries.push(
+        supabase
+          .from('open_game_players')
+          .select(`
+            game_id,
+            open_games!inner (
+              id,
+              status,
+              scheduled_at,
+              duration_minutes,
+              created_at,
+              club_id,
+              court_id,
+              game_type,
+              gender,
+              level_min,
+              level_max,
+              price_per_player,
+              max_players,
+              notes,
+              creator_user_id
+            )
+          `)
+          .in('game_id', gameIds)
+          .eq('status', 'confirmed')
+          .eq('user_id', userId)
+      )
+    }
+    
+    if (playerAccountId) {
+      queries.push(
+        supabase
+          .from('open_game_players')
+          .select(`
+            game_id,
+            open_games!inner (
+              id,
+              status,
+              scheduled_at,
+              duration_minutes,
+              created_at,
+              club_id,
+              court_id,
+              game_type,
+              gender,
+              level_min,
+              level_max,
+              price_per_player,
+              max_players,
+              notes,
+              creator_user_id
+            )
+          `)
+          .in('game_id', gameIds)
+          .eq('status', 'confirmed')
+          .eq('player_account_id', playerAccountId)
+      )
+    }
+    
+    const joinResults = await Promise.all(queries)
+    let gamesViaPlayers: any[] = []
+    let joinError: any = null
+    
+    joinResults.forEach((result, index) => {
+      if (result.error) {
+        console.error(`[OpenGames] JOIN query ${index} error:`, result.error)
+        if (!joinError) joinError = result.error
+      } else if (result.data) {
+        console.log(`[OpenGames] JOIN query ${index} found:`, result.data.length, 'results')
+        gamesViaPlayers = gamesViaPlayers.concat(result.data)
+      }
+    })
+    
+    console.log('[OpenGames] Total JOIN results:', gamesViaPlayers.length, 'games found')
     if (joinError) {
       console.error('[OpenGames] JOIN query error:', joinError)
-    } else {
-      console.log('[OpenGames] JOIN query result:', gamesViaPlayers?.length || 0, 'games found')
-      if (gamesViaPlayers && gamesViaPlayers.length > 0) {
+    }
+    
+    if (gamesViaPlayers && gamesViaPlayers.length > 0) {
         // Extract unique games from the JOIN result
         const gamesMap = new Map()
         gamesViaPlayers.forEach((gp: any) => {
