@@ -5336,10 +5336,10 @@ function FindGameScreen({
 
           {/* Player circles */}
           <div className="flex items-start gap-4 mb-3">
-            {/* Left team */}
+            {/* Left team - Positions 1 and 2 */}
             <div className="flex gap-3 flex-1 justify-center">
-              {[0, 1].map(i => {
-                const p = confirmedPlayers[i]
+              {[1, 2].map(position => {
+                const p = confirmedPlayers.find(pl => pl.position === position)
                 if (p) {
                   const pColors = p.player_category ? categoryColors(p.player_category) : null
                   return (
@@ -5364,7 +5364,7 @@ function FindGameScreen({
                   )
                 } else {
                   return (
-                    <div key={`empty-${i}`} className="flex flex-col items-center">
+                    <div key={`empty-${position}`} className="flex flex-col items-center">
                       <div 
                         className={`w-14 h-14 rounded-full border-2 border-dashed flex items-center justify-center cursor-pointer transition-colors ${
                           isInGame 
@@ -5377,8 +5377,8 @@ function FindGameScreen({
                             setPlayerSearchQuery('')
                             setPlayerSearchResults([])
                           } else {
-                            // Show position selection modal
-                            setJoinPositionModal({ game })
+                            // Join directly in this position
+                            handleJoinGameWithPosition(game, position)
                           }
                         }}
                       >
@@ -5396,10 +5396,10 @@ function FindGameScreen({
             {/* Divider */}
             <div className="w-px h-20 bg-gray-200 self-center" />
             
-            {/* Right team */}
+            {/* Right team - Positions 3 and 4 */}
             <div className="flex gap-3 flex-1 justify-center">
-              {[2, 3].map(i => {
-                const p = confirmedPlayers[i]
+              {[3, 4].map(position => {
+                const p = confirmedPlayers.find(pl => pl.position === position)
                 if (p) {
                   const pColors = p.player_category ? categoryColors(p.player_category) : null
                   return (
