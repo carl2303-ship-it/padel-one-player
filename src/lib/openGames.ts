@@ -2354,12 +2354,46 @@ export async function fetchConfirmedOpenGameResults(userId: string, playerAccoun
   if (!confirmedResults || confirmedResults.length === 0) return []
 
   const confirmedGameIds = confirmedResults.map(r => r.game_id)
+  console.log('[OpenGames] fetchConfirmedOpenGameResults: found', confirmedResults.length, 'confirmed results for', confirmedGameIds.length, 'games')
 
   // Fetch game details
-  const { data: gamesData } = await supabase
+  const { data: gamesData, error: gamesError } = await supabase
     .from('open_games')
     .select('id, scheduled_at, club_id, court_id')
     .in('id', confirmedGameIds)
+  
+  if (gamesError) {
+    console.error('[OpenGames] Error fetching game details:', gamesError)
+  }
+  console.log('[OpenGames] Fetched', gamesData?.length || 0, 'game details')
+  
+  if (!gamesData || gamesData.length === 0) {
+    console.error('[OpenGames] No game details found - RLS may be blocking. Game IDs:', confirmedGameIds)
+    // Try to fetch through open_game_results JOIN as workaround
+    const { data: gamesViaResults } = await supabase
+      .from('open_game_results')
+      .select('game_id, open_games(id, scheduled_at, club_id, court_id)')
+      .in('game_id', confirmedGameIds)
+      .eq('status', 'confirmed')
+    
+    if (gamesViaResults && gamesViaResults.length > 0) {
+      console.log('[OpenGames] Found', gamesViaResults.length, 'games via open_game_results JOIN')
+      const gamesFromJoin = gamesViaResults
+        .map((r: any) => r.open_games)
+        .filter(Boolean)
+        .map((g: any) => ({
+          id: g.id,
+          scheduled_at: g.scheduled_at,
+          club_id: g.club_id,
+          court_id: g.court_id
+        }))
+      if (gamesFromJoin.length > 0) {
+        // Use games from JOIN
+        gamesData = gamesFromJoin as any
+        console.log('[OpenGames] Using games from JOIN:', gamesData.length)
+      }
+    }
+  }
 
   // Fetch players
   const { data: playersData } = await supabase
@@ -2399,10 +2433,15 @@ export async function fetchConfirmedOpenGameResults(userId: string, playerAccoun
     ;(clubs || []).forEach((c: any) => clubsMap.set(c.id, c.name))
   }
 
-  const gamesMap = new Map((gamesData || []).map(g => [g.id, g]))
+  const gamesMap = new Map((gamesData || []).map((g: any) => [g.id, g]))
+  console.log('[OpenGames] Games map size:', gamesMap.size, 'for', confirmedGameIds.length, 'game IDs')
 
   return confirmedResults.map(result => {
     const game = gamesMap.get(result.game_id)
+    if (!game) {
+      console.warn('[OpenGames] Game not found in map for result:', result.game_id, '- skipping this result')
+      return null // Skip results where game is not found
+    }
     const gamePlayers = (playersData || [])
       .filter((p: any) => p.game_id === result.game_id)
       .sort((a: any, b: any) => (a.position || 0) - (b.position || 0))
@@ -2463,7 +2502,7 @@ export async function fetchConfirmedOpenGameResults(userId: string, playerAccoun
       open_game_id: result.game_id,
       club_name: clubName,
     } as OpenGameMatchResult
-  })
+  }).filter((r: any) => r !== null) // Filter out null results where game was not found
 }
 
 // ============================
