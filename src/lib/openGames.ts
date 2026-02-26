@@ -2284,6 +2284,10 @@ export interface OpenGameMatchResult {
   player2_name?: string
   player3_name?: string
   player4_name?: string
+  player1_avatar?: string | null
+  player2_avatar?: string | null
+  player3_avatar?: string | null
+  player4_avatar?: string | null
   score1: number | null
   score2: number | null
   status: string
