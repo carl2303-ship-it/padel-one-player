@@ -5437,8 +5437,8 @@ function FindGameScreen({
                             setPlayerSearchQuery('')
                             setPlayerSearchResults([])
                           } else {
-                            // Show position selection modal
-                            setJoinPositionModal({ game })
+                            // Join directly in this position
+                            handleJoinGameWithPosition(game, position)
                           }
                         }}
                       >
