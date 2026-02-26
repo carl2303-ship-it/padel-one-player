@@ -7917,6 +7917,14 @@ function GamesScreen({
   initialTab?: 'upcoming' | 'history'
 }) {
   const [activeTab, setActiveTab] = useState<'upcoming' | 'history'>(initialTab || 'upcoming')
+  
+  // Update tab when initialTab changes
+  useEffect(() => {
+    if (initialTab) {
+      setActiveTab(initialTab)
+    }
+  }, [initialTab])
+  
   const d = dashboardData
   const upcoming = d?.upcomingMatches ?? []
   const recent = d?.recentMatches ?? []
