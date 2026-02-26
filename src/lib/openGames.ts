@@ -2411,11 +2411,12 @@ export async function fetchConfirmedOpenGameResults(userId: string, playerAccoun
     .eq('status', 'confirmed')
     .order('position', { ascending: true })
 
-  // Fetch player accounts
+  // Fetch player accounts with avatars
   const userIds = [...new Set((playersData || []).map((p: any) => p.user_id).filter(Boolean))]
   const paIds = [...new Set((playersData || []).map((p: any) => p.player_account_id).filter(Boolean))]
   const accountsMap = new Map<string, { name: string; avatar_url: string | null }>()
-
+  const playersMap = new Map<string, { name: string; avatar_url: string | null; position: number }>() // Map by game_id + position
+  
   if (userIds.length > 0 || paIds.length > 0) {
     const accountQueries = []
     if (userIds.length > 0) {
@@ -2432,6 +2433,18 @@ export async function fetchConfirmedOpenGameResults(userId: string, playerAccoun
       })
     })
   }
+  
+  // Build players map for easy access
+  ;(playersData || []).forEach((p: any) => {
+    const acct = (p.player_account_id ? accountsMap.get('pa_' + p.player_account_id) : null) || accountsMap.get('u_' + p.user_id)
+    if (acct) {
+      playersMap.set(`${p.game_id}_${p.position}`, {
+        name: acct.name,
+        avatar_url: acct.avatar_url,
+        position: p.position || 0
+      })
+    }
+  })
 
   // Fetch clubs
   const clubIds = [...new Set((gamesData || []).map(g => g.club_id).filter(Boolean))]
@@ -2454,17 +2467,22 @@ export async function fetchConfirmedOpenGameResults(userId: string, playerAccoun
       .filter((p: any) => p.game_id === result.game_id)
       .sort((a: any, b: any) => (a.position || 0) - (b.position || 0))
 
-    const getPlayerName = (idx: number) => {
+    const getPlayerInfo = (idx: number) => {
       const p = gamePlayers[idx]
-      if (!p) return 'TBD'
+      if (!p) return { name: 'TBD', avatar_url: null }
       const acct = (p.player_account_id ? accountsMap.get('pa_' + p.player_account_id) : null) || accountsMap.get('u_' + p.user_id)
-      return acct?.name || 'Jogador'
+      return { name: acct?.name || 'Jogador', avatar_url: acct?.avatar_url || null }
     }
 
-    const p1Name = getPlayerName(0)
-    const p2Name = getPlayerName(1)
-    const p3Name = getPlayerName(2)
-    const p4Name = getPlayerName(3)
+    const p1 = getPlayerInfo(0)
+    const p2 = getPlayerInfo(1)
+    const p3 = getPlayerInfo(2)
+    const p4 = getPlayerInfo(3)
+    
+    const p1Name = p1.name
+    const p2Name = p2.name
+    const p3Name = p3.name
+    const p4Name = p4.name
 
     const s1 = `${result.team1_score_set1 || 0}-${result.team2_score_set1 || 0}`
     const s2 = (result.team1_score_set2 > 0 || result.team2_score_set2 > 0) ? `${result.team1_score_set2}-${result.team2_score_set2}` : undefined
@@ -2498,6 +2516,10 @@ export async function fetchConfirmedOpenGameResults(userId: string, playerAccoun
       player2_name: p2Name,
       player3_name: p3Name,
       player4_name: p4Name,
+      player1_avatar: p1.avatar_url,
+      player2_avatar: p2.avatar_url,
+      player3_avatar: p3.avatar_url,
+      player4_avatar: p4.avatar_url,
       score1: sets1,
       score2: sets2,
       status: 'completed',
@@ -2509,7 +2531,7 @@ export async function fetchConfirmedOpenGameResults(userId: string, playerAccoun
       is_open_game: true,
       open_game_id: result.game_id,
       club_name: clubName,
-    } as OpenGameMatchResult
+    } as OpenGameMatchResult & { player1_avatar?: string | null; player2_avatar?: string | null; player3_avatar?: string | null; player4_avatar?: string | null }
   }).filter((r: any) => r !== null) // Filter out null results where game was not found
 }
 

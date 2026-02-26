@@ -4615,48 +4615,108 @@ function CompeteScreen({
             </div>
           )}
 
-          {/* Resultados de Jogos Abertos */}
+          {/* Resultados de Jogos Abertos - Cards individuais no histórico */}
           {openGameHistoryLoading ? (
             <div className="flex justify-center py-6">
               <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
             </div>
           ) : openGameHistory.length > 0 && (
-            <div className="space-y-3">
-              <p className="text-sm text-gray-600 font-medium flex items-center gap-2">
-                <span>🎾</span> Jogos Abertos ({openGameHistory.length})
-              </p>
+            <div className="space-y-4">
               {openGameHistory.map((game) => {
                 const setScores = [game.set1, game.set2, game.set3].filter(Boolean)
                 const scoreDisplay = setScores.length > 0 ? setScores.join(' ') : '-'
+                const gameDate = new Date(game.start_time)
+                const dateStr = gameDate.toLocaleDateString('pt-PT', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' })
+                const timeStr = gameDate.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' })
+                const team1Won = game.score1 != null && game.score2 != null && game.score1 > game.score2
+                
+                // Get avatars (with fallback to player names initials)
+                const getAvatar = (avatar: string | null | undefined, name: string) => {
+                  if (avatar) return avatar
+                  const initials = name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
+                  return `https://ui-avatars.com/api/?name=${encodeURIComponent(initials)}&background=random&size=64&bold=true`
+                }
+                
+                const p1Avatar = getAvatar((game as any).player1_avatar, game.player1_name)
+                const p2Avatar = getAvatar((game as any).player2_avatar, game.player2_name)
+                const p3Avatar = getAvatar((game as any).player3_avatar, game.player3_name)
+                const p4Avatar = getAvatar((game as any).player4_avatar, game.player4_name)
+                
                 return (
                   <div key={game.id} className="card overflow-hidden p-0">
                     <div className="p-4">
-                      <div className="flex items-start justify-between gap-2">
-                        <div>
-                          <p className="text-xs text-gray-500 mb-1">
-                            {new Date(game.start_time).toLocaleDateString('pt-PT', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' })}
-                            {game.club_name && <span className="ml-1">· {game.club_name}</span>}
-                          </p>
-                          <div className="flex justify-between items-start text-sm py-1">
-                            <div className="flex-1 mr-2 min-w-0">
-                              <div className={`text-gray-700 ${game.score1 != null && game.score2 != null && game.score1 > game.score2 ? 'font-semibold' : ''}`}>
+                      {/* Header: Data, Hora e Clube */}
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2 text-xs text-gray-500">
+                          <span>{dateStr}</span>
+                          <span>·</span>
+                          <span>{timeStr}</span>
+                          {game.club_name && (
+                            <>
+                              <span>·</span>
+                              <span className="font-medium text-gray-700">{game.club_name}</span>
+                            </>
+                          )}
+                        </div>
+                        {game.is_winner !== undefined && (
+                          <span className={`text-xs font-semibold px-2 py-1 rounded-full ${game.is_winner ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                            {game.is_winner ? 'Vitória' : 'Derrota'}
+                          </span>
+                        )}
+                      </div>
+                      
+                      {/* Teams with avatars */}
+                      <div className="space-y-3">
+                        {/* Team 1 */}
+                        <div className={`flex items-center justify-between p-3 rounded-lg ${team1Won ? 'bg-green-50 border border-green-200' : 'bg-gray-50'}`}>
+                          <div className="flex items-center gap-2 flex-1 min-w-0">
+                            <div className="flex -space-x-2 flex-shrink-0">
+                              <img src={p1Avatar} alt={game.player1_name} className="w-8 h-8 rounded-full border-2 border-white object-cover" />
+                              <img src={p2Avatar} alt={game.player2_name} className="w-8 h-8 rounded-full border-2 border-white object-cover" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className={`text-sm ${team1Won ? 'font-semibold text-green-900' : 'text-gray-700'}`}>
                                 {game.team1_name}
                               </div>
-                              <div className={`text-gray-700 mt-1 ${game.score1 != null && game.score2 != null && game.score2 > game.score1 ? 'font-semibold' : ''}`}>
+                            </div>
+                          </div>
+                          <div className="flex-shrink-0 ml-2">
+                            <span className={`text-sm font-semibold ${team1Won ? 'text-green-700' : 'text-gray-900'}`}>
+                              {game.score1}
+                            </span>
+                          </div>
+                        </div>
+                        
+                        {/* Team 2 */}
+                        <div className={`flex items-center justify-between p-3 rounded-lg ${!team1Won && game.score1 != null && game.score2 != null ? 'bg-green-50 border border-green-200' : 'bg-gray-50'}`}>
+                          <div className="flex items-center gap-2 flex-1 min-w-0">
+                            <div className="flex -space-x-2 flex-shrink-0">
+                              <img src={p3Avatar} alt={game.player3_name} className="w-8 h-8 rounded-full border-2 border-white object-cover" />
+                              <img src={p4Avatar} alt={game.player4_name} className="w-8 h-8 rounded-full border-2 border-white object-cover" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className={`text-sm ${!team1Won && game.score1 != null && game.score2 != null ? 'font-semibold text-green-900' : 'text-gray-700'}`}>
                                 {game.team2_name}
                               </div>
                             </div>
-                            <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                              <span className="font-semibold text-gray-900">{scoreDisplay}</span>
-                              {game.is_winner !== undefined && (
-                                <span className={`text-xs font-medium ${game.is_winner ? 'text-green-600' : 'text-red-600'}`}>
-                                  {game.is_winner ? 'V' : 'D'}
-                                </span>
-                              )}
-                            </div>
+                          </div>
+                          <div className="flex-shrink-0 ml-2">
+                            <span className={`text-sm font-semibold ${!team1Won && game.score1 != null && game.score2 != null ? 'text-green-700' : 'text-gray-900'}`}>
+                              {game.score2}
+                            </span>
                           </div>
                         </div>
                       </div>
+                      
+                      {/* Sets scores */}
+                      {setScores.length > 0 && (
+                        <div className="mt-3 pt-3 border-t border-gray-100">
+                          <div className="flex items-center gap-2 text-xs text-gray-600">
+                            <span className="font-medium">Sets:</span>
+                            <span>{scoreDisplay}</span>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )
