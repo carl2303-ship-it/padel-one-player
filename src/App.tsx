@@ -253,7 +253,7 @@ function App() {
         ])
         setDashboardData(data)
         // Enrich with Edge Function in background (progressive loading)
-        enrichDashboardWithEdgeFunction().then(enriched => {
+        enrichDashboardWithEdgeFunction(dash).then(enriched => {
           if (enriched) {
             setEdgeEnrichedData(enriched)
             setDashboardData(prev => prev ? { ...prev, ...enriched } : prev)
@@ -273,7 +273,7 @@ function App() {
       const data = await fetchPlayerDashboardData(session.user.id)
       setDashboardData(data)
       // Enrich with Edge Function in background
-      enrichDashboardWithEdgeFunction().then(enriched => {
+      enrichDashboardWithEdgeFunction(data).then(enriched => {
         if (enriched) {
           setEdgeEnrichedData(enriched)
           setDashboardData(prev => prev ? { ...prev, ...enriched } : prev)
