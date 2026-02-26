@@ -1850,10 +1850,27 @@ export async function fetchGamesAwaitingResult(userId: string, playerAccountId?:
   console.log('[OpenGames] All games (no filters):', allGamesCheck)
   if (checkError) {
     console.error('[OpenGames] Error checking games:', checkError)
+    console.error('[OpenGames] Error details:', JSON.stringify(checkError, null, 2))
   }
   
   if (!allGamesCheck || allGamesCheck.length === 0) {
     console.error('[OpenGames] No games found in open_games table for IDs:', gameIds)
+    console.error('[OpenGames] This might be due to:')
+    console.error('[OpenGames] 1. RLS (Row Level Security) blocking access')
+    console.error('[OpenGames] 2. Game was deleted from open_games but still exists in open_game_players')
+    console.error('[OpenGames] 3. Game ID mismatch')
+    
+    // Try to fetch the game directly by ID to see if RLS is the issue
+    if (gameIds.length === 1) {
+      const { data: singleGame, error: singleError } = await supabase
+        .from('open_games')
+        .select('*')
+        .eq('id', gameIds[0])
+        .maybeSingle()
+      
+      console.log('[OpenGames] Direct query for game:', gameIds[0], 'result:', singleGame ? 'found' : 'not found', 'error:', singleError)
+    }
+    
     return []
   }
   
