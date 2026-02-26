@@ -119,6 +119,7 @@ function App() {
   // Edge function data — estado separado que NUNCA é sobrescrito por setDashboardData
   // Guarda TODOS os dados enriquecidos (recentMatches, stats, pastTournamentDetails, etc.)
   const [edgeEnrichedData, setEdgeEnrichedData] = useState<Partial<PlayerDashboardData> | null>(null)
+  const [gamesInitialTab, setGamesInitialTab] = useState<'upcoming' | 'history'>('upcoming')
   const [menuOpen, setMenuOpen] = useState(false)
   const [showChangePassword, setShowChangePassword] = useState(false)
   // Push notifications
@@ -642,7 +643,10 @@ function App() {
             onOpenClub={() => setCurrentScreen('club')}
             onOpenCompete={() => setCurrentScreen('compete')}
             onOpenLearn={() => setCurrentScreen('learn')}
-            onOpenGames={() => setCurrentScreen('games')}
+            onOpenGames={(tab?: 'upcoming' | 'history') => {
+              if (tab) setGamesInitialTab(tab)
+              setCurrentScreen('games')
+            }}
             onOpenFollowsList={(uid: string) => { setFollowsListUserId(uid); setCurrentScreen('follows-list') }}
             onOpenPlayerProfile={(uid: string) => { setSelectedPlayerUserId(uid); setCurrentScreen('player-profile') }}
             onOpenFindGame={() => setCurrentScreen('find-game')}
@@ -710,7 +714,10 @@ function App() {
             player={player}
             dashboardData={effectiveDashboard}
             userId={player?.user_id ?? null}
-            onOpenGames={() => setCurrentScreen('games')}
+            onOpenGames={(tab?: 'upcoming' | 'history') => {
+              if (tab) setGamesInitialTab(tab)
+              setCurrentScreen('games')
+            }}
             onOpenFollowsList={(uid: string) => { setFollowsListUserId(uid); setCurrentScreen('follows-list') }}
             onOpenPlayerProfile={(uid: string) => { setSelectedPlayerUserId(uid); setCurrentScreen('player-profile') }}
           />
@@ -1138,7 +1145,12 @@ function GameCardPlaytomic({
           <span className="text-xs font-medium text-gray-500">
             {match.start_time ? formatDateWithTime(match.start_time) : '-'}
           </span>
-          {isTournament && (
+          {match.is_open_game && match.club_name ? (
+            <span className="flex items-center gap-1 text-blue-600" title={match.club_name}>
+              <Building2 className="w-4 h-4 flex-shrink-0" />
+              <span className="text-xs font-medium truncate max-w-[120px]">{match.club_name}</span>
+            </span>
+          ) : isTournament && (
             <span className="flex items-center gap-1 text-amber-600" title={match.tournament_name}>
               <Trophy className="w-4 h-4 flex-shrink-0" />
               <span className="text-xs font-medium truncate max-w-[120px]">{match.tournament_name}</span>
@@ -2344,7 +2356,7 @@ function HomeScreen({
   onOpenClub: () => void
   onOpenCompete: () => void
   onOpenLearn: () => void
-  onOpenGames: () => void
+  onOpenGames: (tab?: 'upcoming' | 'history') => void
   onOpenFollowsList: (userId: string) => void
   onOpenPlayerProfile: (userId: string) => void
   onOpenFindGame: () => void
@@ -7894,14 +7906,16 @@ function GamesScreen({
   onRefresh,
   onBack,
   onOpenPlayerProfile,
+  initialTab,
 }: {
   player: PlayerAccount | null
   dashboardData: PlayerDashboardData | null
   onRefresh: () => Promise<void>
   onBack: () => void
   onOpenPlayerProfile: (userId: string) => void
+  initialTab?: 'upcoming' | 'history'
 }) {
-  const [activeTab, setActiveTab] = useState<'upcoming' | 'history'>('upcoming')
+  const [activeTab, setActiveTab] = useState<'upcoming' | 'history'>(initialTab || 'upcoming')
   const d = dashboardData
   const upcoming = d?.upcomingMatches ?? []
   const recent = d?.recentMatches ?? []
@@ -8529,7 +8543,7 @@ function ProfileViewScreen({
   player: PlayerAccount | null
   dashboardData: PlayerDashboardData | null
   userId: string | null
-  onOpenGames: () => void
+  onOpenGames: (tab?: 'upcoming' | 'history') => void
   onOpenFollowsList: (userId: string) => void
   onOpenPlayerProfile: (userId: string) => void
 }) {
@@ -8798,7 +8812,7 @@ function ProfileViewScreen({
             <span>📊</span> Resultados Recentes
           </h2>
           {recentMatches.length > 0 && (
-            <button onClick={onOpenGames} className="text-red-600 text-sm font-medium flex items-center gap-1">
+            <button onClick={() => onOpenGames('history')} className="text-red-600 text-sm font-medium flex items-center gap-1">
               Ver todos <ChevronRight className="w-4 h-4" />
             </button>
           )}
