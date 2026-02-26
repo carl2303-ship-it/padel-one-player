@@ -1842,10 +1842,27 @@ export async function fetchGamesAwaitingResult(userId: string, playerAccountId?:
   console.log('[OpenGames] Fetching games with IDs:', gameIds, 'status: full/completed, scheduled_at <=', now)
   
   // First, let's check what games exist without any filters
-  const { data: allGamesCheck, error: checkError } = await supabase
-    .from('open_games')
-    .select('id, status, scheduled_at, duration_minutes, created_at')
-    .in('id', gameIds)
+  // Use .eq() for single ID, .in() for multiple
+  let allGamesCheck: any[] | null = null
+  let checkError: any = null
+  
+  if (gameIds.length === 1) {
+    const { data, error } = await supabase
+      .from('open_games')
+      .select('id, status, scheduled_at, duration_minutes, created_at')
+      .eq('id', gameIds[0])
+    
+    allGamesCheck = data
+    checkError = error
+  } else {
+    const { data, error } = await supabase
+      .from('open_games')
+      .select('id, status, scheduled_at, duration_minutes, created_at')
+      .in('id', gameIds)
+    
+    allGamesCheck = data
+    checkError = error
+  }
   
   console.log('[OpenGames] All games (no filters):', allGamesCheck)
   if (checkError) {
@@ -1860,15 +1877,24 @@ export async function fetchGamesAwaitingResult(userId: string, playerAccountId?:
     console.error('[OpenGames] 2. Game was deleted from open_games but still exists in open_game_players')
     console.error('[OpenGames] 3. Game ID mismatch')
     
-    // Try to fetch the game directly by ID to see if RLS is the issue
+    // Try alternative query methods
     if (gameIds.length === 1) {
+      // Try with .maybeSingle()
       const { data: singleGame, error: singleError } = await supabase
         .from('open_games')
         .select('*')
         .eq('id', gameIds[0])
         .maybeSingle()
       
-      console.log('[OpenGames] Direct query for game:', gameIds[0], 'result:', singleGame ? 'found' : 'not found', 'error:', singleError)
+      console.log('[OpenGames] Direct query (.maybeSingle) for game:', gameIds[0], 'result:', singleGame ? 'found' : 'not found', 'error:', singleError)
+      
+      // Try without .maybeSingle()
+      const { data: singleGame2, error: singleError2 } = await supabase
+        .from('open_games')
+        .select('*')
+        .eq('id', gameIds[0])
+      
+      console.log('[OpenGames] Direct query (without .maybeSingle) for game:', gameIds[0], 'result:', singleGame2 ? `${singleGame2.length} found` : 'not found', 'error:', singleError2)
     }
     
     return []
@@ -1887,14 +1913,35 @@ export async function fetchGamesAwaitingResult(userId: string, playerAccountId?:
     })
   })
   
-  const { data: gamesData, error: gamesError } = await supabase
-    .from('open_games')
-    .select('*')
-    .in('id', gameIds)
-    .in('status', ['full', 'completed'])
-    .lte('scheduled_at', now)
-    .order('scheduled_at', { ascending: false })
-    .limit(20)
+  // Use .eq() for single ID, .in() for multiple
+  let gamesData: any[] | null = null
+  let gamesError: any = null
+  
+  if (gameIds.length === 1) {
+    const { data, error } = await supabase
+      .from('open_games')
+      .select('*')
+      .eq('id', gameIds[0])
+      .in('status', ['full', 'completed'])
+      .lte('scheduled_at', now)
+      .order('scheduled_at', { ascending: false })
+      .limit(20)
+    
+    gamesData = data
+    gamesError = error
+  } else {
+    const { data, error } = await supabase
+      .from('open_games')
+      .select('*')
+      .in('id', gameIds)
+      .in('status', ['full', 'completed'])
+      .lte('scheduled_at', now)
+      .order('scheduled_at', { ascending: false })
+      .limit(20)
+    
+    gamesData = data
+    gamesError = error
+  }
 
   if (gamesError) {
     console.error('[OpenGames] Error fetching games:', gamesError)
