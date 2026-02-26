@@ -670,6 +670,7 @@ function App() {
             onRefresh={refreshDashboard}
             onBack={() => setCurrentScreen('home')}
             onOpenPlayerProfile={(uid: string) => { setSelectedPlayerUserId(uid); setCurrentScreen('player-profile') }}
+            initialTab={gamesInitialTab}
           />
         )}
         {currentScreen === 'club' && (
