@@ -1841,6 +1841,35 @@ export async function fetchGamesAwaitingResult(userId: string, playerAccountId?:
   const now = new Date().toISOString()
   console.log('[OpenGames] Fetching games with IDs:', gameIds, 'status: full/completed, scheduled_at <=', now)
   
+  // First, let's check what games exist without any filters
+  const { data: allGamesCheck, error: checkError } = await supabase
+    .from('open_games')
+    .select('id, status, scheduled_at, duration_minutes, created_at')
+    .in('id', gameIds)
+  
+  console.log('[OpenGames] All games (no filters):', allGamesCheck)
+  if (checkError) {
+    console.error('[OpenGames] Error checking games:', checkError)
+  }
+  
+  if (!allGamesCheck || allGamesCheck.length === 0) {
+    console.error('[OpenGames] No games found in open_games table for IDs:', gameIds)
+    return []
+  }
+  
+  // Log each game's details
+  allGamesCheck.forEach((g: any) => {
+    console.log('[OpenGames] Game details:', {
+      id: g.id,
+      status: g.status,
+      scheduled_at: g.scheduled_at,
+      scheduled_at_date: new Date(g.scheduled_at).toISOString(),
+      now: now,
+      scheduled_before_now: g.scheduled_at <= now,
+      duration_minutes: g.duration_minutes
+    })
+  })
+  
   const { data: gamesData, error: gamesError } = await supabase
     .from('open_games')
     .select('*')
@@ -1862,12 +1891,13 @@ export async function fetchGamesAwaitingResult(userId: string, playerAccountId?:
   }
 
   if (!gamesData || gamesData.length === 0) {
-    // Try without status filter to see what we have
-    const { data: allGames } = await supabase
-      .from('open_games')
-      .select('id, status, scheduled_at, duration_minutes')
-      .in('id', gameIds)
-    console.log('[OpenGames] All games (without status filter):', allGames)
+    console.error('[OpenGames] No games passed the filters. Games found:', allGamesCheck?.map((g: any) => ({
+      id: g.id,
+      status: g.status,
+      hasCorrectStatus: ['full', 'completed'].includes(g.status),
+      scheduled_at: g.scheduled_at,
+      scheduled_before_now: g.scheduled_at <= now
+    })))
     return []
   }
 
