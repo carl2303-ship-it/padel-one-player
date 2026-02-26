@@ -1884,6 +1884,7 @@ export async function fetchGamesAwaitingResult(userId: string, playerAccountId?:
 
   // Check which games already have results
   const pastGameIds = pastGames.map(g => g.id)
+  console.log('[OpenGames] fetchGamesAwaitingResult will return', pastGames.length, 'games total')
   const { data: existingResults } = await supabase
     .from('open_game_results')
     .select('game_id, status, submitted_by_team')
@@ -1974,8 +1975,7 @@ export async function fetchGamesAwaitingResult(userId: string, playerAccountId?:
     console.log('[OpenGames] Returning game:', game.id, 'resultStatus:', resultStatus, 'players:', gamePlayers.length)
     return game
   })
-  
-  console.log('[OpenGames] fetchGamesAwaitingResult returning', pastGames.length, 'games total')
+}
 
 // ============================
 // Fetch confirmed open game results for dashboard/history
