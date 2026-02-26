@@ -1828,14 +1828,22 @@ export async function fetchGamesAwaitingResult(userId: string, playerAccountId?:
     if (r.data) {
       r.data.forEach((g: any) => gameIdSet.add(g.game_id))
     }
+    if (r.error) {
+      console.error('[OpenGames] Error fetching game_ids from open_game_players:', r.error)
+    }
   })
 
   console.log('[OpenGames] fetchGamesAwaitingResult found', gameIdSet.size, 'games for userId:', userId, 'playerAccountId:', playerAccountId)
+  console.log('[OpenGames] Game IDs found:', Array.from(gameIdSet))
 
   if (gameIdSet.size === 0) return []
   const myGames = Array.from(gameIdSet).map(id => ({ game_id: id }))
 
   const gameIds = myGames.map(g => g.game_id)
+  
+  // Verify authentication
+  const { data: { user: authUser }, error: authError } = await supabase.auth.getUser()
+  console.log('[OpenGames] Auth check - user:', authUser?.id, 'error:', authError)
 
   // Fetch games that ended (scheduled_at + duration < now)
   const now = new Date().toISOString()
@@ -1877,27 +1885,87 @@ export async function fetchGamesAwaitingResult(userId: string, playerAccountId?:
     console.error('[OpenGames] 2. Game was deleted from open_games but still exists in open_game_players')
     console.error('[OpenGames] 3. Game ID mismatch')
     
-    // Try alternative query methods
-    if (gameIds.length === 1) {
-      // Try with .maybeSingle()
-      const { data: singleGame, error: singleError } = await supabase
-        .from('open_games')
-        .select('*')
-        .eq('id', gameIds[0])
-        .maybeSingle()
-      
-      console.log('[OpenGames] Direct query (.maybeSingle) for game:', gameIds[0], 'result:', singleGame ? 'found' : 'not found', 'error:', singleError)
-      
-      // Try without .maybeSingle()
-      const { data: singleGame2, error: singleError2 } = await supabase
-        .from('open_games')
-        .select('*')
-        .eq('id', gameIds[0])
-      
-      console.log('[OpenGames] Direct query (without .maybeSingle) for game:', gameIds[0], 'result:', singleGame2 ? `${singleGame2.length} found` : 'not found', 'error:', singleError2)
+    // Try alternative: fetch through open_game_players with JOIN
+    console.log('[OpenGames] Trying alternative: fetch through open_game_players JOIN')
+    const { data: gamesViaPlayers, error: joinError } = await supabase
+      .from('open_game_players')
+      .select(`
+        game_id,
+        open_games!inner (
+          id,
+          status,
+          scheduled_at,
+          duration_minutes,
+          created_at,
+          club_id,
+          court_id,
+          game_type,
+          gender,
+          level_min,
+          level_max,
+          price_per_player,
+          max_players,
+          notes,
+          creator_user_id
+        )
+      `)
+      .in('game_id', gameIds)
+      .eq('status', 'confirmed')
+      .in('user_id', [userId])
+    
+    if (joinError) {
+      console.error('[OpenGames] JOIN query error:', joinError)
+    } else {
+      console.log('[OpenGames] JOIN query result:', gamesViaPlayers?.length || 0, 'games found')
+      if (gamesViaPlayers && gamesViaPlayers.length > 0) {
+        // Extract unique games from the JOIN result
+        const gamesMap = new Map()
+        gamesViaPlayers.forEach((gp: any) => {
+          if (gp.open_games && !gamesMap.has(gp.open_games.id)) {
+            gamesMap.set(gp.open_games.id, gp.open_games)
+          }
+        })
+        const gamesFromJoin = Array.from(gamesMap.values())
+        console.log('[OpenGames] Extracted', gamesFromJoin.length, 'unique games from JOIN')
+        
+        if (gamesFromJoin.length > 0) {
+          // Use the games from JOIN instead
+          allGamesCheck = gamesFromJoin.map((g: any) => ({
+            id: g.id,
+            status: g.status,
+            scheduled_at: g.scheduled_at,
+            duration_minutes: g.duration_minutes,
+            created_at: g.created_at,
+            _fullData: g // Store full data for later use
+          }))
+          console.log('[OpenGames] Using games from JOIN query:', allGamesCheck.length)
+        }
+      }
     }
     
-    return []
+    // If still no games, try direct queries
+    if (!allGamesCheck || allGamesCheck.length === 0) {
+      if (gameIds.length === 1) {
+        // Try with .maybeSingle()
+        const { data: singleGame, error: singleError } = await supabase
+          .from('open_games')
+          .select('*')
+          .eq('id', gameIds[0])
+          .maybeSingle()
+        
+        console.log('[OpenGames] Direct query (.maybeSingle) for game:', gameIds[0], 'result:', singleGame ? 'found' : 'not found', 'error:', singleError)
+        
+        // Try without .maybeSingle()
+        const { data: singleGame2, error: singleError2 } = await supabase
+          .from('open_games')
+          .select('*')
+          .eq('id', gameIds[0])
+        
+        console.log('[OpenGames] Direct query (without .maybeSingle) for game:', gameIds[0], 'result:', singleGame2 ? `${singleGame2.length} found` : 'not found', 'error:', singleError2)
+      }
+      
+      return []
+    }
   }
   
   // Log each game's details
@@ -1913,34 +1981,51 @@ export async function fetchGamesAwaitingResult(userId: string, playerAccountId?:
     })
   })
   
+  // Check if we got games from JOIN query
+  const hasFullDataFromJoin = allGamesCheck && allGamesCheck.length > 0 && allGamesCheck[0]._fullData
+  
   // Use .eq() for single ID, .in() for multiple
   let gamesData: any[] | null = null
   let gamesError: any = null
   
-  if (gameIds.length === 1) {
-    const { data, error } = await supabase
-      .from('open_games')
-      .select('*')
-      .eq('id', gameIds[0])
-      .in('status', ['full', 'completed'])
-      .lte('scheduled_at', now)
-      .order('scheduled_at', { ascending: false })
-      .limit(20)
-    
-    gamesData = data
-    gamesError = error
+  if (hasFullDataFromJoin) {
+    // Use data from JOIN query, but filter by status and scheduled_at
+    console.log('[OpenGames] Using games from JOIN query, filtering by status and scheduled_at')
+    const gamesFromJoin = allGamesCheck.map((g: any) => g._fullData || g)
+    gamesData = gamesFromJoin.filter((g: any) => {
+      const hasCorrectStatus = ['full', 'completed'].includes(g.status)
+      const scheduledBeforeNow = g.scheduled_at <= now
+      console.log('[OpenGames] Game from JOIN:', g.id, 'status:', g.status, 'hasCorrectStatus:', hasCorrectStatus, 'scheduledBeforeNow:', scheduledBeforeNow)
+      return hasCorrectStatus && scheduledBeforeNow
+    })
+    gamesError = null
   } else {
-    const { data, error } = await supabase
-      .from('open_games')
-      .select('*')
-      .in('id', gameIds)
-      .in('status', ['full', 'completed'])
-      .lte('scheduled_at', now)
-      .order('scheduled_at', { ascending: false })
-      .limit(20)
-    
-    gamesData = data
-    gamesError = error
+    // Try direct query to open_games
+    if (gameIds.length === 1) {
+      const { data, error } = await supabase
+        .from('open_games')
+        .select('*')
+        .eq('id', gameIds[0])
+        .in('status', ['full', 'completed'])
+        .lte('scheduled_at', now)
+        .order('scheduled_at', { ascending: false })
+        .limit(20)
+      
+      gamesData = data
+      gamesError = error
+    } else {
+      const { data, error } = await supabase
+        .from('open_games')
+        .select('*')
+        .in('id', gameIds)
+        .in('status', ['full', 'completed'])
+        .lte('scheduled_at', now)
+        .order('scheduled_at', { ascending: false })
+        .limit(20)
+      
+      gamesData = data
+      gamesError = error
+    }
   }
 
   if (gamesError) {
