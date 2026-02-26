@@ -1839,7 +1839,9 @@ export async function fetchGamesAwaitingResult(userId: string, playerAccountId?:
 
   // Fetch games that ended (scheduled_at + duration < now)
   const now = new Date().toISOString()
-  const { data: gamesData } = await supabase
+  console.log('[OpenGames] Fetching games with IDs:', gameIds, 'status: full/completed, scheduled_at <=', now)
+  
+  const { data: gamesData, error: gamesError } = await supabase
     .from('open_games')
     .select('*')
     .in('id', gameIds)
@@ -1848,14 +1850,36 @@ export async function fetchGamesAwaitingResult(userId: string, playerAccountId?:
     .order('scheduled_at', { ascending: false })
     .limit(20)
 
-  if (!gamesData || gamesData.length === 0) return []
+  if (gamesError) {
+    console.error('[OpenGames] Error fetching games:', gamesError)
+  }
+  
+  console.log('[OpenGames] Found', gamesData?.length || 0, 'games with status full/completed and scheduled_at <= now')
+  if (gamesData && gamesData.length > 0) {
+    gamesData.forEach((g: any) => {
+      console.log('[OpenGames] Game:', g.id, 'status:', g.status, 'scheduled_at:', g.scheduled_at, 'duration:', g.duration_minutes)
+    })
+  }
+
+  if (!gamesData || gamesData.length === 0) {
+    // Try without status filter to see what we have
+    const { data: allGames } = await supabase
+      .from('open_games')
+      .select('id, status, scheduled_at, duration_minutes')
+      .in('id', gameIds)
+    console.log('[OpenGames] All games (without status filter):', allGames)
+    return []
+  }
 
   // Filter: only games whose end time has passed
   const pastGames = gamesData.filter(g => {
     const endTime = new Date(new Date(g.scheduled_at).getTime() + (g.duration_minutes || 90) * 60000)
-    return endTime <= new Date()
+    const hasEnded = endTime <= new Date()
+    console.log('[OpenGames] Game', g.id, 'endTime:', endTime.toISOString(), 'now:', new Date().toISOString(), 'hasEnded:', hasEnded)
+    return hasEnded
   })
 
+  console.log('[OpenGames] Past games (after end time filter):', pastGames.length)
   if (pastGames.length === 0) return []
 
   // Check which games already have results
@@ -1864,6 +1888,13 @@ export async function fetchGamesAwaitingResult(userId: string, playerAccountId?:
     .from('open_game_results')
     .select('game_id, status, submitted_by_team')
     .in('game_id', pastGameIds)
+
+  console.log('[OpenGames] Existing results:', existingResults?.length || 0)
+  if (existingResults && existingResults.length > 0) {
+    existingResults.forEach((r: any) => {
+      console.log('[OpenGames] Result for game', r.game_id, 'status:', r.status, 'submitted_by_team:', r.submitted_by_team)
+    })
+  }
 
   const resultsMap = new Map((existingResults || []).map(r => [r.game_id, r.status]))
   const submittedByTeamMap = new Map((existingResults || []).map(r => [r.game_id, r.submitted_by_team]))
@@ -1925,7 +1956,7 @@ export async function fetchGamesAwaitingResult(userId: string, playerAccountId?:
     const court = g.court_id ? courtsMap[g.court_id] : null
     const resultStatus = resultsMap.get(g.id) || null
 
-    return {
+    const game = {
       id: g.id, creator_user_id: g.creator_user_id, club_id: g.club_id,
       club_name: club.name, club_logo_url: club.logo_url, club_city: club.city,
       court_id: g.court_id, court_name: court?.name || null,
@@ -1939,8 +1970,12 @@ export async function fetchGamesAwaitingResult(userId: string, playerAccountId?:
       _resultStatus: resultStatus, // extra field for UI
       _submittedByTeam: submittedByTeamMap.get(g.id) || 0, // which team submitted the result
     } as OpenGame & { _resultStatus?: string | null; _submittedByTeam?: number }
+    
+    console.log('[OpenGames] Returning game:', game.id, 'resultStatus:', resultStatus, 'players:', gamePlayers.length)
+    return game
   })
-}
+  
+  console.log('[OpenGames] fetchGamesAwaitingResult returning', pastGames.length, 'games total')
 
 // ============================
 // Fetch confirmed open game results for dashboard/history
@@ -2149,11 +2184,18 @@ export async function fetchConfirmedOpenGameResults(userId: string, playerAccoun
 
 export async function fetchPendingResultGames(userId: string, playerAccountId?: string): Promise<(OpenGame & { _resultStatus?: string | null; _submittedByTeam?: number })[]> {
   const allGames = await fetchGamesAwaitingResult(userId, playerAccountId)
+  console.log('[OpenGames] fetchPendingResultGames: received', allGames.length, 'games from fetchGamesAwaitingResult')
+  
   // Return only games without confirmed results (pending or no result)
-  return allGames.filter(g => {
+  const filtered = allGames.filter(g => {
     const status = (g as any)._resultStatus
-    return status !== 'confirmed'
+    const shouldInclude = status !== 'confirmed'
+    console.log('[OpenGames] Game', g.id, 'resultStatus:', status, 'shouldInclude:', shouldInclude)
+    return shouldInclude
   })
+  
+  console.log('[OpenGames] fetchPendingResultGames: returning', filtered.length, 'games after filtering')
+  return filtered
 }
 
 // ============================
