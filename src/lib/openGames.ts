@@ -2020,7 +2020,6 @@ export async function fetchGamesAwaitingResult(userId: string, playerAccountId?:
           console.log('[OpenGames] Using games from JOIN query:', allGamesCheck.length)
         }
       }
-    }
     
     // If still no games, try direct queries
     if (!allGamesCheck || allGamesCheck.length === 0) {
