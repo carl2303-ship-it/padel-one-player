@@ -218,7 +218,7 @@ function App() {
           ])
           setDashboardData(dash)
           // Enrich with Edge Function in background (progressive loading)
-          enrichDashboardWithEdgeFunction().then(enriched => {
+          enrichDashboardWithEdgeFunction(dash).then(enriched => {
             if (enriched) {
               setEdgeEnrichedData(enriched)
               setDashboardData(prev => prev ? { ...prev, ...enriched } : prev)
@@ -409,7 +409,7 @@ function App() {
           ])
           setDashboardData(data)
           // Enrich with Edge Function in background (progressive loading)
-          enrichDashboardWithEdgeFunction().then(enriched => {
+          enrichDashboardWithEdgeFunction(dash).then(enriched => {
             if (enriched) {
               setEdgeEnrichedData(enriched)
               setDashboardData(prev => prev ? { ...prev, ...enriched } : prev)

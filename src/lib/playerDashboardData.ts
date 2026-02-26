@@ -644,8 +644,9 @@ export async function fetchPlayerDashboardData(
  * Enrich dashboard data with Edge Function (uses service role, bypasses RLS).
  * Call this AFTER the initial dashboard is displayed for progressive loading.
  * Returns partial data to merge, or null if failed.
+ * @param currentDashboardData - Current dashboard data to merge with (preserves open games)
  */
-export async function enrichDashboardWithEdgeFunction(): Promise<Partial<PlayerDashboardData> | null> {
+export async function enrichDashboardWithEdgeFunction(currentDashboardData?: PlayerDashboardData | null): Promise<Partial<PlayerDashboardData> | null> {
   try {
     const t0 = performance.now()
     const { data: { session } } = await supabase.auth.getSession()
@@ -691,9 +692,19 @@ export async function enrichDashboardWithEdgeFunction(): Promise<Partial<PlayerD
       console.log('[Dashboard] Edge Function stats:', enriched.stats)
     }
     // Merge recent matches from edge function (bypasses RLS)
+    // IMPORTANT: Don't replace, merge with existing open games
     if (edgeData.recentMatches?.length) {
-      enriched.recentMatches = edgeData.recentMatches
-      console.log('[Dashboard] Edge Function recentMatches:', edgeData.recentMatches.length)
+      // Get existing open games from current dashboardData
+      const currentOpenGames = (currentDashboardData?.recentMatches || []).filter(m => m.is_open_game)
+      // Combine edge function matches with open games, then sort by date
+      const allMatches = [...edgeData.recentMatches, ...currentOpenGames]
+        .sort((a, b) => new Date(b.start_time).getTime() - new Date(a.start_time).getTime())
+      enriched.recentMatches = allMatches
+      console.log('[Dashboard] Edge Function recentMatches:', edgeData.recentMatches.length, '+ open games:', currentOpenGames.length, '= total:', allMatches.length)
+    } else if (currentDashboardData?.recentMatches) {
+      // If edge function doesn't return matches, keep current ones (includes open games)
+      enriched.recentMatches = currentDashboardData.recentMatches
+      console.log('[Dashboard] No Edge Function matches, keeping current:', currentDashboardData.recentMatches.length)
     }
     return Object.keys(enriched).length > 0 ? enriched : null
   } catch (err) {
