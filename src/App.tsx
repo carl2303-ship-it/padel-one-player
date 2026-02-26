@@ -5008,6 +5008,7 @@ function FindGameScreen({
 
   // Add player modal
   const [addPlayerModal, setAddPlayerModal] = useState<{ gameId: string } | null>(null)
+  const [joinPositionModal, setJoinPositionModal] = useState<{ game: import('./lib/openGames').OpenGame } | null>(null)
   const [playerSearchQuery, setPlayerSearchQuery] = useState('')
   const [playerSearchResults, setPlayerSearchResults] = useState<{ id: string; name: string; avatar_url: string | null; level: number | null; player_category: string | null; phone_number: string | null }[]>([])
   const [searchingPlayers, setSearchingPlayers] = useState(false)
@@ -5111,9 +5112,10 @@ function FindGameScreen({
            (outOfLevel && (g.status === 'open' || g.status === 'full' || g.status === 'pending'))
   })
 
-  // Join a game
-  const handleJoinGame = async (game: import('./lib/openGames').OpenGame) => {
+  // Join a game with selected position
+  const handleJoinGameWithPosition = async (game: import('./lib/openGames').OpenGame, position: number) => {
     if (!userId) return
+    setJoinPositionModal(null)
     const { joinOpenGame } = await import('./lib/openGames')
     const result = await joinOpenGame({
       gameId: game.id,
@@ -5122,6 +5124,7 @@ function FindGameScreen({
       playerLevel,
       gameLevelMin: game.level_min,
       gameLevelMax: game.level_max,
+      position,
     })
     if (result.success) {
       // Refresh games
@@ -5376,7 +5379,8 @@ function FindGameScreen({
                             setPlayerSearchQuery('')
                             setPlayerSearchResults([])
                           } else {
-                            handleJoinGame(game)
+                            // Show position selection modal
+                            setJoinPositionModal({ game })
                           }
                         }}
                       >
@@ -5435,7 +5439,8 @@ function FindGameScreen({
                             setPlayerSearchQuery('')
                             setPlayerSearchResults([])
                           } else {
-                            handleJoinGame(game)
+                            // Show position selection modal
+                            setJoinPositionModal({ game })
                           }
                         }}
                       >
@@ -5648,7 +5653,7 @@ function FindGameScreen({
         {!isInGame && !game.players.some(p => (p.status === 'pending' || p.status === 'rejected') && (p.user_id === userId || (player?.id && p.player_account_id === player.id))) && (
           <div className="px-4 pb-3 pt-0 bg-gray-50/50">
             <button
-              onClick={() => handleJoinGame(game)}
+              onClick={() => setJoinPositionModal({ game })}
               className={`w-full py-2 rounded-xl text-sm font-semibold transition-colors ${
                 isRequest 
                   ? 'bg-amber-500 hover:bg-amber-600 text-white' 
@@ -6506,6 +6511,84 @@ function FindGameScreen({
       )}
 
       {/* === MODAL: Adicionar Jogador === */}
+      {/* === MODAL: Escolher Posição para Entrar no Jogo === */}
+      {joinPositionModal && (() => {
+        const game = joinPositionModal.game
+        const confirmedPlayers = game.players.filter(p => p.status === 'confirmed')
+        const occupiedPositions = new Set(confirmedPlayers.map(p => p.position).filter(Boolean))
+        const getPositionLabel = (pos: number) => {
+          if (pos <= 2) return `Equipa 1 - Posição ${pos}`
+          return `Equipa 2 - Posição ${pos}`
+        }
+        const getPositionPlayer = (pos: number) => {
+          return confirmedPlayers.find(p => p.position === pos)
+        }
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setJoinPositionModal(null)}>
+            <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-fade-in" onClick={e => e.stopPropagation()}>
+              <div className="p-4 border-b border-gray-100 flex items-center justify-between">
+                <h3 className="font-bold text-lg text-gray-900">Escolher posição</h3>
+                <button onClick={() => setJoinPositionModal(null)} className="p-1">
+                  <X className="w-5 h-5 text-gray-500" />
+                </button>
+              </div>
+              
+              <div className="p-5 space-y-3">
+                <p className="text-sm text-gray-600 mb-4">Escolhe em que equipa e posição queres entrar:</p>
+                
+                {/* Position options */}
+                <div className="grid grid-cols-2 gap-3">
+                  {[1, 2, 3, 4].map(pos => {
+                    const isOccupied = occupiedPositions.has(pos)
+                    const player = getPositionPlayer(pos)
+                    const isTeam1 = pos <= 2
+                    
+                    return (
+                      <button
+                        key={pos}
+                        disabled={isOccupied}
+                        onClick={() => !isOccupied && handleJoinGameWithPosition(game, pos)}
+                        className={`p-4 rounded-xl border-2 transition-all text-left ${
+                          isOccupied
+                            ? 'border-gray-200 bg-gray-50 opacity-60 cursor-not-allowed'
+                            : 'border-blue-200 bg-blue-50 hover:border-blue-400 hover:bg-blue-100 cursor-pointer'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <span className={`text-xs font-semibold ${isTeam1 ? 'text-orange-600' : 'text-blue-600'}`}>
+                            {isTeam1 ? 'Equipa 1' : 'Equipa 2'}
+                          </span>
+                          <span className="text-xs font-medium text-gray-500">Pos. {pos}</span>
+                        </div>
+                        {isOccupied && player ? (
+                          <div className="flex items-center gap-2">
+                            <div className="w-8 h-8 rounded-full overflow-hidden bg-gray-200 flex items-center justify-center flex-shrink-0">
+                              {player.avatar_url ? (
+                                <img src={player.avatar_url} alt={player.name} className="w-full h-full object-cover" />
+                              ) : (
+                                <span className="text-xs font-bold text-gray-600">{(player.name || '?').charAt(0).toUpperCase()}</span>
+                              )}
+                            </div>
+                            <span className="text-xs text-gray-600 truncate">{(player.name || '').split(' ')[0]}</span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            <div className="w-8 h-8 rounded-full border-2 border-dashed border-gray-300 flex items-center justify-center flex-shrink-0">
+                              <Plus className="w-4 h-4 text-gray-400" />
+                            </div>
+                            <span className="text-xs text-gray-500">Livre</span>
+                          </div>
+                        )}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
       {addPlayerModal && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-0 sm:p-4">
           <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md shadow-2xl overflow-hidden animate-fade-in max-h-[85vh] flex flex-col">

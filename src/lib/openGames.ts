@@ -834,6 +834,7 @@ export async function joinOpenGame(params: {
   playerLevel: number
   gameLevelMin: number
   gameLevelMax: number
+  position?: number // Optional: position to join (1-4). If not provided, uses next available position.
 }): Promise<{ success: boolean; status: 'confirmed' | 'pending'; error?: string }> {
   // Always use real auth uid for RLS
   const { data: { user: authUser } } = await supabase.auth.getUser()
@@ -857,18 +858,37 @@ export async function joinOpenGame(params: {
     resolvedAccountId = pa?.id || null
   }
 
-  // Get current player count to determine position
+  // Get current players to determine available positions
   const { data: existingPlayers } = await supabase
     .from('open_game_players')
     .select('position')
     .eq('game_id', params.gameId)
     .eq('status', 'confirmed')
-    .order('position', { ascending: false })
-    .limit(1)
-
-  const nextPosition = (existingPlayers && existingPlayers.length > 0) 
-    ? (existingPlayers[0].position || 0) + 1 
-    : 1
+  
+  const occupiedPositions = new Set((existingPlayers || []).map(p => p.position).filter(Boolean))
+  
+  // If position is specified, check if it's available
+  let selectedPosition: number
+  if (params.position) {
+    if (occupiedPositions.has(params.position)) {
+      return { success: false, status: 'pending', error: 'Essa posição já está ocupada' }
+    }
+    selectedPosition = params.position
+  } else {
+    // Auto-select next available position (1-4)
+    for (let pos = 1; pos <= 4; pos++) {
+      if (!occupiedPositions.has(pos)) {
+        selectedPosition = pos
+        break
+      }
+    }
+    // If all positions are taken (shouldn't happen), use next number
+    if (!selectedPosition!) {
+      selectedPosition = (existingPlayers && existingPlayers.length > 0) 
+        ? (existingPlayers[existingPlayers.length - 1].position || 0) + 1 
+        : 1
+    }
+  }
 
   const { error } = await supabase
     .from('open_game_players')
@@ -877,7 +897,7 @@ export async function joinOpenGame(params: {
       user_id: realUserId,
       player_account_id: resolvedAccountId,
       status: joinStatus,
-      position: joinStatus === 'confirmed' ? nextPosition : null,
+      position: joinStatus === 'confirmed' ? selectedPosition : null,
     })
 
   if (error) {
