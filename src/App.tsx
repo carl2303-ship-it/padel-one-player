@@ -6639,6 +6639,7 @@ function LearnScreen({
   const [myClasses, setMyClasses] = useState<ClassData[]>([])
   const [loading, setLoading] = useState(true)
   const [enrollingClassId, setEnrollingClassId] = useState<string | null>(null)
+  const [selectedClass, setSelectedClass] = useState<ClassData | null>(null)
 
   // Carregar aulas disponíveis
   useEffect(() => {
@@ -6648,6 +6649,17 @@ function LearnScreen({
       loadMyClasses()
     }
   }, [activeTab, userId])
+
+  // Atualizar automaticamente a cada 10 segundos para ver novas inscrições
+  useEffect(() => {
+    if (activeTab === 'inscrever') {
+      const interval = setInterval(() => {
+        loadAvailableClasses()
+      }, 10000) // Atualizar a cada 10 segundos
+
+      return () => clearInterval(interval)
+    }
+  }, [activeTab])
 
   const loadAvailableClasses = async () => {
     setLoading(true)
@@ -6685,11 +6697,10 @@ function LearnScreen({
       const success = await enrollInClass(classId, userId, playerAccountId)
       if (success) {
         alert('Inscrição realizada com sucesso!')
-        // Recarregar aulas
-        if (activeTab === 'inscrever') {
-          loadAvailableClasses()
-        } else {
-          loadMyClasses()
+        // Recarregar aulas em ambas as tabs para garantir que todos veem a atualização
+        await loadAvailableClasses()
+        if (userId) {
+          await loadMyClasses()
         }
       } else {
         alert('Erro ao inscrever-se. Pode já estar inscrito ou a aula estar cheia.')
@@ -6794,6 +6805,7 @@ function LearnScreen({
                     isEnrolling={enrollingClassId === classItem.id}
                     onOpenPlayerProfile={onOpenPlayerProfile}
                     onOpenClub={onOpenClub}
+                    onClick={() => setSelectedClass(classItem)}
                   />
                 ))
               )}
@@ -6819,6 +6831,7 @@ function LearnScreen({
                     isMyClass={true}
                     onOpenPlayerProfile={onOpenPlayerProfile}
                     onOpenClub={onOpenClub}
+                    onClick={() => setSelectedClass(classItem)}
                   />
                 ))
               )}
@@ -6826,6 +6839,235 @@ function LearnScreen({
           )}
         </>
       )}
+
+      {/* Modal de detalhes da aula */}
+      {selectedClass && (
+        <ClassDetailsModal
+          classItem={selectedClass}
+          formatDate={formatDate}
+          formatTime={formatTime}
+          getGenderIcon={getGenderIcon}
+          getGenderLabel={getGenderLabel}
+          onClose={() => setSelectedClass(null)}
+          onOpenPlayerProfile={onOpenPlayerProfile}
+          onOpenClub={onOpenClub}
+        />
+      )}
+    </div>
+  )
+}
+
+// Componente de Modal de Detalhes da Aula
+function ClassDetailsModal({
+  classItem,
+  formatDate,
+  formatTime,
+  getGenderIcon,
+  getGenderLabel,
+  onClose,
+  onOpenPlayerProfile,
+  onOpenClub,
+}: {
+  classItem: ClassData
+  formatDate: (dateStr: string) => string
+  formatTime: (dateStr: string) => string
+  getGenderIcon: (gender: ClassGender) => string
+  getGenderLabel: (gender: ClassGender) => string
+  onClose: () => void
+  onOpenPlayerProfile?: (userId: string) => void
+  onOpenClub?: (clubId: string) => void
+}) {
+  const { scheduled_at, title, professor, professor_phone, professor_avatar, club, club_id, level, gender, maxPlayers, participants, price, court_name, notes, club_address, club_city, club_phone, club_email, club_website } = classItem
+  const timeStr = formatTime(scheduled_at)
+  const filledSlots = participants.length
+  const emptySlots = maxPlayers - filledSlots
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4 animate-fade-in" onClick={onClose}>
+      <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto animate-scale-in" onClick={(e) => e.stopPropagation()}>
+        <div className="sticky top-0 bg-white border-b border-gray-200 p-4 flex items-center justify-between z-10">
+          <h2 className="text-xl font-bold text-gray-900">Detalhes da Aula</h2>
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
+            <X className="w-5 h-5 text-gray-600" />
+          </button>
+        </div>
+
+        <div className="p-6 space-y-6">
+          {/* Header da Aula */}
+          <div className="flex items-start gap-4">
+            <div className="w-16 h-16 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center flex-shrink-0">
+              <GraduationCap className="w-8 h-8 text-white" />
+            </div>
+            <div className="flex-1">
+              <h3 className="font-bold text-2xl text-gray-900 mb-2">{title}</h3>
+              <p className="text-sm text-gray-600 mb-1">
+                {formatDate(scheduled_at)} às {timeStr}
+              </p>
+              {court_name && (
+                <p className="text-sm text-gray-600">Campo: {court_name}</p>
+              )}
+            </div>
+          </div>
+
+          {/* Informações da Aula */}
+          <div className="space-y-3">
+            <div className="flex items-center gap-3 text-sm">
+              <MapPin className="w-5 h-5 text-gray-400" />
+              {club_id && onOpenClub ? (
+                <button
+                  onClick={() => {
+                    onOpenClub(club_id)
+                    onClose()
+                  }}
+                  className="text-red-600 hover:text-red-700 hover:underline font-medium"
+                >
+                  {club}
+                </button>
+              ) : (
+                <span className="text-gray-700">{club}</span>
+              )}
+            </div>
+            {club_address && (
+              <div className="flex items-start gap-3 text-sm ml-8">
+                <span className="text-gray-600">{club_address}{club_city ? `, ${club_city}` : ''}</span>
+              </div>
+            )}
+            {club_phone && (
+              <div className="flex items-center gap-3 text-sm ml-8">
+                <Phone className="w-4 h-4 text-gray-400" />
+                <a href={`tel:${club_phone}`} className="text-blue-600 hover:underline">{club_phone}</a>
+              </div>
+            )}
+            {club_email && (
+              <div className="flex items-center gap-3 text-sm ml-8">
+                <Mail className="w-4 h-4 text-gray-400" />
+                <a href={`mailto:${club_email}`} className="text-blue-600 hover:underline">{club_email}</a>
+              </div>
+            )}
+            {club_website && (
+              <div className="flex items-center gap-3 text-sm ml-8">
+                <Globe className="w-4 h-4 text-gray-400" />
+                <a href={club_website} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline flex items-center gap-1">
+                  {club_website}
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+              </div>
+            )}
+
+            <div className="flex items-center gap-3 text-sm">
+              <TrendingUp className="w-5 h-5 text-gray-400" />
+              <span className="text-gray-700">Nível: <span className="font-medium">{level || 'Todos os níveis'}</span></span>
+            </div>
+
+            <div className="flex items-center gap-3 text-sm">
+              <Users className="w-5 h-5 text-gray-400" />
+              <span className="text-gray-700">{getGenderIcon(gender)} <span className="font-medium">{getGenderLabel(gender)}</span></span>
+            </div>
+
+            <div className="flex items-center gap-3 text-sm">
+              <User className="w-5 h-5 text-gray-400" />
+              {professor_phone && onOpenPlayerProfile ? (
+                <button
+                  onClick={async () => {
+                    const { findPlayerUserIdByPhone } = await import('./lib/classes')
+                    const userId = await findPlayerUserIdByPhone(professor_phone)
+                    if (userId) {
+                      onOpenPlayerProfile(userId)
+                      onClose()
+                    }
+                  }}
+                  className="flex items-center gap-2 hover:opacity-80 transition-opacity"
+                >
+                  {professor_avatar ? (
+                    <img
+                      src={professor_avatar}
+                      alt={professor}
+                      className="w-6 h-6 rounded-full object-cover"
+                    />
+                  ) : (
+                    <div className="w-6 h-6 rounded-full bg-gradient-to-br from-red-400 to-red-600 flex items-center justify-center text-white text-xs font-semibold">
+                      {professor.charAt(0).toUpperCase()}
+                    </div>
+                  )}
+                  <span className="text-red-600 hover:text-red-700 hover:underline font-medium">Prof. {professor}</span>
+                </button>
+              ) : (
+                <span className="text-gray-700">Prof. {professor}</span>
+              )}
+            </div>
+
+            <div className="flex items-center gap-3 text-sm">
+              <Users className="w-5 h-5 text-gray-400" />
+              <span className="text-gray-700">Participantes: <span className="font-medium">{filledSlots}/{maxPlayers}</span></span>
+            </div>
+
+            <div className="flex items-center gap-3 text-sm">
+              <CreditCard className="w-5 h-5 text-gray-400" />
+              <span className="text-gray-700">Preço: <span className="font-medium">{price}€</span></span>
+            </div>
+          </div>
+
+          {/* Notas */}
+          {notes && (
+            <div className="bg-gray-50 rounded-lg p-4">
+              <p className="text-sm text-gray-700 whitespace-pre-wrap">{notes}</p>
+            </div>
+          )}
+
+          {/* Lista de Participantes */}
+          <div className="border-t border-gray-200 pt-4">
+            <h4 className="font-semibold text-gray-900 mb-4">Participantes ({filledSlots}/{maxPlayers})</h4>
+            {participants.length === 0 ? (
+              <p className="text-gray-500 text-sm">Ainda não há participantes inscritos</p>
+            ) : (
+              <div className="space-y-2">
+                {participants.map((participant) => (
+                  <div
+                    key={participant.id}
+                    className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
+                  >
+                    {participant.avatar_url ? (
+                      <img
+                        src={participant.avatar_url}
+                        alt={participant.name}
+                        className="w-10 h-10 rounded-full object-cover"
+                      />
+                    ) : (
+                      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-red-400 to-red-600 flex items-center justify-center text-white font-semibold">
+                        {participant.name.charAt(0).toUpperCase()}
+                      </div>
+                    )}
+                    {participant.user_id && onOpenPlayerProfile ? (
+                      <button
+                        onClick={() => {
+                          onOpenPlayerProfile(participant.user_id!)
+                          onClose()
+                        }}
+                        className="flex-1 text-left text-gray-900 font-medium hover:text-red-600 transition-colors"
+                      >
+                        {participant.name}
+                      </button>
+                    ) : (
+                      <span className="flex-1 text-gray-900 font-medium">{participant.name}</span>
+                    )}
+                  </div>
+                ))}
+                {Array.from({ length: emptySlots }).map((_, idx) => (
+                  <div
+                    key={`empty-${idx}`}
+                    className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300"
+                  >
+                    <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center">
+                      <Plus className="w-5 h-5 text-gray-400" />
+                    </div>
+                    <span className="text-gray-400 text-sm">Vaga disponível</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
@@ -6843,6 +7085,7 @@ function ClassCard({
   isMyClass = false,
   onOpenPlayerProfile,
   onOpenClub,
+  onClick,
 }: {
   classItem: ClassData
   formatDate: (dateStr: string) => string
@@ -6855,6 +7098,7 @@ function ClassCard({
   isMyClass?: boolean
   onOpenPlayerProfile?: (userId: string) => void
   onOpenClub?: (clubId: string) => void
+  onClick?: () => void
 }) {
   const { t } = useI18n()
   const { scheduled_at, title, professor, professor_phone, professor_avatar, club, club_id, level, gender, maxPlayers, participants, price } = classItem
@@ -6866,7 +7110,7 @@ function ClassCard({
   
 
   return (
-    <div className="card p-4">
+    <div className={`card p-4 ${onClick ? 'cursor-pointer hover:shadow-md transition-shadow' : ''}`} onClick={onClick}>
       <div className="flex gap-4">
         {/* Left side - Icon */}
         <div className="flex-shrink-0">

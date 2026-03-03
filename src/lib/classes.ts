@@ -130,6 +130,7 @@ export interface ClassParticipant {
   id: string
   name: string
   avatar_url?: string | null
+  user_id?: string | null
 }
 
 export interface Class {
@@ -193,7 +194,7 @@ export async function fetchAvailableClasses(clubId?: string | null): Promise<Cla
     .eq('status', 'scheduled')
     .gte('scheduled_at', now)
     .order('scheduled_at', { ascending: true })
-
+  
   // Filtrar por clube se fornecido
   if (clubOwnerId) {
     query = query.eq('club_owner_id', clubOwnerId)
@@ -203,15 +204,13 @@ export async function fetchAvailableClasses(clubId?: string | null): Promise<Cla
   const { data: classesData, error } = await query
   
   if (error) {
-    console.error('[Classes] Error fetching classes:', error)
-    console.error('[Classes] Error details:', JSON.stringify(error, null, 2))
     return []
   }
 
   if (!classesData || classesData.length === 0) {
     return []
   }
-
+  
   // Buscar dados relacionados separadamente para evitar problemas com RLS
   const classTypeIds = [...new Set(classesData.map((c: any) => c.class_type_id).filter(Boolean))]
   const coachIds = [...new Set(classesData.map((c: any) => c.coach_id).filter(Boolean))]
@@ -225,12 +224,48 @@ export async function fetchAvailableClasses(clubId?: string | null): Promise<Cla
     .in('id', classTypeIds)
     .eq('is_active', true)
 
-  // Buscar coaches
-  const { data: coachesData } = await supabase
-    .from('club_staff')
-    .select('id, name, phone')
-    .in('id', coachIds)
-    .eq('is_active', true)
+  // Buscar coaches da tabela club_coaches
+  // O coach_id em club_classes referencia o id da tabela club_coaches
+  let coachesData: any[] = []
+  const validCoachIds = coachIds.filter(id => id != null && id !== '')
+  
+  if (validCoachIds.length > 0) {
+    // Buscar coaches diretamente pelos IDs (incluindo user_id para buscar avatar)
+    const { data: coachesById, error: errorById } = await supabase
+      .from('club_coaches')
+      .select('id, name, phone, user_id')
+      .in('id', validCoachIds)
+      .eq('is_active', true)
+    
+    if (!errorById && coachesById) {
+      coachesData = coachesById
+      console.log('[Classes] Coaches found by ID:', coachesData.length, 'for coachIds:', validCoachIds, 'coaches:', coachesData)
+    } else {
+      console.error('[Classes] Error fetching coaches by ID:', errorById)
+      
+      // Fallback: buscar por club_owner_id se a busca direta falhar (problema de RLS)
+      if (uniqueOwnerIds.length > 0) {
+        const validOwnerIds = uniqueOwnerIds.filter(id => id != null && id !== '')
+        if (validOwnerIds.length > 0) {
+          const { data: coachesByOwner, error: errorByOwner } = await supabase
+            .from('club_coaches')
+            .select('id, name, phone, user_id')
+            .in('club_owner_id', validOwnerIds)
+            .eq('is_active', true)
+          
+          if (!errorByOwner && coachesByOwner) {
+            // Filtrar apenas os coaches que são usados nas aulas
+            coachesData = coachesByOwner.filter(c => validCoachIds.includes(c.id))
+            console.log('[Classes] Coaches found by club_owner_id (fallback):', coachesData.length, 'for coachIds:', validCoachIds, 'coaches:', coachesData)
+          } else {
+            console.error('[Classes] Error fetching coaches by club_owner_id:', errorByOwner)
+          }
+        }
+      }
+    }
+  } else {
+    console.log('[Classes] No valid coachIds to search')
+  }
 
   // Buscar courts
   const { data: courtsData } = await supabase
@@ -250,20 +285,24 @@ export async function fetchAvailableClasses(clubId?: string | null): Promise<Cla
   const courtsMap = new Map(courtsData?.map(c => [c.id, c]) || [])
   const clubsMap = new Map(clubsData?.map(c => [c.owner_id, c]) || [])
 
-  // Buscar enrollments para cada aula
+  // Buscar enrollments para cada aula (incluindo player_account_id para buscar de player_accounts)
   const classIds = classesData.map(c => c.id)
-  const { data: enrollments } = await supabase
+  
+  // IMPORTANTE: Buscar TODOS os enrollments (sem filtro de status) para evitar problemas com RLS
+  // Depois filtrar por status no código
+  const { data: enrollments, error: enrollmentsError } = await supabase
     .from('class_enrollments')
-    .select('id, class_id, student_name, organizer_player_id')
+    .select('id, class_id, student_name, student_id, organizer_player_id, player_account_id, status')
     .in('class_id', classIds)
-    .in('status', ['enrolled', 'attended'])
+  
+  // Filtrar por status DEPOIS de buscar (para garantir que temos todos)
+  const finalEnrollments = enrollments?.filter(e => ['enrolled', 'attended'].includes(e.status)) || []
 
-  // Buscar dados dos jogadores inscritos
-  const playerIds = enrollments?.filter(e => e.organizer_player_id != null && e.organizer_player_id !== '').map(e => e.organizer_player_id).filter((id): id is string => typeof id === 'string') || []
-  let playersData: any[] = []
-  if (playerIds.length > 0) {
-    // Remover duplicados e garantir que é um array válido
-    const uniquePlayerIds = [...new Set(playerIds)].filter(id => id) // Filtrar IDs vazios/nulos
+  // Buscar dados dos jogadores inscritos via organizer_player_id
+  const organizerPlayerIds = finalEnrollments.filter(e => e.organizer_player_id != null && e.organizer_player_id !== '').map(e => e.organizer_player_id).filter((id): id is string => typeof id === 'string') || []
+  let organizerPlayersData: any[] = []
+  if (organizerPlayerIds.length > 0) {
+    const uniquePlayerIds = [...new Set(organizerPlayerIds)].filter(id => id)
     
     if (uniquePlayerIds.length > 0) {
       let query = supabase
@@ -276,42 +315,118 @@ export async function fetchAvailableClasses(clubId?: string | null): Promise<Cla
         query = query.in('id', uniquePlayerIds)
       }
       
-      const { data: players, error } = await query
-      if (error) {
-        console.error('[Classes] Error fetching organizer_players:', error)
-        playersData = []
-      } else {
-        // Adicionar avatar_url como null já que organizer_players não tem essa coluna
-        playersData = (players || []).map(p => ({ ...p, avatar_url: null }))
+      const { data: players } = await query
+      organizerPlayersData = players || []
+    }
+  }
+
+  // PRIORIDADE: Buscar dados dos jogadores inscritos via player_account_id (direto, mais confiável)
+  const playerAccountIds = finalEnrollments.filter(e => e.player_account_id != null && e.player_account_id !== '').map(e => e.player_account_id).filter((id): id is string => typeof id === 'string') || []
+  
+  // Fallback: Buscar dados dos jogadores inscritos via student_id (user_id) se não tiver player_account_id
+  const studentIds = finalEnrollments.filter(e => !e.player_account_id && e.student_id != null && e.student_id !== '').map(e => e.student_id).filter((id): id is string => typeof id === 'string') || []
+  
+  let playerAccountsData: any[] = []
+  
+  // Buscar por player_account_id primeiro (mais direto)
+  if (playerAccountIds.length > 0) {
+    const uniquePlayerAccountIds = [...new Set(playerAccountIds)].filter(id => id)
+    
+    if (uniquePlayerAccountIds.length > 0) {
+      const { data: playerAccounts, error } = await supabase
+        .from('player_accounts')
+        .select('id, user_id, name, avatar_url')
+        .in('id', uniquePlayerAccountIds)
+      
+      if (!error) {
+        playerAccountsData = (playerAccounts || []).map(pa => ({ ...pa, lookup_key: pa.id }))
       }
-    } else {
-      playersData = []
     }
   }
   
-  // Buscar avatares dos professores (player_accounts pelo telefone, já que organizer_players não tem avatar_url)
-  const coachPhones = coachesData?.filter(c => c.phone).map(c => c.phone) || []
+  // Fallback: Buscar por user_id se não encontrou por player_account_id
+  if (studentIds.length > 0) {
+    const uniqueStudentIds = [...new Set(studentIds)].filter(id => id)
+    
+    if (uniqueStudentIds.length > 0) {
+      const { data: playerAccounts, error } = await supabase
+        .from('player_accounts')
+        .select('id, user_id, name, avatar_url')
+        .in('user_id', uniqueStudentIds)
+      
+      if (!error) {
+        // Adicionar aos dados existentes (sem duplicar)
+        const existingIds = new Set(playerAccountsData.map(pa => pa.id))
+        const newAccounts = (playerAccounts || []).filter(pa => !existingIds.has(pa.id))
+        playerAccountsData = [...playerAccountsData, ...newAccounts.map(pa => ({ ...pa, lookup_key: pa.user_id }))]
+      }
+    }
+  }
+  
+  // Buscar avatares dos professores (player_accounts pelo user_id dos coaches)
+  const coachUserIds = coachesData?.filter(c => c.user_id).map(c => c.user_id).filter((id): id is string => typeof id === 'string') || []
   let coachAvatars: Map<string, string | null> = new Map()
-  if (coachPhones.length > 0) {
-    // Buscar avatares de player_accounts em vez de organizer_players
+  if (coachUserIds.length > 0) {
+    // Buscar avatares de player_accounts pelo user_id
     const { data: coachAccounts } = await supabase
       .from('player_accounts')
-      .select('phone_number, avatar_url')
-      .in('phone_number', coachPhones)
+      .select('user_id, avatar_url')
+      .in('user_id', coachUserIds)
     coachAccounts?.forEach(ca => {
-      coachAvatars.set(ca.phone_number, ca.avatar_url || null)
+      coachAvatars.set(ca.user_id, ca.avatar_url || null)
     })
   }
 
   // Transformar dados
   const classes: Class[] = classesData.map((cls: any) => {
-    const classEnrollments = enrollments?.filter(e => e.class_id === cls.id) || []
+    const classEnrollments = finalEnrollments.filter(e => e.class_id === cls.id) || []
     const participants: ClassParticipant[] = classEnrollments.map(enrollment => {
-      const player = playersData.find(p => p.id === enrollment.organizer_player_id)
+      // PRIORIDADE 1: Tentar encontrar via player_account_id (mais direto e confiável)
+      if (enrollment.player_account_id) {
+        const playerAccount = playerAccountsData.find(p => p.id === enrollment.player_account_id)
+        if (playerAccount) {
+          return {
+            id: enrollment.id,
+            name: enrollment.student_name || playerAccount.name || 'Unknown',
+            avatar_url: playerAccount.avatar_url || null,
+            user_id: playerAccount.user_id || null
+          }
+        }
+      }
+      
+      // PRIORIDADE 2: Tentar encontrar via student_id (user_id) como fallback
+      if (enrollment.student_id) {
+        const playerAccount = playerAccountsData.find(p => p.user_id === enrollment.student_id)
+        if (playerAccount) {
+          return {
+            id: enrollment.id,
+            name: enrollment.student_name || playerAccount.name || 'Unknown',
+            avatar_url: playerAccount.avatar_url || null,
+            user_id: playerAccount.user_id || null
+          }
+        }
+      }
+      
+      // Fallback: Tentar encontrar via organizer_player_id
+      if (enrollment.organizer_player_id) {
+        const organizerPlayer = organizerPlayersData.find(p => p.id === enrollment.organizer_player_id)
+        if (organizerPlayer) {
+          return {
+            id: enrollment.id,
+            name: enrollment.student_name || organizerPlayer.name || 'Unknown',
+            avatar_url: null,
+            user_id: null
+          }
+        }
+      }
+      
+      // Fallback final: usar apenas student_name (mesmo sem student_id ou organizer_player_id)
+      // Isso garante que TODOS os enrollments aparecem, mesmo que não tenham IDs
       return {
         id: enrollment.id,
-        name: enrollment.student_name || player?.name || 'Unknown',
-        avatar_url: null // TODO: adicionar avatar_url se disponível
+        name: enrollment.student_name || 'Unknown',
+        avatar_url: null,
+        user_id: null
       }
     })
 
@@ -320,7 +435,10 @@ export async function fetchAvailableClasses(clubId?: string | null): Promise<Cla
     const court = courtsMap.get(cls.court_id)
     const club = clubsMap.get(cls.club_owner_id)
 
-    const professorAvatar = coach?.phone ? coachAvatars.get(coach.phone) || null : null
+    const coachName = coach ? coach.name : 'NOT FOUND'
+    console.log('[Classes] Class', cls.id, '- coach_id:', cls.coach_id, '- coach found:', coachName, '- coachesMap size:', coachesMap.size)
+
+    const professorAvatar = coach?.user_id ? coachAvatars.get(coach.user_id) || null : null
     
     return {
       id: cls.id,
@@ -399,15 +517,15 @@ export async function fetchMyClasses(userId: string): Promise<Class[]> {
   // Buscar todos os enrollments para estas aulas
   const { data: allEnrollments } = await supabase
     .from('class_enrollments')
-    .select('id, class_id, student_name, organizer_player_id')
+    .select('id, class_id, student_name, student_id, organizer_player_id, player_account_id')
     .in('class_id', classIds)
     .in('status', ['enrolled', 'attended'])
 
-  const playerIds = allEnrollments?.filter(e => e.organizer_player_id != null && e.organizer_player_id !== '').map(e => e.organizer_player_id).filter((id): id is string => typeof id === 'string') || []
-  let playersData: any[] = []
-  if (playerIds.length > 0) {
-    // Remover duplicados e garantir que é um array válido
-    const uniquePlayerIds = [...new Set(playerIds)]
+  // Buscar dados dos jogadores inscritos via organizer_player_id
+  const organizerPlayerIds = allEnrollments?.filter(e => e.organizer_player_id != null && e.organizer_player_id !== '').map(e => e.organizer_player_id).filter((id): id is string => typeof id === 'string') || []
+  let organizerPlayersData: any[] = []
+  if (organizerPlayerIds.length > 0) {
+    const uniquePlayerIds = [...new Set(organizerPlayerIds)]
     let query = supabase
       .from('organizer_players')
       .select('id, name')
@@ -419,17 +537,95 @@ export async function fetchMyClasses(userId: string): Promise<Class[]> {
     }
     
     const { data: players } = await query
-    playersData = players || []
+    organizerPlayersData = players || []
   }
 
-  // Buscar coaches para minhas aulas
+  // PRIORIDADE: Buscar dados dos jogadores inscritos via player_account_id (direto, mais confiável)
+  const playerAccountIds = allEnrollments?.filter(e => e.player_account_id != null && e.player_account_id !== '').map(e => e.player_account_id).filter((id): id is string => typeof id === 'string') || []
+  
+  // Fallback: Buscar dados dos jogadores inscritos via student_id (user_id) se não tiver player_account_id
+  const studentIds = allEnrollments?.filter(e => !e.player_account_id && e.student_id != null && e.student_id !== '').map(e => e.student_id).filter((id): id is string => typeof id === 'string') || []
+  
+  let playerAccountsData: any[] = []
+  
+  // Buscar por player_account_id primeiro (mais direto)
+  if (playerAccountIds.length > 0) {
+    const uniquePlayerAccountIds = [...new Set(playerAccountIds)].filter(id => id)
+    
+    if (uniquePlayerAccountIds.length > 0) {
+      const { data: playerAccounts } = await supabase
+        .from('player_accounts')
+        .select('id, user_id, name, avatar_url')
+        .in('id', uniquePlayerAccountIds)
+      
+      if (playerAccounts) {
+        playerAccountsData = playerAccounts.map(pa => ({ ...pa, lookup_key: pa.id }))
+      }
+    }
+  }
+  
+  // Fallback: Buscar por user_id se não encontrou por player_account_id
+  if (studentIds.length > 0) {
+    const uniqueStudentIds = [...new Set(studentIds)].filter(id => id)
+    
+    if (uniqueStudentIds.length > 0) {
+      const { data: playerAccounts } = await supabase
+        .from('player_accounts')
+        .select('id, user_id, name, avatar_url')
+        .in('user_id', uniqueStudentIds)
+      
+      if (playerAccounts) {
+        // Adicionar aos dados existentes (sem duplicar)
+        const existingIds = new Set(playerAccountsData.map(pa => pa.id))
+        const newAccounts = playerAccounts.filter(pa => !existingIds.has(pa.id))
+        playerAccountsData = [...playerAccountsData, ...newAccounts.map(pa => ({ ...pa, lookup_key: pa.user_id }))]
+      }
+    }
+  }
+
+  // Buscar coaches para minhas aulas da tabela club_coaches
   const coachIdsMyClasses = [...new Set(classesData.map((c: any) => c.coach_id).filter(Boolean))]
-  const { data: coachesDataMyClasses } = await supabase
-    .from('club_staff')
-    .select('id, name, phone')
-    .in('id', coachIdsMyClasses)
-    .eq('is_active', true)
-  const coachesMapMyClasses = new Map(coachesDataMyClasses?.map(c => [c.id, c]) || [])
+  const uniqueOwnerIdsMyClasses = [...new Set(classesData.map((c: any) => c.club_owner_id).filter(Boolean))]
+  
+  let coachesDataMyClasses: any[] = []
+  if (coachIdsMyClasses.length > 0) {
+    // Buscar coaches diretamente pelos IDs (incluindo user_id para buscar avatar)
+    const { data: coachesByIdMyClasses } = await supabase
+      .from('club_coaches')
+      .select('id, name, phone, user_id')
+      .in('id', coachIdsMyClasses)
+      .eq('is_active', true)
+    
+    if (coachesByIdMyClasses) {
+      coachesDataMyClasses = coachesByIdMyClasses
+    } else if (uniqueOwnerIdsMyClasses.length > 0) {
+      // Fallback: buscar por club_owner_id
+      const { data: coachesByOwnerMyClasses } = await supabase
+        .from('club_coaches')
+        .select('id, name, phone, user_id')
+        .in('club_owner_id', uniqueOwnerIdsMyClasses)
+        .eq('is_active', true)
+      
+      if (coachesByOwnerMyClasses) {
+        coachesDataMyClasses = coachesByOwnerMyClasses.filter(c => coachIdsMyClasses.includes(c.id))
+      }
+    }
+  }
+  
+  const coachesMapMyClasses = new Map(coachesDataMyClasses.map(c => [c.id, c]))
+
+  // Buscar avatares dos coaches (player_accounts pelo user_id)
+  const coachUserIdsMyClasses = coachesDataMyClasses?.filter(c => c.user_id).map(c => c.user_id).filter((id): id is string => typeof id === 'string') || []
+  let coachAvatarsMyClasses: Map<string, string | null> = new Map()
+  if (coachUserIdsMyClasses.length > 0) {
+    const { data: coachAccountsMyClasses } = await supabase
+      .from('player_accounts')
+      .select('user_id, avatar_url')
+      .in('user_id', coachUserIdsMyClasses)
+    coachAccountsMyClasses?.forEach(ca => {
+      coachAvatarsMyClasses.set(ca.user_id, ca.avatar_url || null)
+    })
+  }
 
   // Buscar clubes únicos com todos os dados
   const uniqueOwnerIds = [...new Set(classesData.map((c: any) => c.club_owner_id).filter(Boolean))]
@@ -443,17 +639,57 @@ export async function fetchMyClasses(userId: string): Promise<Class[]> {
   const classes: Class[] = classesData.map((cls: any) => {
     const classEnrollments = allEnrollments?.filter(e => e.class_id === cls.id) || []
     const participants: ClassParticipant[] = classEnrollments.map(enrollment => {
-      const player = playersData.find(p => p.id === enrollment.organizer_player_id)
+      // PRIORIDADE 1: Tentar encontrar via player_account_id (mais direto e confiável)
+      if (enrollment.player_account_id) {
+        const playerAccount = playerAccountsData.find(p => p.id === enrollment.player_account_id)
+        if (playerAccount) {
+          return {
+            id: enrollment.id,
+            name: enrollment.student_name || playerAccount.name || 'Unknown',
+            avatar_url: playerAccount.avatar_url || null,
+            user_id: playerAccount.user_id || null
+          }
+        }
+      }
+      
+      // PRIORIDADE 2: Tentar encontrar via student_id (user_id) como fallback
+      if (enrollment.student_id) {
+        const playerAccount = playerAccountsData.find(p => p.user_id === enrollment.student_id)
+        if (playerAccount) {
+          return {
+            id: enrollment.id,
+            name: enrollment.student_name || playerAccount.name || 'Unknown',
+            avatar_url: playerAccount.avatar_url || null,
+            user_id: playerAccount.user_id || null
+          }
+        }
+      }
+      
+      // Fallback: Tentar encontrar via organizer_player_id
+      if (enrollment.organizer_player_id) {
+        const organizerPlayer = organizerPlayersData.find(p => p.id === enrollment.organizer_player_id)
+        if (organizerPlayer) {
+          return {
+            id: enrollment.id,
+            name: enrollment.student_name || organizerPlayer.name || 'Unknown',
+            avatar_url: null,
+            user_id: null
+          }
+        }
+      }
+      
+      // Fallback final: usar apenas student_name
       return {
         id: enrollment.id,
-        name: enrollment.student_name || player?.name || 'Unknown',
-        avatar_url: null
+        name: enrollment.student_name || 'Unknown',
+        avatar_url: null,
+        user_id: null
       }
     })
 
     const coach = coachesMapMyClasses.get(cls.coach_id)
     const club = clubsMap.get(cls.club_owner_id)
-    const professorAvatar = coach?.phone ? coachAvatarsMyClasses.get(coach.phone) || null : null
+    const professorAvatar = coach?.user_id ? coachAvatarsMyClasses.get(coach.user_id) || null : null
 
     return {
       id: cls.id,
@@ -498,14 +734,13 @@ export async function enrollInClass(classId: string, userId: string, playerAccou
     .maybeSingle()
 
   if (existing) {
-    console.log('[Classes] Already enrolled')
     return false
   }
 
-  // Buscar nome do jogador
+  // Buscar dados do jogador
   const { data: player } = await supabase
     .from('player_accounts')
-    .select('name')
+    .select('id, name, user_id')
     .eq('id', playerAccountId || '')
     .maybeSingle()
 
@@ -534,19 +769,19 @@ export async function enrollInClass(classId: string, userId: string, playerAccou
     }
   }
 
-  // Criar enrollment
+  // Criar enrollment com player_account_id diretamente
   const { error } = await supabase
     .from('class_enrollments')
     .insert({
       class_id: classId,
-      student_id: userId,
+      student_id: userId, // user_id (mantido para compatibilidade)
       student_name: player?.name || 'Jogador',
       status: 'enrolled',
-      organizer_player_id: organizerPlayerId
+      organizer_player_id: organizerPlayerId,
+      player_account_id: playerAccountId // Adicionar player_account_id diretamente
     })
 
   if (error) {
-    console.error('[Classes] Error enrolling:', error)
     return false
   }
 
