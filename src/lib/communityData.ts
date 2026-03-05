@@ -115,28 +115,6 @@ export type FeedItem =
   | { type: 'post'; data: CommunityPost; date: string }
   | { type: 'match'; data: FeedMatchItem; date: string }
 
-export interface CommunityGroup {
-  id: string
-  name: string
-  description: string | null
-  image_url: string | null
-  created_by: string
-  created_at: string
-  member_count?: number
-  is_member?: boolean
-  is_admin?: boolean
-}
-
-export interface GroupMember {
-  id: string
-  user_id: string
-  role: string
-  joined_at: string
-  name?: string
-  avatar_url?: string
-  level?: number
-  player_category?: string
-}
 
 // ============================================
 // Follow / Unfollow
@@ -366,7 +344,8 @@ export async function getFeedPosts(userId: string): Promise<CommunityPost[]> {
 // ============================================
 
 /**
- * Busca jogos recentes (últimos 30 dias) de jogadores que eu sigo.
+ * Busca jogos recentes (últimos 60 dias) de jogadores que eu sigo.
+ * Inclui jogos de torneio (matches) E jogos abertos (open_games).
  * Retorna até 30 jogos mais recentes, com info do jogador seguido.
  */
 export async function getFeedMatches(userId: string): Promise<FeedMatchItem[]> {
@@ -391,56 +370,85 @@ export async function getFeedMatches(userId: string): Promise<FeedMatchItem[]> {
   })
   const playerAccountIds = followedAccounts.map(a => a.id)
 
-  // 3) Obter players ligados a estes player_accounts
-  const { data: playersData } = await supabase
+  // 3) Obter players ligados a estes player_accounts OU por user_id
+  //    NOTA: A tabela 'players' pode ter RLS restritivo que impede ver players de outros users.
+  //    Se o resultado for vazio, logamos o problema para diagnóstico.
+  const { data: playersByAccount, error: errByAccount } = await supabase
     .from('players')
-    .select('id, player_account_id')
+    .select('id, player_account_id, user_id')
     .in('player_account_id', playerAccountIds)
 
-  if (!playersData || playersData.length === 0) return []
+  const { data: playersByUser, error: errByUser } = await supabase
+    .from('players')
+    .select('id, player_account_id, user_id')
+    .in('user_id', followingIds)
+
+  // Combinar resultados (sem duplicados)
+  const allPlayersMap = new Map<string, { id: string; player_account_id: string | null; user_id: string | null }>()
+  ;(playersByAccount || []).forEach(p => allPlayersMap.set(p.id, p))
+  ;(playersByUser || []).forEach(p => allPlayersMap.set(p.id, p))
+  const playersData = Array.from(allPlayersMap.values())
 
   // Mapa player_id → player_account_id
   const playerToAccount = new Map<string, string>()
   playersData.forEach(p => {
-    if (p.player_account_id) playerToAccount.set(p.id, p.player_account_id)
+    if (p.player_account_id) {
+      playerToAccount.set(p.id, p.player_account_id)
+    } else if (p.user_id) {
+      // Fallback: mapear via user_id → player_account
+      const acct = accountByUserId.get(p.user_id)
+      if (acct) playerToAccount.set(p.id, acct.id)
+    }
   })
   const playerIds = playersData.map(p => p.id)
 
-  // 4) Obter teams que contêm estes players
-  const playerConditions = playerIds.map(id => `player1_id.eq.${id},player2_id.eq.${id}`).join(',')
-  const { data: teamsData } = await supabase
-    .from('teams')
-    .select('id, player1_id, player2_id')
-    .or(playerConditions)
+  const results: FeedMatchItem[] = []
 
-  const teamIds = (teamsData || []).map(t => t.id)
-  // Mapa team_id → player_account_id (do jogador seguido nessa equipa)
-  const teamToAccount = new Map<string, string>()
-  ;(teamsData || []).forEach(t => {
-    const p1AccountId = t.player1_id ? playerToAccount.get(t.player1_id) : undefined
-    const p2AccountId = t.player2_id ? playerToAccount.get(t.player2_id) : undefined
-    if (p1AccountId) teamToAccount.set(t.id, p1AccountId)
-    else if (p2AccountId) teamToAccount.set(t.id, p2AccountId)
-  })
+  // ============================================
+  // PARTE A: Jogos de Torneio (matches table)
+  // ============================================
+  // Helper: dividir array em batches
+  const chunk = <T>(arr: T[], size: number): T[][] => {
+    const chunks: T[][] = []
+    for (let i = 0; i < arr.length; i += size) {
+      chunks.push(arr.slice(i, i + size))
+    }
+    return chunks
+  }
 
-  // 5) Construir condições para buscar matches
-  const teamMatchCond = teamIds.length > 0
-    ? `team1_id.in.(${teamIds.join(',')}),team2_id.in.(${teamIds.join(',')})`
-    : ''
-  const individualCond = playerIds
-    .map(id => `player1_individual_id.eq.${id},player2_individual_id.eq.${id},player3_individual_id.eq.${id},player4_individual_id.eq.${id}`)
-    .join(',')
-  const allCond = [teamMatchCond, individualCond].filter(c => c.length > 0).join(',')
+  if (playerIds.length > 0) {
+    // 4) Obter teams que contêm estes players (em batches para evitar URL longo)
+    const allTeams: { id: string; player1_id: string | null; player2_id: string | null }[] = []
+    const playerBatches = chunk(playerIds, 40) // max 40 players × 2 conditions = 80 per batch
 
-  if (!allCond) return []
+    for (const batch of playerBatches) {
+      const batchCond = batch.map(id => `player1_id.eq.${id},player2_id.eq.${id}`).join(',')
+      const { data: batchTeams } = await supabase
+        .from('teams')
+        .select('id, player1_id, player2_id')
+        .or(batchCond)
+      if (batchTeams) allTeams.push(...batchTeams)
+    }
 
-  // Data limite: últimos 60 dias
-  const since = new Date()
-  since.setDate(since.getDate() - 60)
+    // Deduplicar teams
+    const teamsMap = new Map<string, typeof allTeams[0]>()
+    allTeams.forEach(t => teamsMap.set(t.id, t))
+    const teamsData = Array.from(teamsMap.values())
 
-  const { data: matchesData } = await supabase
-    .from('matches')
-    .select(`
+    const teamIds = teamsData.map(t => t.id)
+    const teamToAccount = new Map<string, string>()
+    teamsData.forEach(t => {
+      const p1AccountId = t.player1_id ? playerToAccount.get(t.player1_id) : undefined
+      const p2AccountId = t.player2_id ? playerToAccount.get(t.player2_id) : undefined
+      if (p1AccountId) teamToAccount.set(t.id, p1AccountId)
+      else if (p2AccountId) teamToAccount.set(t.id, p2AccountId)
+    })
+
+    const since = new Date()
+    since.setDate(since.getDate() - 60)
+    const sinceISO = since.toISOString()
+
+    const matchSelect = `
       id, tournament_id, court, scheduled_time,
       team1_score_set1, team2_score_set1, team1_score_set2, team2_score_set2, team1_score_set3, team2_score_set3,
       status, round, team1_id, team2_id,
@@ -452,114 +460,284 @@ export async function getFeedMatches(userId: string): Promise<FeedMatchItem[]> {
       p2:players!matches_player2_individual_id_fkey(id, name),
       p3:players!matches_player3_individual_id_fkey(id, name),
       p4:players!matches_player4_individual_id_fkey(id, name)
-    `)
-    .or(allCond)
-    .eq('status', 'completed')
-    .gte('scheduled_time', since.toISOString())
-    .order('scheduled_time', { ascending: false })
-    .limit(30)
+    `
 
-  if (!matchesData || matchesData.length === 0) return []
+    // 5) Buscar matches em batches separados:
+    //    A) Por team IDs (batches de 25 teams)
+    //    B) Por individual player IDs (batches de 15 players)
+    const allMatchesMap = new Map<string, any>()
 
-  const playerIdSet = new Set(playerIds)
-  const teamIdSet = new Set(teamIds)
-  const results: FeedMatchItem[] = []
+    // 5A) Matches por teams
+    if (teamIds.length > 0) {
+      const teamBatches = chunk(teamIds, 25)
+      for (const batch of teamBatches) {
+        const cond = `team1_id.in.(${batch.join(',')}),team2_id.in.(${batch.join(',')})`
+        const { data } = await supabase
+          .from('matches')
+          .select(matchSelect)
+          .or(cond)
+          .eq('status', 'completed')
+          .gte('scheduled_time', sinceISO)
+          .order('scheduled_time', { ascending: false })
+          .limit(30)
+        if (data) data.forEach((m: any) => allMatchesMap.set(m.id, m))
+      }
+    }
 
-  for (const m of (matchesData as any[])) {
-    const isIndividual = m.p1 || m.p2 || m.p3 || m.p4
+    // 5B) Matches por individual player IDs
+    const indivBatches = chunk(playerIds, 15) // 15 players × 4 fields = 60 conditions per batch
+    for (const batch of indivBatches) {
+      const cond = batch
+        .map(id => `player1_individual_id.eq.${id},player2_individual_id.eq.${id},player3_individual_id.eq.${id},player4_individual_id.eq.${id}`)
+        .join(',')
+      const { data } = await supabase
+        .from('matches')
+        .select(matchSelect)
+        .or(cond)
+        .eq('status', 'completed')
+        .gte('scheduled_time', sinceISO)
+        .order('scheduled_time', { ascending: false })
+        .limit(30)
+      if (data) data.forEach((m: any) => allMatchesMap.set(m.id, m))
+    }
 
-    // Determinar qual jogador seguido estava neste jogo
-    let followedAccountId: string | undefined
+    const matchesData = Array.from(allMatchesMap.values())
 
-    if (isIndividual) {
-      for (const pid of [m.p1?.id, m.p2?.id, m.p3?.id, m.p4?.id]) {
-        if (pid && playerToAccount.has(pid)) {
-          followedAccountId = playerToAccount.get(pid)
-          break
+    if (matchesData.length > 0) {
+      const playerIdSet = new Set(playerIds)
+
+      for (const m of matchesData) {
+        const isIndividual = m.p1 || m.p2 || m.p3 || m.p4
+
+        let followedAccountId: string | undefined
+
+        if (isIndividual) {
+          for (const pid of [m.p1?.id, m.p2?.id, m.p3?.id, m.p4?.id]) {
+            if (pid && playerToAccount.has(pid)) {
+              followedAccountId = playerToAccount.get(pid)
+              break
+            }
+          }
+        } else {
+          if (m.team1_id && teamToAccount.has(m.team1_id)) {
+            followedAccountId = teamToAccount.get(m.team1_id)
+          } else if (m.team2_id && teamToAccount.has(m.team2_id)) {
+            followedAccountId = teamToAccount.get(m.team2_id)
+          }
         }
-      }
-    } else {
-      if (m.team1_id && teamToAccount.has(m.team1_id)) {
-        followedAccountId = teamToAccount.get(m.team1_id)
-      } else if (m.team2_id && teamToAccount.has(m.team2_id)) {
-        followedAccountId = teamToAccount.get(m.team2_id)
+
+        if (!followedAccountId) continue
+        const followedAccount = accountById.get(followedAccountId)
+        if (!followedAccount) continue
+
+        const team1Name = isIndividual
+          ? `${m.p1?.name || 'TBD'}${m.p2 ? ' / ' + m.p2.name : ''}`
+          : m.team1?.name || 'TBD'
+        const team2Name = isIndividual
+          ? `${m.p3?.name || 'TBD'}${m.p4 ? ' / ' + m.p4.name : ''}`
+          : m.team2?.name || 'TBD'
+
+        const p1Name = isIndividual ? m.p1?.name : (m.team1 as any)?.t1p1?.name
+        const p2Name = isIndividual ? m.p2?.name : (m.team1 as any)?.t1p2?.name
+        const p3Name = isIndividual ? m.p3?.name : (m.team2 as any)?.t2p1?.name
+        const p4Name = isIndividual ? m.p4?.name : (m.team2 as any)?.t2p2?.name
+
+        const team1Sets = [
+          (m.team1_score_set1 || 0) > (m.team2_score_set1 || 0) ? 1 : 0,
+          (m.team1_score_set2 || 0) > (m.team2_score_set2 || 0) ? 1 : 0,
+          (m.team1_score_set3 || 0) > (m.team2_score_set3 || 0) ? 1 : 0,
+        ].reduce((a, b) => a + b, 0)
+        const team2Sets = [
+          (m.team2_score_set1 || 0) > (m.team1_score_set1 || 0) ? 1 : 0,
+          (m.team2_score_set2 || 0) > (m.team1_score_set2 || 0) ? 1 : 0,
+          (m.team2_score_set3 || 0) > (m.team1_score_set3 || 0) ? 1 : 0,
+        ].reduce((a, b) => a + b, 0)
+
+        let followedInTeam1 = false
+        if (isIndividual) {
+          followedInTeam1 = (m.p1?.id && playerIdSet.has(m.p1.id) && playerToAccount.get(m.p1.id) === followedAccountId) ||
+                            (m.p2?.id && playerIdSet.has(m.p2.id) && playerToAccount.get(m.p2.id) === followedAccountId)
+        } else {
+          followedInTeam1 = m.team1_id && teamToAccount.get(m.team1_id) === followedAccountId
+        }
+
+        const followedWon = followedInTeam1 ? team1Sets > team2Sets : team2Sets > team1Sets
+
+        const set1 = (m.team1_score_set1 != null && m.team2_score_set1 != null)
+          ? `${m.team1_score_set1}-${m.team2_score_set1}` : undefined
+        const set2 = (m.team1_score_set2 != null && m.team2_score_set2 != null && (m.team1_score_set2 > 0 || m.team2_score_set2 > 0))
+          ? `${m.team1_score_set2}-${m.team2_score_set2}` : undefined
+        const set3 = (m.team1_score_set3 != null && m.team2_score_set3 != null && (m.team1_score_set3 > 0 || m.team2_score_set3 > 0))
+          ? `${m.team1_score_set3}-${m.team2_score_set3}` : undefined
+
+        results.push({
+          id: m.id,
+          tournament_id: m.tournament_id,
+          tournament_name: (m.tournaments as any)?.name || '',
+          court: m.court || '',
+          start_time: m.scheduled_time || '',
+          team1_name: team1Name,
+          team2_name: team2Name,
+          player1_name: p1Name,
+          player2_name: p2Name,
+          player3_name: p3Name,
+          player4_name: p4Name,
+          score1: team1Sets,
+          score2: team2Sets,
+          status: m.status,
+          round: m.round || '',
+          set1,
+          set2,
+          set3,
+          followed_player_name: followedAccount.name,
+          followed_player_avatar: followedAccount.avatar_url,
+          followed_player_level: followedAccount.level,
+          followed_player_won: followedWon,
+          played_at: m.scheduled_time || '',
+        })
       }
     }
-
-    if (!followedAccountId) continue
-    const followedAccount = accountById.get(followedAccountId)
-    if (!followedAccount) continue
-
-    const team1Name = isIndividual
-      ? `${m.p1?.name || 'TBD'}${m.p2 ? ' / ' + m.p2.name : ''}`
-      : m.team1?.name || 'TBD'
-    const team2Name = isIndividual
-      ? `${m.p3?.name || 'TBD'}${m.p4 ? ' / ' + m.p4.name : ''}`
-      : m.team2?.name || 'TBD'
-
-    const p1Name = isIndividual ? m.p1?.name : (m.team1 as any)?.t1p1?.name
-    const p2Name = isIndividual ? m.p2?.name : (m.team1 as any)?.t1p2?.name
-    const p3Name = isIndividual ? m.p3?.name : (m.team2 as any)?.t2p1?.name
-    const p4Name = isIndividual ? m.p4?.name : (m.team2 as any)?.t2p2?.name
-
-    // Set scores
-    const team1Sets = [
-      (m.team1_score_set1 || 0) > (m.team2_score_set1 || 0) ? 1 : 0,
-      (m.team1_score_set2 || 0) > (m.team2_score_set2 || 0) ? 1 : 0,
-      (m.team1_score_set3 || 0) > (m.team2_score_set3 || 0) ? 1 : 0,
-    ].reduce((a, b) => a + b, 0)
-    const team2Sets = [
-      (m.team2_score_set1 || 0) > (m.team1_score_set1 || 0) ? 1 : 0,
-      (m.team2_score_set2 || 0) > (m.team1_score_set2 || 0) ? 1 : 0,
-      (m.team2_score_set3 || 0) > (m.team1_score_set3 || 0) ? 1 : 0,
-    ].reduce((a, b) => a + b, 0)
-
-    // O jogador seguido estava na equipa 1 ou 2?
-    let followedInTeam1 = false
-    if (isIndividual) {
-      followedInTeam1 = (m.p1?.id && playerIdSet.has(m.p1.id) && playerToAccount.get(m.p1.id) === followedAccountId) ||
-                        (m.p2?.id && playerIdSet.has(m.p2.id) && playerToAccount.get(m.p2.id) === followedAccountId)
-    } else {
-      followedInTeam1 = m.team1_id && teamToAccount.get(m.team1_id) === followedAccountId
-    }
-
-    const followedWon = followedInTeam1 ? team1Sets > team2Sets : team2Sets > team1Sets
-
-    const set1 = (m.team1_score_set1 != null && m.team2_score_set1 != null)
-      ? `${m.team1_score_set1}-${m.team2_score_set1}` : undefined
-    const set2 = (m.team1_score_set2 != null && m.team2_score_set2 != null && (m.team1_score_set2 > 0 || m.team2_score_set2 > 0))
-      ? `${m.team1_score_set2}-${m.team2_score_set2}` : undefined
-    const set3 = (m.team1_score_set3 != null && m.team2_score_set3 != null && (m.team1_score_set3 > 0 || m.team2_score_set3 > 0))
-      ? `${m.team1_score_set3}-${m.team2_score_set3}` : undefined
-
-    results.push({
-      id: m.id,
-      tournament_id: m.tournament_id,
-      tournament_name: (m.tournaments as any)?.name || '',
-      court: m.court || '',
-      start_time: m.scheduled_time || '',
-      team1_name: team1Name,
-      team2_name: team2Name,
-      player1_name: p1Name,
-      player2_name: p2Name,
-      player3_name: p3Name,
-      player4_name: p4Name,
-      score1: team1Sets,
-      score2: team2Sets,
-      status: m.status,
-      round: m.round || '',
-      set1,
-      set2,
-      set3,
-      followed_player_name: followedAccount.name,
-      followed_player_avatar: followedAccount.avatar_url,
-      followed_player_level: followedAccount.level,
-      followed_player_won: followedWon,
-      played_at: m.scheduled_time || '',
-    })
   }
 
-  return results
+  // ============================================
+  // PARTE B: Jogos Abertos (open_games table)
+  // ============================================
+  try {
+    const since = new Date()
+    since.setDate(since.getDate() - 60)
+
+    // Buscar jogos abertos com resultado confirmado onde jogadores seguidos participaram
+    const { data: openGamePlayers } = await supabase
+      .from('open_game_players')
+      .select('game_id, user_id, player_account_id, position')
+      .in('player_account_id', playerAccountIds)
+      .eq('status', 'confirmed')
+
+    if (openGamePlayers && openGamePlayers.length > 0) {
+      const openGameIds = [...new Set(openGamePlayers.map(p => p.game_id))]
+
+      // Buscar resultados confirmados desses jogos
+      const { data: openResults } = await supabase
+        .from('open_game_results')
+        .select(`
+          id, game_id, status,
+          team1_score_set1, team2_score_set1,
+          team1_score_set2, team2_score_set2,
+          team1_score_set3, team2_score_set3,
+          created_at
+        `)
+        .in('game_id', openGameIds)
+        .eq('status', 'confirmed')
+
+      if (openResults && openResults.length > 0) {
+        const confirmedGameIds = openResults.map(r => r.game_id)
+
+        // Buscar dados dos jogos
+        const { data: openGames } = await supabase
+          .from('open_games')
+          .select('id, scheduled_at, club_id, clubs(name)')
+          .in('id', confirmedGameIds)
+          .gte('scheduled_at', since.toISOString())
+
+        if (openGames && openGames.length > 0) {
+          // Buscar TODOS os jogadores desses jogos
+          const { data: allGamePlayers } = await supabase
+            .from('open_game_players')
+            .select('game_id, user_id, player_account_id, position, status')
+            .in('game_id', confirmedGameIds)
+            .eq('status', 'confirmed')
+
+          // Buscar nomes dos jogadores
+          const allPaIds = [...new Set((allGamePlayers || []).map(p => p.player_account_id).filter(Boolean))]
+          const { data: playerNames } = allPaIds.length > 0
+            ? await supabase.from('player_accounts').select('id, name').in('id', allPaIds)
+            : { data: [] }
+          const nameMap = new Map<string, string>()
+          ;(playerNames || []).forEach((p: any) => nameMap.set(p.id, p.name))
+
+          for (const game of (openGames as any[])) {
+            const result = openResults.find(r => r.game_id === game.id)
+            if (!result) continue
+
+            const gamePlayers = (allGamePlayers || []).filter(p => p.game_id === game.id)
+            const followedPlayer = gamePlayers.find(p => p.player_account_id && playerAccountIds.includes(p.player_account_id))
+            if (!followedPlayer || !followedPlayer.player_account_id) continue
+
+            const followedAccount = accountById.get(followedPlayer.player_account_id)
+            if (!followedAccount) continue
+
+            // Nomes por posição
+            const byPos = new Map<number, string>()
+            gamePlayers.forEach(p => {
+              if (p.position && p.player_account_id) {
+                byPos.set(p.position, nameMap.get(p.player_account_id) || 'Jogador')
+              }
+            })
+
+            const p1Name = byPos.get(1) || 'Jogador 1'
+            const p2Name = byPos.get(2) || 'Jogador 2'
+            const p3Name = byPos.get(3) || 'Jogador 3'
+            const p4Name = byPos.get(4) || 'Jogador 4'
+
+            const team1Sets = [
+              (result.team1_score_set1 || 0) > (result.team2_score_set1 || 0) ? 1 : 0,
+              (result.team1_score_set2 || 0) > (result.team2_score_set2 || 0) ? 1 : 0,
+              (result.team1_score_set3 || 0) > (result.team2_score_set3 || 0) ? 1 : 0,
+            ].reduce((a, b) => a + b, 0)
+            const team2Sets = [
+              (result.team2_score_set1 || 0) > (result.team1_score_set1 || 0) ? 1 : 0,
+              (result.team2_score_set2 || 0) > (result.team1_score_set2 || 0) ? 1 : 0,
+              (result.team2_score_set3 || 0) > (result.team1_score_set3 || 0) ? 1 : 0,
+            ].reduce((a, b) => a + b, 0)
+
+            const followedInTeam1 = followedPlayer.position != null && followedPlayer.position <= 2
+            const followedWon = followedInTeam1 ? team1Sets > team2Sets : team2Sets > team1Sets
+
+            const set1 = `${result.team1_score_set1 || 0}-${result.team2_score_set1 || 0}`
+            const set2 = (result.team1_score_set2 > 0 || result.team2_score_set2 > 0)
+              ? `${result.team1_score_set2}-${result.team2_score_set2}` : undefined
+            const set3 = (result.team1_score_set3 > 0 || result.team2_score_set3 > 0)
+              ? `${result.team1_score_set3}-${result.team2_score_set3}` : undefined
+
+            const clubName = (game.clubs as any)?.name || ''
+
+            results.push({
+              id: game.id,
+              tournament_id: '',
+              tournament_name: clubName ? `Jogo Aberto · ${clubName}` : 'Jogo Aberto',
+              court: '',
+              start_time: game.scheduled_at || '',
+              team1_name: `${p1Name} / ${p2Name}`,
+              team2_name: `${p3Name} / ${p4Name}`,
+              player1_name: p1Name,
+              player2_name: p2Name,
+              player3_name: p3Name,
+              player4_name: p4Name,
+              score1: team1Sets,
+              score2: team2Sets,
+              status: 'completed',
+              round: 'open_game',
+              set1,
+              set2,
+              set3,
+              followed_player_name: followedAccount.name,
+              followed_player_avatar: followedAccount.avatar_url,
+              followed_player_level: followedAccount.level,
+              followed_player_won: followedWon,
+              played_at: game.scheduled_at || result.created_at || '',
+            })
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[Community] Error fetching open game feed:', err)
+  }
+
+  // Ordenar tudo por data (mais recente primeiro)
+  results.sort((a, b) => new Date(b.played_at).getTime() - new Date(a.played_at).getTime())
+
+  return results.slice(0, 30)
 }
 
 // ============================================
@@ -667,153 +845,6 @@ export async function deletePost(postId: string): Promise<boolean> {
   return true
 }
 
-// ============================================
-// Groups
-// ============================================
-
-export async function getMyGroups(userId: string): Promise<CommunityGroup[]> {
-  // Get groups where I'm a member
-  const { data: memberships } = await supabase
-    .from('community_group_members')
-    .select('group_id, role')
-    .eq('user_id', userId)
-
-  if (!memberships || memberships.length === 0) return []
-
-  const groupIds = memberships.map((m: any) => m.group_id)
-  const roleMap = new Map<string, string>()
-  memberships.forEach((m: any) => roleMap.set(m.group_id, m.role))
-
-  const { data: groups } = await supabase
-    .from('community_groups')
-    .select('*')
-    .in('id', groupIds)
-    .order('created_at', { ascending: false })
-
-  if (!groups) return []
-
-  // Get member counts
-  const result: CommunityGroup[] = []
-  for (const g of groups) {
-    const { count } = await supabase
-      .from('community_group_members')
-      .select('id', { count: 'exact', head: true })
-      .eq('group_id', g.id)
-
-    result.push({
-      ...g,
-      member_count: count || 0,
-      is_member: true,
-      is_admin: roleMap.get(g.id) === 'admin',
-    })
-  }
-
-  return result
-}
-
-export async function createGroup(
-  name: string,
-  description: string,
-  createdBy: string,
-  imageFile?: File
-): Promise<string | null> {
-  let image_url: string | null = null
-
-  if (imageFile) {
-    const ext = imageFile.name.split('.').pop()
-    const path = `groups/${createdBy}/${Date.now()}.${ext}`
-    const { error: uploadError } = await supabase.storage
-      .from('community')
-      .upload(path, imageFile, { upsert: true })
-    if (!uploadError) {
-      const { data: urlData } = supabase.storage.from('community').getPublicUrl(path)
-      image_url = urlData.publicUrl
-    }
-  }
-
-  const { data, error } = await supabase
-    .from('community_groups')
-    .insert({
-      name,
-      description: description || null,
-      image_url,
-      created_by: createdBy,
-    })
-    .select('id')
-    .single()
-
-  if (error || !data) {
-    console.error('[Community] Error creating group:', error)
-    return null
-  }
-
-  // Add creator as admin member
-  await supabase
-    .from('community_group_members')
-    .insert({
-      group_id: data.id,
-      user_id: createdBy,
-      role: 'admin',
-    })
-
-  return data.id
-}
-
-export async function getGroupMembers(groupId: string): Promise<GroupMember[]> {
-  const { data: members } = await supabase
-    .from('community_group_members')
-    .select('id, user_id, role, joined_at')
-    .eq('group_id', groupId)
-    .order('joined_at', { ascending: true })
-
-  if (!members || members.length === 0) return []
-
-  const userIds = members.map((m: any) => m.user_id)
-  const { data: accounts } = await supabase
-    .from('player_accounts')
-    .select('user_id, name, avatar_url, level, player_category')
-    .in('user_id', userIds)
-
-  const accountMap = new Map<string, any>()
-  if (accounts) {
-    accounts.forEach((a: any) => accountMap.set(a.user_id, a))
-  }
-
-  return members.map((m: any) => {
-    const acct = accountMap.get(m.user_id)
-    return {
-      ...m,
-      name: acct?.name || 'Jogador',
-      avatar_url: acct?.avatar_url,
-      level: acct?.level ?? categoryToLevel(acct?.player_category),
-      player_category: acct?.player_category || undefined,
-    }
-  })
-}
-
-export async function addGroupMember(groupId: string, userId: string): Promise<boolean> {
-  const { error } = await supabase
-    .from('community_group_members')
-    .insert({ group_id: groupId, user_id: userId, role: 'member' })
-  if (error) {
-    console.error('[Community] Error adding member:', error)
-    return false
-  }
-  return true
-}
-
-export async function removeGroupMember(groupId: string, userId: string): Promise<boolean> {
-  const { error } = await supabase
-    .from('community_group_members')
-    .delete()
-    .eq('group_id', groupId)
-    .eq('user_id', userId)
-  if (error) {
-    console.error('[Community] Error removing member:', error)
-    return false
-  }
-  return true
-}
 
 // ============================================
 // Get Player Profile (full details for another player)
@@ -1087,7 +1118,7 @@ export async function getPlayerProfile(targetUserId: string, myUserId: string): 
 }
 
 // ============================================
-// Search Players (for adding to groups, etc.)
+// Search Players
 // ============================================
 
 export async function searchPlayers(query: string, excludeIds: string[] = []): Promise<CommunityPlayer[]> {

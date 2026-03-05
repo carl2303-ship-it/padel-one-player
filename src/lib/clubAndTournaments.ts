@@ -158,6 +158,93 @@ export async function fetchEnrolledByCategory(tournamentId: string): Promise<Enr
   return result
 }
 
+// ============================================
+// Detalhe de um torneio
+// ============================================
+
+export interface TournamentFullDetail {
+  id: string
+  name: string
+  description: string | null
+  start_date: string
+  end_date: string
+  status: string
+  format: string
+  image_url: string | null
+  number_of_courts: number
+  match_duration_minutes: number
+  daily_start_time: string | null
+  daily_end_time: string | null
+  club_name: string | null
+  club_logo: string | null
+  categories: { id: string; name: string }[]
+  enrolled: EnrolledByCategory[]
+  total_enrolled: number
+}
+
+/** Busca todos os detalhes de um torneio, incluindo clube, categorias e inscritos. */
+export async function fetchTournamentFullDetail(tournamentId: string): Promise<TournamentFullDetail | null> {
+  // 1) Dados do torneio
+  const { data: t } = await supabase
+    .from('tournaments')
+    .select('id, name, description, start_date, end_date, status, format, image_url, number_of_courts, match_duration_minutes, daily_start_time, daily_end_time, club_id, round_robin_type')
+    .eq('id', tournamentId)
+    .maybeSingle()
+
+  if (!t) return null
+
+  // 2) Dados do clube (se existir)
+  let club_name: string | null = null
+  let club_logo: string | null = null
+  if (t.club_id) {
+    const { data: club } = await supabase
+      .from('clubs')
+      .select('name, logo_url')
+      .eq('id', t.club_id)
+      .maybeSingle()
+    if (club) {
+      club_name = club.name
+      club_logo = club.logo_url
+    }
+  }
+
+  // 3) Categorias
+  const { data: categories } = await supabase
+    .from('tournament_categories')
+    .select('id, name')
+    .eq('tournament_id', tournamentId)
+    .order('name')
+
+  // 4) Inscritos por categoria (reutiliza a função existente)
+  const enrolled = await fetchEnrolledByCategory(tournamentId)
+
+  // Contar total de inscritos
+  let total_enrolled = 0
+  for (const cat of enrolled) {
+    total_enrolled += cat.items.length
+  }
+
+  return {
+    id: t.id,
+    name: t.name,
+    description: t.description,
+    start_date: t.start_date,
+    end_date: t.end_date,
+    status: t.status,
+    format: t.format,
+    image_url: t.image_url,
+    number_of_courts: t.number_of_courts ?? 1,
+    match_duration_minutes: t.match_duration_minutes ?? 90,
+    daily_start_time: t.daily_start_time,
+    daily_end_time: t.daily_end_time,
+    club_name,
+    club_logo,
+    categories: (categories || []),
+    enrolled,
+    total_enrolled,
+  }
+}
+
 /** Próximos torneios (Tour) – opcionalmente filtrados por club_id do APC. */
 export async function fetchUpcomingTournaments(clubId?: string | null): Promise<UpcomingTournamentFromTour[]> {
   const today = new Date().toISOString().split('T')[0]

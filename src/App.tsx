@@ -51,7 +51,6 @@ import {
   UserPlus,
   Send,
   Trash2,
-  UserMinus,
   ChevronLeft,
   Gift,
   ShoppingBag,
@@ -68,11 +67,6 @@ import {
   getSuggestedPlayers,
   createPost,
   deletePost,
-  getMyGroups,
-  createGroup,
-  getGroupMembers,
-  addGroupMember,
-  removeGroupMember,
   searchPlayers,
   getPlayerProfile,
   getFollowingList,
@@ -83,13 +77,11 @@ import {
   type CommunityPlayer,
   type PlayerProfile,
   type CommunityPost,
-  type CommunityGroup,
-  type GroupMember,
   type FeedItem,
   type FeedMatchItem,
   getUnifiedFeed,
 } from './lib/communityData'
-import { fetchAllClubs, fetchClubById, fetchUpcomingTournaments, fetchEnrolledByCategory, getTournamentRegistrationUrl, type ClubDetail, type UpcomingTournamentFromTour, type EnrolledByCategory } from './lib/clubAndTournaments'
+import { fetchAllClubs, fetchClubById, fetchUpcomingTournaments, fetchEnrolledByCategory, fetchTournamentFullDetail, getTournamentRegistrationUrl, type ClubDetail, type UpcomingTournamentFromTour, type EnrolledByCategory, type TournamentFullDetail } from './lib/clubAndTournaments'
 import { fetchAvailableClasses, fetchMyClasses, enrollInClass, type Class as ClassData } from './lib/classes'
 import { preloadAllPlayerData, getCachedPlayerData } from './lib/playerDataCache'
 import { isPushSupported, checkIsSubscribed, subscribeToPush, unsubscribeFromPush } from './lib/pushNotifications'
@@ -745,7 +737,7 @@ function App() {
           />
         )}
         {currentScreen === 'community' && player?.user_id && (
-          <CommunityScreen userId={player.user_id} playerAccountId={player.id} onOpenPlayerProfile={(uid: string) => { setSelectedPlayerUserId(uid); setCurrentScreen('player-profile') }} />
+          <CommunityScreen userId={player.user_id} playerAccountId={player.id} playerAvatar={player.avatar_url} playerName={player.name} onOpenPlayerProfile={(uid: string) => { setSelectedPlayerUserId(uid); setCurrentScreen('player-profile') }} />
         )}
         {currentScreen === 'player-profile' && selectedPlayerUserId && player?.user_id && (
           <OtherPlayerProfileScreen
@@ -3109,10 +3101,8 @@ function HomeScreen({
 }
 
 // ---------- Comunidade ----------
-function CommunityScreen({ userId, playerAccountId, onOpenPlayerProfile }: { userId: string; playerAccountId: string; onOpenPlayerProfile: (userId: string) => void }) {
+function CommunityScreen({ userId, playerAccountId, playerAvatar, playerName, onOpenPlayerProfile }: { userId: string; playerAccountId: string; playerAvatar?: string | null; playerName?: string; onOpenPlayerProfile: (userId: string) => void }) {
   const { t } = useI18n()
-  const [activeTab, setActiveTab] = useState<'feed' | 'grupos'>('feed')
-
   // Feed state
   const [suggestions, setSuggestions] = useState<CommunityPlayer[]>([])
   const [posts, setPosts] = useState<CommunityPost[]>([])
@@ -3120,30 +3110,20 @@ function CommunityScreen({ userId, playerAccountId, onOpenPlayerProfile }: { use
   const [feedLoading, setFeedLoading] = useState(true)
   const [followingSet, setFollowingSet] = useState<Set<string>>(new Set())
 
+  const handlePlayerClick = async (playerNameClicked: string) => {
+    const { findPlayerUserIdByName } = await import('./lib/classes')
+    const foundUserId = await findPlayerUserIdByName(playerNameClicked)
+    if (foundUserId) {
+      onOpenPlayerProfile(foundUserId)
+    }
+  }
+
   // New post modal
   const [showNewPost, setShowNewPost] = useState(false)
   const [newPostText, setNewPostText] = useState('')
   const [newPostImage, setNewPostImage] = useState<File | null>(null)
   const [newPostVideo, setNewPostVideo] = useState<File | null>(null)
   const [postingLoading, setPostingLoading] = useState(false)
-
-  // Groups state
-  const [groups, setGroups] = useState<CommunityGroup[]>([])
-  const [groupsLoading, setGroupsLoading] = useState(true)
-  const [showCreateGroup, setShowCreateGroup] = useState(false)
-  const [newGroupName, setNewGroupName] = useState('')
-  const [newGroupDesc, setNewGroupDesc] = useState('')
-  const [newGroupImage, setNewGroupImage] = useState<File | null>(null)
-  const [creatingGroup, setCreatingGroup] = useState(false)
-
-  // Group detail
-  const [selectedGroup, setSelectedGroup] = useState<CommunityGroup | null>(null)
-  const [groupMembers, setGroupMembers] = useState<GroupMember[]>([])
-  const [groupMembersLoading, setGroupMembersLoading] = useState(false)
-  const [showAddMember, setShowAddMember] = useState(false)
-  const [memberSearchQuery, setMemberSearchQuery] = useState('')
-  const [memberSearchResults, setMemberSearchResults] = useState<CommunityPlayer[]>([])
-  const [memberSearching, setMemberSearching] = useState(false)
 
   // Global player search
   const [playerSearchQuery, setPlayerSearchQuery] = useState('')
@@ -3153,13 +3133,8 @@ function CommunityScreen({ userId, playerAccountId, onOpenPlayerProfile }: { use
 
   // Load feed data
   useEffect(() => {
-    if (activeTab === 'feed') loadFeed()
-  }, [activeTab, userId])
-
-  // Load groups data
-  useEffect(() => {
-    if (activeTab === 'grupos') loadGroups()
-  }, [activeTab, userId])
+    loadFeed()
+  }, [userId])
 
   async function loadFeed() {
     setFeedLoading(true)
@@ -3178,17 +3153,6 @@ function CommunityScreen({ userId, playerAccountId, onOpenPlayerProfile }: { use
       console.error('[Community] Load feed error:', err)
     }
     setFeedLoading(false)
-  }
-
-  async function loadGroups() {
-    setGroupsLoading(true)
-    try {
-      const data = await getMyGroups(userId)
-      setGroups(data)
-    } catch (err) {
-      console.error('[Community] Load groups error:', err)
-    }
-    setGroupsLoading(false)
   }
 
   async function handleFollow(targetUserId: string) {
@@ -3228,56 +3192,6 @@ function CommunityScreen({ userId, playerAccountId, onOpenPlayerProfile }: { use
     const ok = await deletePost(postId)
     if (ok) {
       setPosts(prev => prev.filter(p => p.id !== postId))
-    }
-  }
-
-  async function handleCreateGroup() {
-    if (!newGroupName.trim()) return
-    setCreatingGroup(true)
-    const groupId = await createGroup(newGroupName, newGroupDesc, userId, newGroupImage || undefined)
-    if (groupId) {
-      setNewGroupName('')
-      setNewGroupDesc('')
-      setNewGroupImage(null)
-      setShowCreateGroup(false)
-      await loadGroups()
-    }
-    setCreatingGroup(false)
-  }
-
-  async function handleOpenGroup(group: CommunityGroup) {
-    setSelectedGroup(group)
-    setGroupMembersLoading(true)
-    const members = await getGroupMembers(group.id)
-    setGroupMembers(members)
-    setGroupMembersLoading(false)
-  }
-
-  async function handleSearchMembers() {
-    if (memberSearchQuery.trim().length < 2) return
-    setMemberSearching(true)
-    const existingIds = groupMembers.map(m => m.user_id)
-    const results = await searchPlayers(memberSearchQuery, existingIds)
-    setMemberSearchResults(results)
-    setMemberSearching(false)
-  }
-
-  async function handleAddMember(player: CommunityPlayer) {
-    if (!selectedGroup) return
-    const ok = await addGroupMember(selectedGroup.id, player.user_id)
-    if (ok) {
-      setMemberSearchResults(prev => prev.filter(p => p.user_id !== player.user_id))
-      // Refresh members
-      const members = await getGroupMembers(selectedGroup.id)
-      setGroupMembers(members)
-    }
-  }
-
-  async function handleRemoveMember(memberUserId: string) {
-    if (!selectedGroup) return
-    const ok = await removeGroupMember(selectedGroup.id, memberUserId)
-    if (ok) {
-      setGroupMembers(prev => prev.filter(m => m.user_id !== memberUserId))
     }
   }
 
@@ -3327,108 +3241,6 @@ function CommunityScreen({ userId, playerAccountId, onOpenPlayerProfile }: { use
     const days = Math.floor(hours / 24)
     if (days < 7) return `${days}d`
     return d.toLocaleDateString('pt-PT', { day: 'numeric', month: 'short' })
-  }
-
-  // ---- Group Detail Modal ----
-  if (selectedGroup) {
-    return (
-      <div className="animate-fade-in pb-4">
-        {/* Header */}
-        <div className="flex items-center gap-3 mb-4">
-          <button onClick={() => { setSelectedGroup(null); setShowAddMember(false); setMemberSearchQuery(''); setMemberSearchResults([]) }} className="p-1">
-            <ArrowLeft className="w-5 h-5 text-gray-600" />
-          </button>
-          <div className="flex-1">
-            <h2 className="text-lg font-bold text-gray-900">{selectedGroup.name}</h2>
-            {selectedGroup.description && <p className="text-sm text-gray-500">{selectedGroup.description}</p>}
-          </div>
-        </div>
-
-        {/* Group image */}
-        {selectedGroup.image_url && (
-          <div className="rounded-xl overflow-hidden mb-4 h-40">
-            <img src={selectedGroup.image_url} alt={selectedGroup.name} className="w-full h-full object-cover" />
-          </div>
-        )}
-
-        {/* Members */}
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-semibold text-gray-700">Membros ({groupMembers.length})</h3>
-          {selectedGroup.is_admin && (
-            <button onClick={() => setShowAddMember(!showAddMember)} className="flex items-center gap-1 text-sm text-red-600 font-medium">
-              <UserPlus className="w-4 h-4" />
-              Adicionar
-            </button>
-          )}
-        </div>
-
-        {/* Add member search */}
-        {showAddMember && (
-          <div className="bg-gray-50 rounded-xl p-3 mb-3">
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={memberSearchQuery}
-                onChange={e => setMemberSearchQuery(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && handleSearchMembers()}
-                placeholder="Pesquisar jogador..."
-                className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500"
-              />
-              <button onClick={handleSearchMembers} disabled={memberSearching} className="px-3 py-2 bg-red-600 text-white rounded-lg text-sm">
-                {memberSearching ? '...' : <Search className="w-4 h-4" />}
-              </button>
-            </div>
-            {memberSearchResults.length > 0 && (
-              <div className="mt-2 space-y-2">
-                {memberSearchResults.map(p => (
-                  <div key={p.id} className="flex items-center justify-between bg-white rounded-lg p-2">
-                    <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 rounded-full bg-gray-900 flex items-center justify-center text-white text-xs font-bold overflow-hidden">
-                        {p.avatar_url ? <img src={p.avatar_url} className="w-full h-full object-cover" /> : getInitials(p.name)}
-                      </div>
-                      <span className="text-sm font-medium">{p.name}</span>
-                    </div>
-                    <button onClick={() => handleAddMember(p)} className="text-xs text-white bg-orange-500 px-2 py-1 rounded-lg hover:bg-orange-600">Adicionar</button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {groupMembersLoading ? (
-          <div className="text-center py-8 text-gray-400">{t.common.loadingMembers}</div>
-        ) : (
-          <div className="space-y-2">
-            {groupMembers.map(m => {
-              const mColors = categoryColors(m.player_category)
-              return (
-              <div key={m.id} className="flex items-center justify-between bg-white rounded-xl p-3 shadow-sm border border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors" onClick={() => onOpenPlayerProfile(m.user_id)}>
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-gray-900 flex items-center justify-center text-white font-bold text-sm overflow-hidden">
-                    {m.avatar_url ? <img src={m.avatar_url} className="w-full h-full object-cover" /> : getInitials(m.name)}
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold text-gray-900">{m.name}</p>
-                    <div className="flex items-center gap-2">
-                      {m.role === 'admin' && <span className="text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded font-medium">Admin</span>}
-                      {m.player_category && <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${mColors.bg} ${mColors.text}`}>{m.player_category}</span>}
-                      {(m.player_category || m.level) && <span className="text-xs text-gray-500">Nv {categoryToLevel(m.player_category) ?? m.level}</span>}
-                    </div>
-                  </div>
-                </div>
-                {selectedGroup.is_admin && m.user_id !== userId && (
-                  <button onClick={(e) => { e.stopPropagation(); handleRemoveMember(m.user_id) }} className="text-gray-400 hover:text-red-500">
-                    <UserMinus className="w-4 h-4" />
-                  </button>
-                )}
-              </div>
-              )
-            })}
-          </div>
-        )}
-      </div>
-    )
   }
 
   return (
@@ -3529,25 +3341,8 @@ function CommunityScreen({ userId, playerAccountId, onOpenPlayerProfile }: { use
         )}
       </div>
 
-      {/* Tabs */}
-      <div className="flex bg-gray-100 rounded-xl p-1 mb-4">
-        <button
-          onClick={() => setActiveTab('feed')}
-          className={`flex-1 py-2 text-sm font-semibold rounded-lg transition-all ${activeTab === 'feed' ? 'bg-white text-red-600 shadow-sm' : 'text-gray-500'}`}
-        >
-          Feed
-        </button>
-        <button
-          onClick={() => setActiveTab('grupos')}
-          className={`flex-1 py-2 text-sm font-semibold rounded-lg transition-all ${activeTab === 'grupos' ? 'bg-white text-red-600 shadow-sm' : 'text-gray-500'}`}
-        >
-          Grupos
-        </button>
-      </div>
-
-      {/* ==================== TAB FEED ==================== */}
-      {activeTab === 'feed' && (
-        <div>
+      {/* ==================== FEED ==================== */}
+      <div>
           {feedLoading ? (
             <div className="text-center py-12 text-gray-400">{t.common.loading}</div>
           ) : (
@@ -3643,23 +3438,38 @@ function CommunityScreen({ userId, playerAccountId, onOpenPlayerProfile }: { use
                         </div>
                       )
                     } else {
-                      // Match card do jogador seguido
+                      // Match card do jogador seguido – usa layout GameCardPlaytomic
                       const match = item.data as FeedMatchItem
-                      const p1 = match.player1_name ?? match.team1_name.split(' / ')[0]
-                      const p2 = match.player2_name ?? match.team1_name.split(' / ')[1] ?? ''
-                      const p3 = match.player3_name ?? match.team2_name.split(' / ')[0]
-                      const p4 = match.player4_name ?? match.team2_name.split(' / ')[1] ?? ''
-                      const setStrings = [match.set1, match.set2, match.set3].filter(Boolean) as string[]
-                      const parsedSets = setStrings.map(s => {
-                        const parts = s.split('-')
-                        return parts.length === 2 ? [parts[0], parts[1]] as [string, string] : null
-                      })
+                      // Converter FeedMatchItem para PlayerMatchForCard
+                      const matchForCard: PlayerMatchForCard = {
+                        id: match.id,
+                        tournament_id: match.tournament_id,
+                        tournament_name: match.tournament_name,
+                        court: match.court,
+                        start_time: match.start_time || match.played_at,
+                        team1_name: match.team1_name,
+                        team2_name: match.team2_name,
+                        player1_name: match.player1_name,
+                        player2_name: match.player2_name,
+                        player3_name: match.player3_name,
+                        player4_name: match.player4_name,
+                        score1: match.score1,
+                        score2: match.score2,
+                        status: match.status,
+                        round: match.round,
+                        set1: match.set1,
+                        set2: match.set2,
+                        set3: match.set3,
+                      }
 
                       return (
-                        <div key={`match-${match.id}`} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+                        <div key={`match-${match.id}`} className="space-y-0">
                           {/* Header: quem jogou */}
-                          <div className="flex items-center gap-2 p-3 pb-2 bg-gradient-to-r from-gray-50 to-white">
-                            <div className="w-8 h-8 rounded-full bg-gray-900 flex items-center justify-center text-white font-bold text-[10px] overflow-hidden flex-shrink-0">
+                          <div className="flex items-center gap-2 px-3 py-2 bg-gradient-to-r from-gray-50 to-white rounded-t-2xl border border-b-0 border-gray-100">
+                            <div 
+                              className="w-9 h-9 rounded-full bg-gray-900 flex items-center justify-center text-white font-bold text-[10px] overflow-hidden flex-shrink-0 cursor-pointer hover:opacity-80 transition-opacity"
+                              onClick={() => handlePlayerClick(match.followed_player_name)}
+                            >
                               {match.followed_player_avatar
                                 ? <img src={match.followed_player_avatar} className="w-full h-full object-cover" />
                                 : getInitials(match.followed_player_name)
@@ -3667,59 +3477,31 @@ function CommunityScreen({ userId, playerAccountId, onOpenPlayerProfile }: { use
                             </div>
                             <div className="flex-1 min-w-0">
                               <p className="text-sm font-semibold text-gray-900 truncate">
-                                {match.followed_player_name}
+                                <span 
+                                  className="cursor-pointer hover:text-red-600 transition-colors"
+                                  onClick={() => handlePlayerClick(match.followed_player_name)}
+                                >
+                                  {match.followed_player_name}
+                                </span>
                                 <span className={`ml-1.5 text-xs font-bold ${match.followed_player_won ? 'text-green-600' : 'text-red-500'}`}>
                                   {match.followed_player_won ? 'ganhou!' : 'perdeu'}
                                 </span>
                               </p>
                               <p className="text-[11px] text-gray-400 flex items-center gap-1">
-                                <span>🏆</span> {match.tournament_name} · {timeAgo(match.played_at)}
+                                {match.tournament_name ? <><span>🏆</span> {match.tournament_name} · </> : null}
+                                {timeAgo(match.played_at)}
                               </p>
                             </div>
                           </div>
-
-                          {/* Resultado do jogo estilo compacto */}
-                          <div className="px-3 py-2">
-                            <div className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2">
-                              {/* Equipa 1 */}
-                              <div className="flex-1 text-left">
-                                <p className="text-xs font-semibold text-gray-800 truncate">{p1}</p>
-                                {p2 && <p className="text-xs font-medium text-gray-500 truncate">{p2}</p>}
-                              </div>
-                              {/* Sets */}
-                              <div className="flex items-center gap-1.5 mx-3">
-                                {parsedSets.length > 0 ? parsedSets.map((s, idx) => (
-                                  s && (
-                                    <div key={idx} className="flex flex-col items-center">
-                                      <span className={`text-xs font-bold ${parseInt(s[0]) > parseInt(s[1]) ? 'text-green-600' : 'text-gray-500'}`}>{s[0]}</span>
-                                      <div className="w-3 h-px bg-gray-300 my-0.5" />
-                                      <span className={`text-xs font-bold ${parseInt(s[1]) > parseInt(s[0]) ? 'text-green-600' : 'text-gray-500'}`}>{s[1]}</span>
-                                    </div>
-                                  )
-                                )) : (
-                                  <div className="flex flex-col items-center">
-                                    <span className={`text-sm font-bold ${(match.score1 ?? 0) > (match.score2 ?? 0) ? 'text-green-600' : 'text-gray-500'}`}>{match.score1 ?? '-'}</span>
-                                    <div className="w-4 h-px bg-gray-300 my-0.5" />
-                                    <span className={`text-sm font-bold ${(match.score2 ?? 0) > (match.score1 ?? 0) ? 'text-green-600' : 'text-gray-500'}`}>{match.score2 ?? '-'}</span>
-                                  </div>
-                                )}
-                              </div>
-                              {/* Equipa 2 */}
-                              <div className="flex-1 text-right">
-                                <p className="text-xs font-semibold text-gray-800 truncate">{p3}</p>
-                                {p4 && <p className="text-xs font-medium text-gray-500 truncate">{p4}</p>}
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Footer */}
-                          <div className="px-3 py-1.5 border-t border-gray-50 flex items-center justify-between">
-                            <span className="text-[10px] text-gray-400">
-                              {match.round && match.round !== 'null' ? `${t.games.round} ${match.round}` : ''} {match.court ? `· ${t.games.court} ${match.court}` : ''}
-                            </span>
-                            <button className="flex items-center gap-1 text-gray-400 hover:text-red-500 transition-colors">
-                              <Heart className="w-3.5 h-3.5" />
-                            </button>
+                          {/* Card do jogo estilo Playtomic */}
+                          <div className="[&>div]:rounded-t-none [&>div]:border-t-0">
+                            <GameCardPlaytomic 
+                              match={matchForCard} 
+                              fullWidth 
+                              currentPlayerAvatar={playerAvatar}
+                              currentPlayerName={playerName}
+                              onPlayerClick={handlePlayerClick}
+                            />
                           </div>
                         </div>
                       )
@@ -3791,113 +3573,6 @@ function CommunityScreen({ userId, playerAccountId, onOpenPlayerProfile }: { use
             </div>
           )}
         </div>
-      )}
-
-      {/* ==================== TAB GRUPOS ==================== */}
-      {activeTab === 'grupos' && (
-        <div>
-          {groupsLoading ? (
-            <div className="text-center py-12 text-gray-400">{t.common.loading}</div>
-          ) : (
-            <>
-              {/* Create group button */}
-              <button
-                onClick={() => setShowCreateGroup(true)}
-                className="w-full mb-4 py-3 border-2 border-dashed border-gray-200 rounded-xl text-sm font-semibold text-gray-500 hover:text-red-600 hover:border-red-300 transition-colors flex items-center justify-center gap-2"
-              >
-                <Plus className="w-5 h-5" />
-                Criar Grupo
-              </button>
-
-              {groups.length === 0 ? (
-                <div className="text-center py-12">
-                  <Users className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-                  <p className="text-gray-500 font-medium">Sem grupos</p>
-                  <p className="text-sm text-gray-400 mt-1">Cria um grupo para organizar os teus jogos.</p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {groups.map(group => (
-                    <button
-                      key={group.id}
-                      onClick={() => handleOpenGroup(group)}
-                      className="w-full text-left bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition-shadow"
-                    >
-                      {group.image_url ? (
-                        <div className="h-28 relative">
-                          <img src={group.image_url} alt={group.name} className="w-full h-full object-cover" />
-                          <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
-                          <div className="absolute bottom-0 left-0 right-0 p-3">
-                            <p className="text-white font-bold text-sm">{group.name}</p>
-                            <p className="text-white/70 text-xs">{group.member_count} membros</p>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="p-4 flex items-center gap-3">
-                          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-red-400 to-red-600 flex items-center justify-center text-white font-bold text-lg">
-                            {group.name.charAt(0).toUpperCase()}
-                          </div>
-                          <div>
-                            <p className="font-semibold text-gray-900 text-sm">{group.name}</p>
-                            <p className="text-xs text-gray-500">{group.member_count} membros</p>
-                          </div>
-                          <ChevronRight className="w-4 h-4 text-gray-400 ml-auto" />
-                        </div>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </>
-          )}
-
-          {/* Create Group Modal */}
-          {showCreateGroup && (
-            <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center animate-fade-in">
-              <div className="bg-white w-full max-w-md rounded-t-2xl sm:rounded-2xl p-5">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-bold text-gray-900">Criar Grupo</h3>
-                  <button onClick={() => { setShowCreateGroup(false); setNewGroupName(''); setNewGroupDesc(''); setNewGroupImage(null) }}>
-                    <X className="w-5 h-5 text-gray-400" />
-                  </button>
-                </div>
-                <input
-                  type="text"
-                  value={newGroupName}
-                  onChange={e => setNewGroupName(e.target.value)}
-                  placeholder="Nome do grupo"
-                  className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-500 mb-3"
-                />
-                <textarea
-                  value={newGroupDesc}
-                  onChange={e => setNewGroupDesc(e.target.value)}
-                  placeholder="Descrição (opcional)"
-                  rows={3}
-                  className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-500 resize-none mb-3"
-                />
-                <label className="flex items-center gap-2 text-sm text-gray-500 cursor-pointer hover:text-red-600 mb-4">
-                  <Image className="w-5 h-5" />
-                  <span>{newGroupImage ? newGroupImage.name : 'Adicionar imagem de capa'}</span>
-                  <input type="file" accept="image/*" className="hidden" onChange={e => { if (e.target.files?.[0]) setNewGroupImage(e.target.files[0]) }} />
-                </label>
-                {newGroupImage && (
-                  <div className="mb-3 relative">
-                    <img src={URL.createObjectURL(newGroupImage)} className="w-full h-32 object-cover rounded-lg" />
-                    <button onClick={() => setNewGroupImage(null)} className="absolute top-1 right-1 bg-black/50 text-white rounded-full p-1"><X className="w-3 h-3" /></button>
-                  </div>
-                )}
-                <button
-                  onClick={handleCreateGroup}
-                  disabled={creatingGroup || !newGroupName.trim()}
-                  className="w-full py-2.5 bg-red-600 text-white rounded-xl font-semibold disabled:opacity-40 hover:bg-red-700 transition-colors"
-                >
-                  {creatingGroup ? 'A criar...' : 'Criar Grupo'}
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
     </div>
   )
 }
@@ -4040,6 +3715,8 @@ function CompeteScreen({
   const [openGameHistory, setOpenGameHistory] = useState<import('./lib/openGames').OpenGameMatchResult[]>([])
   const [openGameHistoryLoading, setOpenGameHistoryLoading] = useState(false)
   const [openGameHistoryFetched, setOpenGameHistoryFetched] = useState(false)
+  const [selectedTournamentDetail, setSelectedTournamentDetail] = useState<TournamentFullDetail | null>(null)
+  const [selectedTournamentLoading, setSelectedTournamentLoading] = useState(false)
 
   const d = dashboardData
   const name = d?.playerName ?? ''
@@ -4109,18 +3786,29 @@ function CompeteScreen({
             .eq('tournament_id', tournament.id)
 
           if (categories && categories.length > 0) {
-            // Verificar se alguma categoria contém o género do jogador
-            const hasMatchingGender = categories.some(cat => {
+            // Verificar se alguma categoria contém referência a género
+            const hasAnyGenderRef = categories.some(cat => {
               const catName = cat.name.toUpperCase()
-              if (playerGender === 'M') {
-                return catName.includes('MASC') || catName.includes('M') || catName.includes('MASCULINO')
-              } else {
-                return catName.includes('FEM') || catName.includes('F') || catName.includes('FEMININO')
-              }
+              return catName.includes('MASC') || catName.includes('MASCULINO') ||
+                     catName.includes('FEM') || catName.includes('FEMININO')
             })
 
-            if (hasMatchingGender) {
+            if (!hasAnyGenderRef) {
+              // Nenhuma categoria tem referência a género (ex: +35, +40) → incluir para todos
               filtered.push(tournament)
+            } else {
+              // Verificar se alguma categoria corresponde ao género do jogador
+              const hasMatchingGender = categories.some(cat => {
+                const catName = cat.name.toUpperCase()
+                if (playerGender === 'M') {
+                  return catName.includes('MASC') || catName.includes('MASCULINO')
+                } else {
+                  return catName.includes('FEM') || catName.includes('FEMININO')
+                }
+              })
+              if (hasMatchingGender) {
+                filtered.push(tournament)
+              }
             }
           } else {
             // Se não tem categorias, incluir (torneio geral)
@@ -4294,6 +3982,215 @@ function CompeteScreen({
     setEnrolledLoading(false)
   }
 
+  const openTournamentDetail = async (tournamentId: string) => {
+    setSelectedTournamentLoading(true)
+    setSelectedTournamentDetail(null)
+    try {
+      const detail = await fetchTournamentFullDetail(tournamentId)
+      setSelectedTournamentDetail(detail)
+    } catch (err) {
+      console.error('[CompeteScreen] Error loading tournament detail:', err)
+    }
+    setSelectedTournamentLoading(false)
+  }
+
+  const formatFormatName = (format: string) => {
+    const formatMap: Record<string, string> = {
+      'round_robin': 'Round Robin',
+      'single_elimination': 'Eliminatória',
+      'groups_knockout': 'Grupos + Eliminatória',
+      'individual_groups_knockout': 'Individual - Grupos + Eliminatória',
+      'super_teams': 'Super Equipas',
+    }
+    return formatMap[format] || format
+  }
+
+  // Se o detalhe do torneio está aberto, mostra a página de detalhe
+  if (selectedTournamentDetail || selectedTournamentLoading) {
+    const td = selectedTournamentDetail
+    const enrolledIds = new Set((d?.upcomingTournaments ?? []).map((t) => t.id))
+    const isEnrolled = td ? enrolledIds.has(td.id) : false
+
+    return (
+      <div className="space-y-4 animate-fade-in">
+        <button
+          onClick={() => { setSelectedTournamentDetail(null); setSelectedTournamentLoading(false) }}
+          className="flex items-center gap-2 text-gray-600 hover:text-gray-900"
+        >
+          <ArrowLeft className="w-5 h-5" /> Voltar
+        </button>
+
+        {selectedTournamentLoading ? (
+          <div className="flex justify-center py-12">
+            <div className="w-10 h-10 border-3 border-red-600 border-t-transparent rounded-full animate-spin" />
+          </div>
+        ) : td ? (
+          <div className="space-y-4">
+            {/* Header com imagem */}
+            {td.image_url ? (
+              <div className="relative rounded-2xl overflow-hidden">
+                <img src={td.image_url} alt={td.name} className="w-full h-48 object-cover" />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+                <div className="absolute bottom-0 left-0 right-0 p-4">
+                  <h1 className="text-xl font-bold text-white">{td.name}</h1>
+                </div>
+              </div>
+            ) : (
+              <div className="bg-gradient-to-br from-red-600 to-red-800 rounded-2xl p-6">
+                <h1 className="text-xl font-bold text-white">{td.name}</h1>
+              </div>
+            )}
+
+            {/* Badges */}
+            <div className="flex flex-wrap gap-2">
+              <span className={`px-3 py-1 rounded-full text-xs font-semibold ${td.status === 'active' ? 'bg-green-100 text-green-700' : td.status === 'completed' ? 'bg-gray-100 text-gray-600' : 'bg-amber-100 text-amber-700'}`}>
+                {td.status === 'active' ? '🟢 Aberto' : td.status === 'completed' ? '✅ Concluído' : td.status === 'draft' ? '📝 Rascunho' : td.status}
+              </span>
+              <span className="px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">
+                🏸 {formatFormatName(td.format)}
+              </span>
+              {isEnrolled && (
+                <span className="px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700">
+                  ✅ Inscrito
+                </span>
+              )}
+            </div>
+
+            {/* Info cards */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="card p-3 flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center">
+                  <Calendar className="w-5 h-5 text-red-600" />
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500">Data</p>
+                  <p className="text-sm font-semibold text-gray-900">{formatDate(td.start_date)}</p>
+                  {td.start_date !== td.end_date && (
+                    <p className="text-xs text-gray-500">até {formatDate(td.end_date)}</p>
+                  )}
+                </div>
+              </div>
+              <div className="card p-3 flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-50 flex items-center justify-center">
+                  <Clock className="w-5 h-5 text-blue-600" />
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500">Horário</p>
+                  <p className="text-sm font-semibold text-gray-900">
+                    {td.daily_start_time || '09:00'} - {td.daily_end_time || '21:00'}
+                  </p>
+                </div>
+              </div>
+              <div className="card p-3 flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center">
+                  <Users className="w-5 h-5 text-amber-600" />
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500">Inscritos</p>
+                  <p className="text-sm font-semibold text-gray-900">{td.total_enrolled}</p>
+                </div>
+              </div>
+              <div className="card p-3 flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-purple-50 flex items-center justify-center">
+                  <Trophy className="w-5 h-5 text-purple-600" />
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500">Campos</p>
+                  <p className="text-sm font-semibold text-gray-900">{td.number_of_courts}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Clube */}
+            {td.club_name && (
+              <div className="card p-4 flex items-center gap-3">
+                {td.club_logo ? (
+                  <img src={td.club_logo} alt={td.club_name} className="w-10 h-10 rounded-xl object-cover" />
+                ) : (
+                  <div className="w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center">
+                    <MapPin className="w-5 h-5 text-gray-400" />
+                  </div>
+                )}
+                <div>
+                  <p className="text-xs text-gray-500">Clube</p>
+                  <p className="text-sm font-semibold text-gray-900">{td.club_name}</p>
+                </div>
+              </div>
+            )}
+
+            {/* Descrição */}
+            {td.description && (
+              <div className="card p-4">
+                <h3 className="text-sm font-semibold text-gray-700 mb-2">Descrição</h3>
+                <div className="text-sm text-gray-600 [&_p]:my-1 [&_ul]:pl-4 [&_li]:list-disc" dangerouslySetInnerHTML={{ __html: td.description }} />
+              </div>
+            )}
+
+            {/* Botão de inscrição */}
+            {!isEnrolled && td.status === 'active' && (
+              <a
+                href={getTournamentRegistrationUrl(td.id)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center justify-center gap-2 w-full py-3.5 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-xl transition-colors"
+              >
+                Inscrever-me
+                <ExternalLink className="w-4 h-4" />
+              </a>
+            )}
+
+            {/* Inscritos por categoria */}
+            <div className="card p-4">
+              <h3 className="text-base font-bold text-gray-900 mb-4 flex items-center gap-2">
+                <Users className="w-5 h-5 text-red-600" />
+                Inscritos ({td.total_enrolled})
+              </h3>
+              {td.enrolled.length === 0 ? (
+                <p className="text-gray-500 text-center py-4">Ainda sem inscritos.</p>
+              ) : (
+                <div className="space-y-5">
+                  {td.enrolled.map((cat) => (
+                    <div key={cat.category_id}>
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="w-2 h-2 rounded-full bg-red-500" />
+                        <h4 className="text-sm font-semibold text-gray-700">{cat.category_name}</h4>
+                        <span className="text-xs text-gray-400 ml-auto">{cat.items.length} inscrito{cat.items.length !== 1 ? 's' : ''}</span>
+                      </div>
+                      <div className="space-y-1.5">
+                        {cat.items.map((item, idx) => (
+                          <div key={item.id} className="flex items-center gap-3 py-2 px-3 bg-gray-50 rounded-lg">
+                            <span className="text-xs font-semibold text-gray-400 w-5 text-right">{idx + 1}</span>
+                            <div className="flex-1 min-w-0">
+                              {item.player_names?.length ? (
+                                <p className="text-sm text-gray-900 font-medium truncate">{item.name}</p>
+                              ) : item.player1_name || item.player2_name ? (
+                                <div>
+                                  <p className="text-sm text-gray-900 font-medium truncate">{item.name}</p>
+                                  <p className="text-xs text-gray-500 truncate">{[item.player1_name, item.player2_name].filter(Boolean).join(' / ')}</p>
+                                </div>
+                              ) : (
+                                <p className="text-sm text-gray-900 font-medium truncate">{item.name}</p>
+                              )}
+                              {item.player_names && item.player_names.length > 0 && (
+                                <p className="text-xs text-gray-500 truncate">{item.player_names.join(' · ')}</p>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="card p-8 text-center text-gray-500">Torneio não encontrado.</div>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-4 animate-fade-in">
       <button onClick={onBack} className="flex items-center gap-2 text-gray-600 hover:text-gray-900">
@@ -4348,7 +4245,11 @@ function CompeteScreen({
             ]
             const openList = othersFromTour
             const TournamentCard = ({ t, isEnrolled }: { t: UpcomingTournamentFromTour; isEnrolled: boolean }) => (
-              <div key={t.id} className="card overflow-hidden p-0 flex">
+              <div
+                key={t.id}
+                className="card overflow-hidden p-0 flex cursor-pointer hover:shadow-lg transition-shadow"
+                onClick={() => openTournamentDetail(t.id)}
+              >
                 <div className="w-24 sm:w-32 flex-shrink-0">
                   {t.image_url ? (
                     <img src={t.image_url} alt={t.name} className="w-full h-full min-h-[140px] object-cover rounded-l-xl" />
@@ -4375,28 +4276,11 @@ function CompeteScreen({
                     {formatDate(t.start_date)}
                   </p>
                   {t.description && (
-                    <div className="text-sm text-gray-600 mt-2 line-clamp-3 flex-1 [&_p]:my-0 [&_p]:last:mb-0" dangerouslySetInnerHTML={{ __html: t.description }} />
+                    <div className="text-sm text-gray-600 mt-2 line-clamp-2 flex-1 [&_p]:my-0 [&_p]:last:mb-0" dangerouslySetInnerHTML={{ __html: t.description }} />
                   )}
-                  {isEnrolled ? (
-                    <button
-                      type="button"
-                      onClick={() => viewEnrolled(t.id, t.name)}
-                      className="mt-3 inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-xl transition-colors w-fit"
-                    >
-                      <Users className="w-4 h-4" />
-                      Ver inscritos por categoria
-                    </button>
-                  ) : (
-                    <a
-                      href={getTournamentRegistrationUrl(t.id)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="mt-3 inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-xl transition-colors w-fit"
-                    >
-                      Link de inscrição
-                      <ExternalLink className="w-4 h-4" />
-                    </a>
-                  )}
+                  <div className="mt-3 text-sm font-medium text-red-600 flex items-center gap-1">
+                    Ver detalhes <ChevronRight className="w-4 h-4" />
+                  </div>
                 </div>
               </div>
             )
