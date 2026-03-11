@@ -4890,7 +4890,7 @@ function FindGameScreen({
     clubName: string
     date: string
     time: string
-    courts: { court_id: string; court_name: string; court_type: string | null; durations: number[]; price_90: number; price_60: number }[]
+    courts: { court_id: string; court_name: string; court_type: string | null; durations: number[]; price_60: number; price_90: number; price_120: number }[]
   } | null>(null)
   const [selectedCourtIdx, setSelectedCourtIdx] = useState<number>(0)
   const [createGameType, setCreateGameType] = useState<'competitive' | 'friendly'>('friendly')
@@ -5064,7 +5064,7 @@ function FindGameScreen({
     setCreating(true)
     const { createOpenGame } = await import('./lib/openGames')
     const scheduledAt = `${createModal.date}T${createModal.time}:00`
-    const pricePerPlayer = createDuration === 90 ? court.price_90 : court.price_60
+    const pricePerPlayer = createDuration === 120 ? (court.price_120 || court.price_90 * 4/3) : createDuration === 90 ? court.price_90 : court.price_60
     
     const result = await createOpenGame({
       userId,
@@ -5816,17 +5816,17 @@ function FindGameScreen({
                                   clubName: club.name,
                                   date,
                                   time: slot.time,
-                                  courts: slot.courts?.map(c => ({ ...c, court_type: c.court_type || null })) || [{ court_id: slot.court_id, court_name: slot.court_name, court_type: null, durations: slot.durations, price_90: slot.price_90, price_60: slot.price_60 }],
+                                  courts: slot.courts?.map(c => ({ ...c, court_type: c.court_type || null })) || [{ court_id: slot.court_id, court_name: slot.court_name, court_type: null, durations: slot.durations, price_90: slot.price_90, price_60: slot.price_60, price_120: (slot as any).price_120 || 0 }],
                                 })
                                 setSelectedCourtIdx(0)
                                 const firstCourt = slot.courts?.[0] || slot
-                                setCreateDuration(firstCourt.durations.includes(90) ? 90 : 60)
+                                setCreateDuration(firstCourt.durations.includes(90) ? 90 : firstCourt.durations[0] || 60)
                               }}
                               className="px-3 py-2 border border-gray-200 rounded-xl hover:border-blue-400 hover:bg-blue-50 transition-colors text-center"
                             >
                               <p className="font-bold text-gray-900 text-sm">{slot.time}</p>
                               <p className="text-[10px] text-gray-500">
-                                {(slot.courts?.length || 1)} {(slot.courts?.length || 1) > 1 ? t.games.courts : t.games.court} • {slot.durations.includes(90) ? '90min' : '60min'}
+                                {(slot.courts?.length || 1)} {(slot.courts?.length || 1) > 1 ? t.games.courts : t.games.court} • {slot.durations.sort((a: number, b: number) => a - b).map((d: number) => `${d}min`).join('/')}
                               </p>
                               {slot.courts && slot.courts.length === 1 && slot.courts[0].court_type && (
                                 <p className="text-[9px] text-gray-400">
@@ -6283,7 +6283,7 @@ function FindGameScreen({
                           key={c.court_id}
                           onClick={() => {
                             setSelectedCourtIdx(i)
-                            setCreateDuration(c.durations.includes(90) ? 90 : 60)
+                            setCreateDuration(c.durations.includes(90) ? 90 : c.durations[0] || 60)
                           }}
                           className={`px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
                             selectedCourtIdx === i 
@@ -6380,7 +6380,7 @@ function FindGameScreen({
               {/* Price info */}
               {(() => {
                 const court = createModal.courts[selectedCourtIdx]
-                const price = court ? (createDuration === 90 ? court.price_90 : court.price_60) : 0
+                const price = court ? (createDuration === 120 ? (court.price_120 || court.price_90 * 4/3) : createDuration === 90 ? court.price_90 : court.price_60) : 0
                 return (
                   <div className="p-3 bg-blue-50 rounded-xl flex items-center justify-between">
                     <span className="text-sm text-gray-700">Preço por jogador</span>
@@ -7328,9 +7328,9 @@ function BookingScreen({
     })
   }
 
-  // Calculate price
+  // Calculate price based on selected duration
   const pricePerPlayer = selectedCourt
-    ? (duration === 90 ? selectedCourt.price_90 : selectedCourt.price_60)
+    ? (duration === 120 ? selectedCourt.price_120 : duration === 90 ? selectedCourt.price_90 : selectedCourt.price_60)
     : 0
 
   // Create booking
@@ -7649,7 +7649,8 @@ function BookingScreen({
                       key={court.court_id}
                       onClick={() => {
                         setSelectedCourt(court)
-                        setDuration(court.durations.includes(90) ? 90 : 60)
+                        // Default to 90 if available, else first available duration
+                        setDuration(court.durations.includes(90) ? 90 : court.durations[0] || 60)
                       }}
                       className={`px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
                         selectedCourt?.court_id === court.court_id ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'

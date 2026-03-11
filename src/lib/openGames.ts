@@ -68,9 +68,10 @@ export interface CourtSlot {
   court_id: string
   court_name: string
   court_type: 'indoor' | 'outdoor' | 'covered' | null // indoor, outdoor, covered
-  durations: number[] // available durations in minutes (60, 90)
-  price_90: number // price for 90min
-  price_60: number // price for 60min
+  durations: number[] // available durations in minutes (60, 90, 120)
+  price_60: number // price per player for 60min
+  price_90: number // price per player for 90min
+  price_120: number // price per player for 120min
 }
 
 export interface TimeSlot {
@@ -425,29 +426,42 @@ export async function fetchClubsWithAvailability(): Promise<ClubWithAvailability
         if (slotMinutes < minStartMinutes) continue
 
         const slotStart = new Date(`${date}T${timeStr}:00`)
-        const slotEnd = new Date(slotStart.getTime() + slotDuration * 60000)
         const closingTime = new Date(`${date}T${endTime}:00`)
-          
-        if (slotEnd > closingTime) continue
 
-        // Check ALL courts for availability at this time
+        // Check if at least 60 min fits before closing
+        const slotEnd60 = new Date(slotStart.getTime() + 60 * 60000)
+        if (slotEnd60 > closingTime) continue
+
+        // Check ALL courts for availability at this time with multiple durations
         const courtSlots: CourtSlot[] = []
-        for (const court of courts) {
-          const isAvailable = isSlotAvailable(court.id, slotStart, slotEnd, bookings || [], existingGames || [])
+        const possibleDurations = [60, 90, 120]
 
-          if (isAvailable) {
-            // Calculate price (per 4 players)
+        for (const court of courts) {
+          // Check which durations are available for this court at this time
+          const availableDurations: number[] = []
+          for (const dur of possibleDurations) {
+            const durEnd = new Date(slotStart.getTime() + dur * 60000)
+            if (durEnd > closingTime) continue
+            if (isSlotAvailable(court.id, slotStart, durEnd, bookings || [], existingGames || [])) {
+              availableDurations.push(dur)
+            }
+          }
+
+          if (availableDurations.length > 0) {
+            // Calculate price per player for each duration
             const hourlyRate = parseFloat(court.hourly_rate as any) || 0
-            const priceForSlot = Math.round((hourlyRate * (slotDuration / 60)) / 4 * 100) / 100
             const price60 = Math.round((hourlyRate * 1) / 4 * 100) / 100
+            const price90 = Math.round((hourlyRate * 1.5) / 4 * 100) / 100
+            const price120 = Math.round((hourlyRate * 2) / 4 * 100) / 100
 
             courtSlots.push({
               court_id: court.id,
               court_name: court.name,
               court_type: (court as any).type || null,
-              durations: [slotDuration],
-              price_90: priceForSlot,
+              durations: availableDurations,
               price_60: price60,
+              price_90: price90,
+              price_120: price120,
             })
           }
         }
