@@ -335,10 +335,10 @@ export async function fetchClubsWithAvailability(): Promise<ClubWithAvailability
 
     if (!courts || courts.length === 0) continue // Skip clubs without courts
 
-    // 3. Fetch operating hours + slot settings
+    // 3. Fetch operating hours + slot settings (including available_booking_slots)
     const { data: settings } = await supabase
       .from('user_logo_settings')
-      .select('booking_start_time, booking_end_time, booking_slot_duration, max_advance_days')
+      .select('booking_start_time, booking_end_time, booking_slot_duration, max_advance_days, available_booking_slots')
       .eq('user_id', club.owner_id)
       .maybeSingle()
 
@@ -346,6 +346,10 @@ export async function fetchClubsWithAvailability(): Promise<ClubWithAvailability
     const endTime = settings?.booking_end_time || '22:00'
     const slotDuration = settings?.booking_slot_duration || 90 // minutes
     const daysAhead = settings?.max_advance_days || 7
+    // Club-defined available slots (array of "HH:MM" strings), or null for legacy behavior
+    const clubAvailableSlots: string[] | null = settings?.available_booking_slots && Array.isArray(settings.available_booking_slots)
+      ? settings.available_booking_slots
+      : null
 
     // 4. Generate dates
     const dates: string[] = []
@@ -377,7 +381,7 @@ export async function fetchClubsWithAvailability(): Promise<ClubWithAvailability
       .gte('scheduled_at', dateFrom)
       .lte('scheduled_at', dateTo)
 
-    // 7. Generate available time slots using club's slot duration
+    // 7. Generate available time slots
     const availability: { [date: string]: TimeSlot[] } = {}
     const openH = parseInt(startTime.split(':')[0])
     const openM = parseInt(startTime.split(':')[1] || '0')
@@ -385,28 +389,41 @@ export async function fetchClubsWithAvailability(): Promise<ClubWithAvailability
     const closeM = parseInt(endTime.split(':')[1] || '0')
     const openMinutes = openH * 60 + openM
     const closeMinutes = closeH * 60 + closeM
+
+    // Build the list of time strings to check
+    // If club has defined available_booking_slots, use those; otherwise fall back to legacy fixed intervals
+    let slotTimeStrings: string[] = []
+    if (clubAvailableSlots && clubAvailableSlots.length > 0) {
+      // Use club-defined slots (already sorted "HH:MM" strings)
+      slotTimeStrings = clubAvailableSlots.filter(s => {
+        const [h, m] = s.split(':').map(Number)
+        const mins = h * 60 + m
+        return mins >= openMinutes && mins < closeMinutes
+      })
+    } else {
+      // Legacy: generate slots at fixed intervals
+      for (let m = openMinutes; m + slotDuration <= closeMinutes; m += slotDuration) {
+        const h = Math.floor(m / 60)
+        const min = m % 60
+        slotTimeStrings.push(`${h.toString().padStart(2, '0')}:${min.toString().padStart(2, '0')}`)
+      }
+    }
     
     for (const date of dates) {
       const slots: TimeSlot[] = []
 
       // For today, skip slots that already passed (current time + 1 hour buffer)
-      let firstSlotMinutes = openMinutes
-      if (date === dates[0]) {
-        const currentMinutes = now.getHours() * 60 + now.getMinutes()
-        const minStart = currentMinutes + 60 // at least 1 hour from now
-        // Round up to next slot boundary
-        if (minStart > openMinutes) {
-          const elapsed = minStart - openMinutes
-          const slotsSkipped = Math.ceil(elapsed / slotDuration)
-          firstSlotMinutes = openMinutes + slotsSkipped * slotDuration
-        }
-      }
+      const minStartMinutes = date === dates[0]
+        ? now.getHours() * 60 + now.getMinutes() + 60
+        : 0
 
-      // Generate slots at fixed intervals (e.g. every 90 min: 9:00, 10:30, 12:00, ...)
-      for (let m = firstSlotMinutes; m + slotDuration <= closeMinutes; m += slotDuration) {
-        const h = Math.floor(m / 60)
-        const min = m % 60
-        const timeStr = `${h.toString().padStart(2, '0')}:${min.toString().padStart(2, '0')}`
+      for (const timeStr of slotTimeStrings) {
+        const [slotH, slotM] = timeStr.split(':').map(Number)
+        const slotMinutes = slotH * 60 + slotM
+
+        // Skip past slots for today
+        if (slotMinutes < minStartMinutes) continue
+
         const slotStart = new Date(`${date}T${timeStr}:00`)
         const slotEnd = new Date(slotStart.getTime() + slotDuration * 60000)
         const closingTime = new Date(`${date}T${endTime}:00`)
