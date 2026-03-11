@@ -80,6 +80,7 @@ export async function subscribeToPush(playerAccountId: string): Promise<boolean>
         p256dh: subscriptionJson.keys.p256dh,
         auth: subscriptionJson.keys.auth,
         updated_at: new Date().toISOString(),
+        app_source: 'player',
       }, {
         onConflict: 'player_account_id,endpoint',
         ignoreDuplicates: false,
@@ -97,6 +98,7 @@ export async function subscribeToPush(playerAccountId: string): Promise<boolean>
           p256dh: subscriptionJson.keys.p256dh,
           auth: subscriptionJson.keys.auth,
           updated_at: new Date().toISOString(),
+          app_source: 'player',
         }, {
           onConflict: 'user_id,endpoint',
           ignoreDuplicates: false,
