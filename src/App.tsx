@@ -7542,25 +7542,38 @@ function BookingScreen({
                 <button
                   key={club.id}
                   onClick={() => { setSelectedClub(club); setSelectedDate(''); setSelectedTime(''); setSelectedCourt(null); setStep(2) }}
-                  className={`w-full border rounded-2xl p-4 flex items-center gap-4 text-left transition-all hover:border-lime-400 hover:shadow-sm ${
+                  className={`w-full border rounded-2xl overflow-hidden text-left transition-all hover:border-lime-400 hover:shadow-sm ${
                     selectedClub?.id === club.id ? 'border-lime-500 bg-lime-50' : 'border-gray-200 bg-white'
                   }`}
                 >
-                  {club.logo_url ? (
-                    <img src={club.logo_url} alt="" className="w-14 h-14 rounded-xl object-cover flex-shrink-0" />
-                  ) : (
-                    <div className="w-14 h-14 rounded-xl bg-gray-100 flex items-center justify-center flex-shrink-0">
-                      <Building2 className="w-7 h-7 text-gray-400" />
+                  {/* Club photo banner if available */}
+                  {(club.photo_url_1 || club.photo_url_2) && (
+                    <div className="w-full flex gap-0.5">
+                      {club.photo_url_1 && (
+                        <img src={club.photo_url_1} alt="" className={`${club.photo_url_2 ? 'w-1/2' : 'w-full'} h-28 object-cover`} />
+                      )}
+                      {club.photo_url_2 && (
+                        <img src={club.photo_url_2} alt="" className={`${club.photo_url_1 ? 'w-1/2' : 'w-full'} h-28 object-cover`} />
+                      )}
                     </div>
                   )}
-                  <div className="flex-1 min-w-0">
-                    <p className="font-bold text-gray-900">{club.name}</p>
-                    {club.city && <p className="text-xs text-gray-500 flex items-center gap-1"><MapPin className="w-3 h-3" /> {club.city}</p>}
-                    <p className="text-xs text-gray-400 mt-0.5">
-                      {club.courts.length} {club.courts.length > 1 ? t.games.courts : t.games.court} • {club.operating_hours.start} - {club.operating_hours.end}
-                    </p>
+                  <div className="flex items-center gap-3 w-full p-4">
+                    {club.logo_url ? (
+                      <img src={club.logo_url} alt="" className="w-12 h-12 rounded-xl object-cover flex-shrink-0" />
+                    ) : (
+                      <div className="w-12 h-12 rounded-xl bg-gray-100 flex items-center justify-center flex-shrink-0">
+                        <Building2 className="w-6 h-6 text-gray-400" />
+                      </div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <p className="font-bold text-gray-900">{club.name}</p>
+                      {club.city && <p className="text-xs text-gray-500 flex items-center gap-1"><MapPin className="w-3 h-3" /> {club.city}</p>}
+                      <p className="text-xs text-gray-400 mt-0.5">
+                        {club.courts.length} {club.courts.length > 1 ? t.games.courts : t.games.court} • {club.operating_hours.start} - {club.operating_hours.end}
+                      </p>
+                    </div>
+                    <ChevronRight className="w-5 h-5 text-gray-300 flex-shrink-0" />
                   </div>
-                  <ChevronRight className="w-5 h-5 text-gray-300 flex-shrink-0" />
                 </button>
               ))}
             </div>
@@ -7590,6 +7603,26 @@ function BookingScreen({
               {selectedClub.city && <p className="text-xs text-gray-500">{selectedClub.city}</p>}
             </div>
           </div>
+
+          {/* Club facility photos */}
+          {(selectedClub.photo_url_1 || selectedClub.photo_url_2) && (
+            <div className="flex gap-2 overflow-x-auto pb-1">
+              {selectedClub.photo_url_1 && (
+                <img
+                  src={selectedClub.photo_url_1}
+                  alt="Instalações"
+                  className="h-32 w-auto rounded-xl object-cover flex-shrink-0"
+                />
+              )}
+              {selectedClub.photo_url_2 && (
+                <img
+                  src={selectedClub.photo_url_2}
+                  alt="Instalações"
+                  className="h-32 w-auto rounded-xl object-cover flex-shrink-0"
+                />
+              )}
+            </div>
+          )}
 
           {/* Date picker */}
           <div>

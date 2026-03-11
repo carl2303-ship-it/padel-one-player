@@ -54,6 +54,8 @@ export interface ClubWithAvailability {
   id: string
   name: string
   logo_url: string | null
+  photo_url_1: string | null
+  photo_url_2: string | null
   city: string | null
   address: string | null
   courts: { id: string; name: string; hourly_rate: number; peak_rate: number }[]
@@ -314,7 +316,7 @@ export async function fetchClubsWithAvailability(): Promise<ClubWithAvailability
   // 1. Fetch all active clubs
   const { data: clubs, error: clubsError } = await supabase
     .from('clubs')
-    .select('id, owner_id, name, logo_url, city, address, payment_method')
+    .select('id, owner_id, name, logo_url, photo_url_1, photo_url_2, city, address, payment_method')
     .eq('is_active', true)
     .order('name')
 
@@ -490,6 +492,8 @@ export async function fetchClubsWithAvailability(): Promise<ClubWithAvailability
         id: club.id,
         name: club.name,
         logo_url: club.logo_url,
+        photo_url_1: (club as any).photo_url_1 || null,
+        photo_url_2: (club as any).photo_url_2 || null,
         city: club.city,
         address: club.address,
         courts: courts.map(c => ({
