@@ -670,12 +670,21 @@ export async function createOpenGame(params: {
       .eq('id', params.clubId)
       .single()
 
+    // Get the court name for the notification
+    const { data: courtData } = await supabase
+      .from('club_courts')
+      .select('name')
+      .eq('id', params.courtId)
+      .maybeSingle()
+
+    const courtName = courtData?.name || 'Campo'
+
     if (club) {
       const endTime = new Date(new Date(params.scheduledAt).getTime() + params.durationMinutes * 60000)
       const gameTypeLabel = params.gameType === 'competitive' ? 'Competitivo' : 'Amigável'
       const bookingName = resolvedName || (typeof window !== 'undefined' ? getTranslations().common.player : 'Jogador')
 
-      await supabase.from('court_bookings').insert({
+      const { data: bookingData } = await supabase.from('court_bookings').insert({
         user_id: club.owner_id,
         court_id: params.courtId,
         start_time: params.scheduledAt,
@@ -697,9 +706,33 @@ export async function createOpenGame(params: {
         payment_status: 'pending',
         event_type: 'open_game',
         notes: `Jogo Aberto (${gameTypeLabel}) - Criado pela app Player | ID: ${game.id}`
-      })
+      }).select('id').maybeSingle()
+
       // Sync player details + member check to the booking
       await syncBookingPlayers(game.id)
+
+      // === Notify Manager about the new booking ===
+      try {
+        const supabaseUrl = 'https://rqiwnxcexsccguruiteq.supabase.co'
+        const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJxaXdueGNleHNjY2d1cnVpdGVxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk3Njc5MzcsImV4cCI6MjA3NTM0MzkzN30.Dl05zPQDtPVpmvn_Y-JokT3wDq0Oh9uF3op5xcHZpkY'
+        await fetch(`${supabaseUrl}/functions/v1/notify-manager`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${supabaseAnonKey}`
+          },
+          body: JSON.stringify({
+            userId: club.owner_id,
+            type: 'booking_created',
+            bookingId: bookingData?.id || game.id,
+            courtName,
+            playerName: bookingName,
+            scheduledAt: params.scheduledAt
+          })
+        })
+      } catch (notifyErr) {
+        console.error('[OpenGames] Error notifying manager about booking:', notifyErr)
+      }
     }
   } catch (syncErr) {
     console.error('[OpenGames] Error syncing court booking:', syncErr)
