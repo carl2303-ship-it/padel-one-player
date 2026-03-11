@@ -2608,7 +2608,7 @@ function HomeScreen({
           <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
             <span>📅</span> {t.home.upcomingGames}
           </h2>
-          <button onClick={onOpenGames} className="text-red-600 text-sm font-medium flex items-center gap-1">
+          <button onClick={() => onOpenGames('upcoming')} className="text-red-600 text-sm font-medium flex items-center gap-1">
             {t.home.viewAll} <ChevronRight className="w-4 h-4" />
           </button>
         </div>
@@ -3006,7 +3006,7 @@ function HomeScreen({
             <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
               <span>📊</span> {t.home.recentResults}
             </h2>
-            <button onClick={onOpenGames} className="text-red-600 text-sm font-medium flex items-center gap-1">
+            <button onClick={() => onOpenGames('history')} className="text-red-600 text-sm font-medium flex items-center gap-1">
               {t.home.viewAll} <ChevronRight className="w-4 h-4" />
             </button>
           </div>
@@ -9007,7 +9007,7 @@ function ProfileViewScreen({
               <span>📅</span> Próximos Jogos
             </h2>
             {upcomingMatches.length > 3 && (
-              <button onClick={onOpenGames} className="text-red-600 text-sm font-medium flex items-center gap-1">
+              <button onClick={() => onOpenGames('upcoming')} className="text-red-600 text-sm font-medium flex items-center gap-1">
                 Ver todos <ChevronRight className="w-4 h-4" />
               </button>
             )}
