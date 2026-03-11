@@ -319,7 +319,11 @@ function App() {
 
       // Login via telefone - usa Edge Function como o Tour
       let normalizedPhone = phone.trim().replace(/\s+/g, '')
-      if (!normalizedPhone.startsWith('+')) {
+      
+      // Se começar só com + sem indicativo, adiciona +351
+      if (normalizedPhone === '+' || (normalizedPhone.startsWith('+') && normalizedPhone.length < 4)) {
+        normalizedPhone = '+351' + normalizedPhone.substring(1)
+      } else if (!normalizedPhone.startsWith('+')) {
         normalizedPhone = '+351' + normalizedPhone
       }
 
@@ -763,19 +767,19 @@ function App() {
         <div className="flex items-center justify-around py-2">
           <NavItem 
             icon={Home} 
-            label="Início" 
+            label={t.menu.home} 
             active={currentScreen === 'home'} 
             onClick={() => setCurrentScreen('home')} 
           />
           <NavItem 
             icon={Users} 
-            label="Comunidade" 
+            label={t.menu.community} 
             active={currentScreen === 'community'} 
             onClick={() => setCurrentScreen('community')} 
           />
           <NavItem 
             icon={User} 
-            label="Perfil" 
+            label={t.menu.profile} 
             active={currentScreen === 'profile-view'} 
             onClick={() => setCurrentScreen('profile-view')} 
           />
@@ -2447,8 +2451,12 @@ function HomeScreen({
   const [rewardData, setRewardData] = useState<{ totalPoints: number; tier: string } | null>(null)
   useEffect(() => {
     if (player?.id) {
-      import('./lib/openGames').then(({ fetchPlayerRewards }) => {
-        fetchPlayerRewards(player.id).then(data => setRewardData(data))
+      import('./lib/openGames').then(({ fetchPlayerRewards, retroactivelyAwardMissingRewards }) => {
+        // First, retroactively fix any missing rewards, then fetch updated data
+        retroactivelyAwardMissingRewards(player.id)
+          .then(() => fetchPlayerRewards(player.id))
+          .then(data => setRewardData(data))
+          .catch(err => console.error('[Rewards] Error loading rewards:', err))
       })
     }
   }, [player?.id])
@@ -3350,7 +3358,7 @@ function CommunityScreen({ userId, playerAccountId, playerAvatar, playerName, on
               {/* Sugestões de jogadores */}
               {suggestions.length > 0 && (
                 <div className="mb-5">
-                  <h3 className="text-sm font-semibold text-gray-700 mb-2 px-1">Jogadores sugeridos</h3>
+                  <h3 className="text-sm font-semibold text-gray-700 mb-2 px-1">{t.learn.suggestedPlayers}</h3>
                   <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
                     {suggestions.map((player, idx) => {
                       const lvl = categoryToLevel(player.player_category) ?? player.level
@@ -3996,11 +4004,11 @@ function CompeteScreen({
 
   const formatFormatName = (format: string) => {
     const formatMap: Record<string, string> = {
-      'round_robin': 'Round Robin',
-      'single_elimination': 'Eliminatória',
-      'groups_knockout': 'Grupos + Eliminatória',
-      'individual_groups_knockout': 'Individual - Grupos + Eliminatória',
-      'super_teams': 'Super Equipas',
+      'round_robin': t.common.tournamentFormatRoundRobin,
+      'single_elimination': t.common.tournamentFormatSingleElimination,
+      'groups_knockout': t.common.tournamentFormatGroupsKnockout,
+      'individual_groups_knockout': t.common.tournamentFormatIndividualGroupsKnockout,
+      'super_teams': 'Super Equipas', // TODO: traduzir
     }
     return formatMap[format] || format
   }
@@ -4017,7 +4025,7 @@ function CompeteScreen({
           onClick={() => { setSelectedTournamentDetail(null); setSelectedTournamentLoading(false) }}
           className="flex items-center gap-2 text-gray-600 hover:text-gray-900"
         >
-          <ArrowLeft className="w-5 h-5" /> Voltar
+          <ArrowLeft className="w-5 h-5" /> {t.common.back}
         </button>
 
         {selectedTournamentLoading ? (
@@ -4194,27 +4202,27 @@ function CompeteScreen({
   return (
     <div className="space-y-4 animate-fade-in">
       <button onClick={onBack} className="flex items-center gap-2 text-gray-600 hover:text-gray-900">
-        <ArrowLeft className="w-5 h-5" /> Voltar
+        <ArrowLeft className="w-5 h-5" /> {t.common.back}
       </button>
-      <h1 className="text-xl font-bold text-gray-900">Competir</h1>
-      <div className="flex gap-1 bg-gray-100 p-1 rounded-xl overflow-x-auto">
+      <h1 className="text-xl font-bold text-gray-900">{t.menu.compete}</h1>
+      <div className="flex gap-1 bg-gray-100 p-1 rounded-xl">
         <button
           onClick={() => setActiveTab('upcoming')}
           className={`flex-1 min-w-0 py-2 px-3 rounded-lg text-sm font-medium whitespace-nowrap ${activeTab === 'upcoming' ? 'bg-red-600 text-white' : 'text-gray-600'}`}
         >
-          Próximos
+          {t.home.tournaments}
         </button>
         <button
           onClick={() => setActiveTab('leagues')}
           className={`flex-1 min-w-0 py-2 px-3 rounded-lg text-sm font-medium whitespace-nowrap ${activeTab === 'leagues' ? 'bg-red-600 text-white' : 'text-gray-600'}`}
         >
-          Ligas
+          {t.games.leagues}
         </button>
         <button
           onClick={() => setActiveTab('history')}
           className={`flex-1 min-w-0 py-2 px-3 rounded-lg text-sm font-medium whitespace-nowrap ${activeTab === 'history' ? 'bg-red-600 text-white' : 'text-gray-600'}`}
         >
-          Histórico
+          {t.games.history}
         </button>
       </div>
 
@@ -4307,7 +4315,7 @@ function CompeteScreen({
                     <div>
                       <div className="flex items-center justify-between mb-3">
                         <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-                          <span>🎯</span> Torneios Disponíveis
+                          <span>🎯</span> {t.home.availableTournaments}
                         </h2>
                       </div>
                       <div className="space-y-4">
@@ -4907,13 +4915,13 @@ function FindGameScreen({
   const generateDates = () => {
     const dates: { label: string; value: number; dateStr: string }[] = []
     const now = new Date()
-    const dayNames = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
+    const dayNames = t.common.dayNamesShort
     for (let i = 0; i < 14; i++) {
       const d = new Date(now)
       d.setDate(d.getDate() + i)
       let label = ''
-      if (i === 0) label = 'Hoje'
-      else if (i === 1) label = 'Amanhã'
+      if (i === 0) label = t.common.today
+      else if (i === 1) label = t.common.tomorrow
       else label = `${dayNames[d.getDay()]} ${d.getDate()}/${(d.getMonth() + 1).toString().padStart(2, '0')}`
       dates.push({ label, value: i, dateStr: d.toISOString().split('T')[0] })
     }
@@ -5019,10 +5027,10 @@ function FindGameScreen({
       })
       setGames(data)
       if (result.status === 'pending') {
-        alert('Pedido enviado! Os jogadores terão que aceitar o teu pedido.')
+        alert(t.games.joinRequest)
       } else if (result.status === 'confirmed' && game.club_payment_method && game.club_payment_method !== 'at_club' && game.price_per_player > 0 && player?.id) {
         // Offer online payment after joining
-        const wantsToPay = confirm(`Entraste no jogo! Queres pagar ${game.price_per_player.toFixed(2)}€ online agora?`)
+        const wantsToPay = confirm(`${t.common.enteredGame} ${t.common.wantToPay} ${game.price_per_player.toFixed(2)}€ ${t.common.onlineNow}`)
         if (wantsToPay) {
           try {
             const { data: checkoutData, error: checkoutErr } = await supabase.functions.invoke('create-game-checkout', {
@@ -5107,8 +5115,8 @@ function FindGameScreen({
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
     const target = new Date(d.getFullYear(), d.getMonth(), d.getDate())
     const diffDays = Math.round((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
-    if (diffDays === 0) return 'Hoje'
-    if (diffDays === 1) return 'Amanhã'
+    if (diffDays === 0) return t.common.today
+    if (diffDays === 1) return t.common.tomorrow
     return `${d.getDate().toString().padStart(2, '0')}/${(d.getMonth() + 1).toString().padStart(2, '0')}`
   }
 
@@ -5211,7 +5219,7 @@ function FindGameScreen({
                     game.court_type === 'outdoor' ? 'bg-amber-100 text-amber-700' : 
                     'bg-gray-100 text-gray-600'
                   }`}>
-                    {game.court_type === 'indoor' ? 'Indoor' : game.court_type === 'outdoor' ? 'Outdoor' : 'Coberto'}
+                    {game.court_type === 'indoor' ? t.games.indoor : game.court_type === 'outdoor' ? t.games.outdoor : t.games.covered}
                   </span>
                 )}
               </span>
@@ -5269,7 +5277,7 @@ function FindGameScreen({
                         <Plus className={`w-6 h-6 ${isInGame ? 'text-indigo-400' : 'text-gray-400'}`} />
                       </div>
                       <span className={`text-[10px] font-medium mt-1 ${isInGame ? 'text-indigo-600' : 'text-blue-600'}`}>
-                        {isInGame ? 'Adicionar' : 'Livre'}
+                        {isInGame ? t.common.add : t.common.free}
                       </span>
                     </div>
                   )
@@ -5308,7 +5316,7 @@ function FindGameScreen({
                   )
                 } else {
                   return (
-                    <div key={`empty-${i}`} className="flex flex-col items-center">
+                    <div key={`empty-${position}`} className="flex flex-col items-center">
                       <div 
                         className={`w-14 h-14 rounded-full border-2 border-dashed flex items-center justify-center cursor-pointer transition-colors ${
                           isInGame 
@@ -5329,7 +5337,7 @@ function FindGameScreen({
                         <Plus className={`w-6 h-6 ${isInGame ? 'text-indigo-400' : 'text-gray-400'}`} />
                       </div>
                       <span className={`text-[10px] font-medium mt-1 ${isInGame ? 'text-indigo-600' : 'text-blue-600'}`}>
-                        {isInGame ? 'Adicionar' : 'Livre'}
+                        {isInGame ? t.common.add : t.common.free}
                       </span>
                     </div>
                   )
@@ -5353,7 +5361,7 @@ function FindGameScreen({
                   <div className="flex items-center gap-2">
                     <span className="text-lg">⏳</span>
                     <div className="flex-1">
-                      <p className="text-sm font-semibold text-amber-800">Pedido pendente</p>
+                      <p className="text-sm font-semibold text-amber-800">{t.common.pendingRequest}</p>
                       <p className="text-xs text-amber-600">{t.common.awaitingApproval}</p>
                     </div>
                   </div>
@@ -5366,8 +5374,8 @@ function FindGameScreen({
                   <div className="flex items-center gap-2">
                     <span className="text-lg">❌</span>
                     <div className="flex-1">
-                      <p className="text-sm font-semibold text-red-800">Pedido recusado</p>
-                      <p className="text-xs text-red-600">Os jogadores recusaram o teu pedido</p>
+                      <p className="text-sm font-semibold text-red-800">{t.common.rejectedRequest}</p>
+                      <p className="text-xs text-red-600">{t.common.playersRejectedRequest}</p>
                     </div>
                   </div>
                 </div>
@@ -5378,7 +5386,7 @@ function FindGameScreen({
                 <div className="mx-4 mb-2">
                   <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
                     <p className="text-xs font-semibold text-amber-800 mb-2 flex items-center gap-1">
-                      <span>📩</span> {pendingPlayers.length} pedido{pendingPlayers.length > 1 ? 's' : ''} de adesão
+                      <span>📩</span> {pendingPlayers.length} {pendingPlayers.length > 1 ? t.common.joinRequestsPlural : t.common.joinRequests} {t.common.ofJoin}
                     </p>
                     <div className="space-y-2">
                       {pendingPlayers.map(pp => {
@@ -5411,9 +5419,9 @@ function FindGameScreen({
                                   const result = await voteOnJoinRequest(pp.id, 'accept')
                                   if (result.success) {
                                     if (result.resolved && result.newStatus === 'confirmed') {
-                                      alert(`${pp.name} foi aceite no jogo!`)
+                                      alert(`${pp.name} ${t.common.acceptedInGame}`)
                                     } else if (!result.resolved) {
-                                      alert(`Voto registado (${result.votesCount}/${result.votesNeeded})`)
+                                      alert(`${t.common.voteRegistered} (${result.votesCount}/${result.votesNeeded})`)
                                     }
                                     // Refresh games
                                     const { fetchOpenGames } = await import('./lib/openGames')
@@ -5430,7 +5438,7 @@ function FindGameScreen({
                                 }}
                                 className="px-2.5 py-1.5 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors text-xs font-semibold"
                               >
-                                ✓ Aceitar
+                                ✓ {t.games.voteAccept}
                               </button>
                               <button
                                 onClick={async (e) => {
@@ -5439,7 +5447,7 @@ function FindGameScreen({
                                   const result = await voteOnJoinRequest(pp.id, 'reject')
                                   if (result.success) {
                                     if (result.resolved && result.newStatus === 'rejected') {
-                                      alert(`${pp.name} foi recusado`)
+                                      alert(`${pp.name} ${t.common.wasRejected}`)
                                     }
                                     // Refresh games
                                     const { fetchOpenGames } = await import('./lib/openGames')
@@ -5456,7 +5464,7 @@ function FindGameScreen({
                                 }}
                                 className="px-2.5 py-1.5 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors text-xs font-semibold"
                               >
-                                ✗ Recusar
+                                ✗ {t.games.voteReject}
                               </button>
                             </div>
                           </div>
@@ -5553,7 +5561,7 @@ function FindGameScreen({
                   : 'bg-blue-600 hover:bg-blue-700 text-white'
               }`}
             >
-              {isRequest ? '📩 Solicitar lugar' : '🎾 Entrar no jogo'}
+              {isRequest ? `📩 ${t.common.requestSpot}` : `🎾 ${t.common.joinGame}`}
             </button>
           </div>
         )}
@@ -5563,7 +5571,7 @@ function FindGameScreen({
             <button
               onClick={async () => {
                 if (!userId) return
-                if (!confirm('Tens a certeza que queres sair deste jogo?')) return
+                if (!confirm(t.common.sureLeaveGame)) return
                 const { leaveOpenGame } = await import('./lib/openGames')
                 const success = await leaveOpenGame(game.id, userId)
                 if (success) {
@@ -5606,7 +5614,7 @@ function FindGameScreen({
         <button onClick={onBack} className="p-1 -ml-1">
           <ChevronLeft className="w-6 h-6 text-gray-700" />
         </button>
-        <h1 className="text-2xl font-bold text-gray-900">Jogos</h1>
+        <h1 className="text-2xl font-bold text-gray-900">{t.games.title}</h1>
       </div>
 
       {/* Filter Bar */}
@@ -5617,7 +5625,7 @@ function FindGameScreen({
           onChange={(e) => setSelectedClubId(e.target.value)}
           className="flex-shrink-0 px-3 py-2 bg-gray-900 text-white rounded-full text-sm font-medium appearance-none cursor-pointer min-w-[100px]"
         >
-          <option value="">Clubes ({allClubs.length})</option>
+          <option value="">{t.common.club}s ({allClubs.length})</option>
           {allClubs.map(c => (
             <option key={c.id} value={c.id}>{c.name}</option>
           ))}
@@ -5640,9 +5648,9 @@ function FindGameScreen({
       {/* Period filter */}
       <div className="flex gap-2">
         {[
-          { value: 'all', label: 'Todo o dia', icon: '🕐' },
-          { value: 'morning', label: 'Manhã', icon: '🌅' },
-          { value: 'afternoon', label: 'Tarde', icon: '☀️' },
+          { value: 'all', label: t.common.allDay, icon: '🕐' },
+          { value: 'morning', label: t.common.morning, icon: '🌅' },
+          { value: 'afternoon', label: t.common.afternoon, icon: '☀️' },
           { value: 'night', label: t.common.evening, icon: '🌙' },
         ].map(p => (
           <button
@@ -5665,7 +5673,7 @@ function FindGameScreen({
             activeSection === 'existing' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'
           }`}
         >
-          🎾 Jogos ({existingGames.length})
+          🎾 {t.common.gamesTab} ({existingGames.length})
         </button>
         <button
           onClick={() => setActiveSection('request')}
@@ -5673,7 +5681,7 @@ function FindGameScreen({
             activeSection === 'request' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'
           }`}
         >
-          📩 Solicitar ({requestGames.length})
+          📩 {t.common.requestTab} ({requestGames.length})
         </button>
         <button
           onClick={() => setActiveSection('create')}
@@ -5681,7 +5689,7 @@ function FindGameScreen({
             activeSection === 'create' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'
           }`}
         >
-          ➕ Criar
+          ➕ {t.common.createTab}
         </button>
         <button
           onClick={async () => {
@@ -5698,7 +5706,7 @@ function FindGameScreen({
             activeSection === 'results' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'
           }`}
         >
-          📊 Resultados
+          📊 {t.common.resultsTab}
         </button>
       </div>
 
@@ -5706,8 +5714,8 @@ function FindGameScreen({
       {activeSection === 'existing' && (
         <div className="space-y-3">
           <div>
-            <h2 className="text-lg font-bold text-gray-900">Jogos existentes</h2>
-            <p className="text-xs text-gray-500">Estes jogos refletem exatamente a sua pesquisa e o seu nível</p>
+            <h2 className="text-lg font-bold text-gray-900">{t.games.existingGames}</h2>
+            <p className="text-xs text-gray-500">{t.games.existingGamesDesc}</p>
           </div>
           
           {loading ? (
@@ -5722,13 +5730,13 @@ function FindGameScreen({
           ) : (
             <div className="card p-8 text-center">
               <span className="text-4xl block mb-3">🎾</span>
-              <p className="font-semibold text-gray-700 mb-1">Sem jogos disponíveis</p>
-              <p className="text-sm text-gray-500 mb-4">Não há jogos disponíveis para o teu nível neste momento</p>
+              <p className="font-semibold text-gray-700 mb-1">{t.games.noGames}</p>
+              <p className="text-sm text-gray-500 mb-4">{t.games.noGamesForLevel}</p>
               <button
                 onClick={() => setActiveSection('create')}
                 className="px-6 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 transition-colors"
               >
-                ➕ Criar um jogo
+                ➕ {t.games.createAGame}
               </button>
             </div>
           )}
@@ -5739,8 +5747,8 @@ function FindGameScreen({
       {activeSection === 'request' && (
         <div className="space-y-3">
           <div>
-            <h2 className="text-lg font-bold text-gray-900">Solicite o seu lugar</h2>
-            <p className="text-xs text-gray-500">Estes jogos estão fora do seu nível. Necessita solicitar um lugar para se juntar.</p>
+            <h2 className="text-lg font-bold text-gray-900">{t.games.requestSpot}</h2>
+            <p className="text-xs text-gray-500">{t.games.requestSpotDesc}</p>
           </div>
           
           {loading ? (
@@ -5754,8 +5762,8 @@ function FindGameScreen({
           ) : (
             <div className="card p-8 text-center">
               <span className="text-4xl block mb-3">📩</span>
-              <p className="font-semibold text-gray-700 mb-1">Sem jogos fora do seu nível</p>
-              <p className="text-sm text-gray-500">Todos os jogos disponíveis são adequados ao seu nível</p>
+              <p className="font-semibold text-gray-700 mb-1">{t.games.noGamesOutOfLevel}</p>
+              <p className="text-sm text-gray-500">{t.games.allGamesSuitable}</p>
             </div>
           )}
         </div>
@@ -5765,8 +5773,8 @@ function FindGameScreen({
       {activeSection === 'create' && (
         <div className="space-y-3">
           <div>
-            <h2 className="text-lg font-bold text-gray-900">Crie um jogo</h2>
-            <p className="text-xs text-gray-500">Selecione a hora para criar um jogo</p>
+            <h2 className="text-lg font-bold text-gray-900">{t.games.createGameSection}</h2>
+            <p className="text-xs text-gray-500">{t.games.createGameSectionDesc}</p>
           </div>
 
           {loadingClubs ? (
@@ -6248,7 +6256,7 @@ function FindGameScreen({
           <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-fade-in">
             {/* Header */}
             <div className="p-4 border-b border-gray-100 flex items-center justify-between">
-              <h3 className="font-bold text-lg text-gray-900">Criar jogo</h3>
+              <h3 className="font-bold text-lg text-gray-900">{t.games.createGame}</h3>
               <button onClick={() => setCreateModal(null)} className="p-1">
                 <X className="w-5 h-5 text-gray-500" />
               </button>
@@ -6354,7 +6362,7 @@ function FindGameScreen({
                     { value: 'all' as const, label: 'Todos' },
                     { value: 'male' as const, label: 'Apenas Masculino' },
                     { value: 'female' as const, label: 'Apenas Feminino' },
-                    { value: 'mixed' as const, label: 'Mistos' },
+                    { value: 'mixed' as const, label: t.learn.mixedPlural },
                   ].map(g => (
                     <button
                       key={g.value}
@@ -6396,7 +6404,7 @@ function FindGameScreen({
                 disabled={creating}
                 className="w-full py-3 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700 transition-colors disabled:opacity-50"
               >
-                {creating ? 'A criar...' : '🎾 Criar jogo'}
+                {creating ? t.booking.creating : `🎾 ${t.games.createGame}`}
               </button>
             </div>
           </div>
@@ -6518,6 +6526,7 @@ function LearnScreen({
   onOpenPlayerProfile: (userId: string) => void
   onOpenClub: (clubId: string) => void
 }) {
+  const { t } = useI18n()
   const [activeTab, setActiveTab] = useState<'inscrever' | 'minhas-aulas'>('inscrever')
   const [availableClasses, setAvailableClasses] = useState<ClassData[]>([])
   const [myClasses, setMyClasses] = useState<ClassData[]>([])
@@ -6572,7 +6581,7 @@ function LearnScreen({
 
   const handleEnroll = async (classId: string) => {
     if (!userId) {
-      alert('Precisa de estar autenticado para se inscrever')
+      alert(t.learn.needAuth)
       return
     }
 
@@ -6580,18 +6589,18 @@ function LearnScreen({
     try {
       const success = await enrollInClass(classId, userId, playerAccountId)
       if (success) {
-        alert('Inscrição realizada com sucesso!')
+        alert(t.learn.enrollSuccess)
         // Recarregar aulas em ambas as tabs para garantir que todos veem a atualização
         await loadAvailableClasses()
         if (userId) {
           await loadMyClasses()
         }
       } else {
-        alert('Erro ao inscrever-se. Pode já estar inscrito ou a aula estar cheia.')
+        alert(t.learn.enrollError)
       }
     } catch (error) {
       console.error('[LearnScreen] Error enrolling:', error)
-      alert('Erro ao inscrever-se')
+      alert(t.learn.enrollErrorGeneric)
     } finally {
       setEnrollingClassId(null)
     }
@@ -6599,15 +6608,15 @@ function LearnScreen({
 
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr)
-    const days = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado']
-    const months = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro']
+    const days = t.common.dayNamesFull
+    const months = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'] // TODO: traduzir meses
     return `${days[date.getDay()]}, ${date.getDate()} de ${months[date.getMonth()]}`
   }
 
   const formatDateShort = (dateStr: string) => {
     const date = new Date(dateStr)
-    const days = ['DOMINGO', 'SEGUNDA-FEIRA', 'TERÇA-FEIRA', 'QUARTA-FEIRA', 'QUINTA-FEIRA', 'SEXTA-FEIRA', 'SÁBADO']
-    const months = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro']
+    const days = t.common.dayNamesFull.map(d => d.toUpperCase())
+    const months = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'] // TODO: traduzir meses
     return `${days[date.getDay()]}, ${date.getDate()} de ${months[date.getMonth()]}`
   }
 
@@ -6623,9 +6632,9 @@ function LearnScreen({
   }
 
   const getGenderLabel = (gender: ClassGender) => {
-    if (gender === 'M') return 'Masculino'
-    if (gender === 'F') return 'Feminino'
-    return 'Misto'
+    if (gender === 'M') return t.games.male
+    if (gender === 'F') return t.games.female
+    return t.learn.mixed
   }
 
   return (
@@ -6635,7 +6644,7 @@ function LearnScreen({
         <button onClick={onBack} className="p-2 -ml-2">
           <ArrowLeft className="w-5 h-5 text-gray-600" />
         </button>
-        <h1 className="text-2xl font-bold text-gray-900">Aulas</h1>
+        <h1 className="text-2xl font-bold text-gray-900">{t.learn.title}</h1>
       </div>
 
       {/* Tabs */}
@@ -6648,7 +6657,7 @@ function LearnScreen({
               : 'text-gray-500'
           }`}
         >
-          Inscrever-se
+          {t.common.enrollMe}
         </button>
         <button
           onClick={() => setActiveTab('minhas-aulas')}
@@ -6658,14 +6667,14 @@ function LearnScreen({
               : 'text-gray-500'
           }`}
         >
-          As Minhas Aulas
+          {t.learn.myClasses}
         </button>
       </div>
 
       {/* Content */}
       {loading ? (
         <div className="flex items-center justify-center py-12">
-          <div className="text-gray-500">A carregar...</div>
+          <div className="text-gray-500">{t.common.loading}</div>
         </div>
       ) : (
         <>
@@ -6673,7 +6682,7 @@ function LearnScreen({
             <div className="space-y-4">
               {availableClasses.length === 0 ? (
                 <div className="text-center py-12 text-gray-500">
-                  Não há aulas disponíveis no momento
+                  {t.learn.noClassesAvailable}
                 </div>
               ) : (
                 availableClasses.map((classItem) => (
@@ -6700,7 +6709,7 @@ function LearnScreen({
             <div className="space-y-4">
               {myClasses.length === 0 ? (
                 <div className="text-center py-12 text-gray-500">
-                  Ainda não te inscreveste em nenhuma aula
+                  {t.learn.noClassesEnrolled}
                 </div>
               ) : (
                 myClasses.map((classItem) => (
@@ -6761,6 +6770,7 @@ function ClassDetailsModal({
   onOpenPlayerProfile?: (userId: string) => void
   onOpenClub?: (clubId: string) => void
 }) {
+  const { t } = useI18n()
   const { scheduled_at, title, professor, professor_phone, professor_avatar, club, club_id, level, gender, maxPlayers, participants, price, court_name, notes, club_address, club_city, club_phone, club_email, club_website } = classItem
   const timeStr = formatTime(scheduled_at)
   const filledSlots = participants.length
@@ -6770,7 +6780,7 @@ function ClassDetailsModal({
     <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4 animate-fade-in" onClick={onClose}>
       <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto animate-scale-in" onClick={(e) => e.stopPropagation()}>
         <div className="sticky top-0 bg-white border-b border-gray-200 p-4 flex items-center justify-between z-10">
-          <h2 className="text-xl font-bold text-gray-900">Detalhes da Aula</h2>
+          <h2 className="text-xl font-bold text-gray-900">{t.learn.classDetails}</h2>
           <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
             <X className="w-5 h-5 text-gray-600" />
           </button>
@@ -6788,7 +6798,7 @@ function ClassDetailsModal({
                 {formatDate(scheduled_at)} às {timeStr}
               </p>
               {court_name && (
-                <p className="text-sm text-gray-600">Campo: {court_name}</p>
+                <p className="text-sm text-gray-600">{t.common.court}: {court_name}</p>
               )}
             </div>
           </div>
@@ -6840,7 +6850,7 @@ function ClassDetailsModal({
 
             <div className="flex items-center gap-3 text-sm">
               <TrendingUp className="w-5 h-5 text-gray-400" />
-              <span className="text-gray-700">Nível: <span className="font-medium">{level || 'Todos os níveis'}</span></span>
+              <span className="text-gray-700">{t.home.level}: <span className="font-medium">{level || (t.language === 'pt' ? 'Todos os níveis' : t.language === 'en' ? 'All levels' : t.language === 'es' ? 'Todos los niveles' : 'Tous les niveaux')}</span></span>
             </div>
 
             <div className="flex items-center gap-3 text-sm">
@@ -6873,10 +6883,10 @@ function ClassDetailsModal({
                       {professor.charAt(0).toUpperCase()}
                     </div>
                   )}
-                  <span className="text-red-600 hover:text-red-700 hover:underline font-medium">Prof. {professor}</span>
+                  <span className="text-red-600 hover:text-red-700 hover:underline font-medium">Prof. {professor === 'Sem professor' ? t.common.noProfessor : professor}</span>
                 </button>
               ) : (
-                <span className="text-gray-700">Prof. {professor}</span>
+                <span className="text-gray-700">Prof. {professor === 'Sem professor' ? t.common.noProfessor : professor}</span>
               )}
             </div>
 
@@ -7003,7 +7013,7 @@ function ClassCard({
           </div>
           <div className="text-center mt-2">
             <p className="text-xs font-semibold text-gray-700">Padel</p>
-            <p className="text-xs text-gray-500">Aula</p>
+            <p className="text-xs text-gray-500">{t.learn.class}</p>
           </div>
         </div>
 
@@ -7034,7 +7044,7 @@ function ClassCard({
             </div>
             <div className="flex items-center gap-2 text-sm text-gray-600">
               <TrendingUp className="w-4 h-4 text-gray-400" />
-              <span className="font-medium">Nível: {level || 'Todos os níveis'}</span>
+              <span className="font-medium">{t.home.level}: {level || (t.language === 'pt' ? 'Todos os níveis' : t.language === 'en' ? 'All levels' : t.language === 'es' ? 'Todos los niveles' : 'Tous les niveaux')}</span>
             </div>
             <div className="flex items-center gap-2 text-sm text-gray-600">
               <Users className="w-4 h-4 text-gray-400" />
@@ -7067,7 +7077,7 @@ function ClassCard({
                   <span className="text-red-600 hover:text-red-700 hover:underline font-medium">Prof. {professor}</span>
                 </button>
               ) : (
-                <span>Prof. {professor}</span>
+                <span>Prof. {professor === 'Sem professor' ? t.common.noProfessor : professor}</span>
               )}
             </div>
           </div>
@@ -7217,7 +7227,7 @@ function BookingScreen({
       setPlayers([{
         slot: 1,
         id: player.id,
-        name: player.name || 'Eu',
+        name: player.name || t.common.me,
         avatar_url: player.avatar_url || null,
         level: player.level || null,
         player_category: player.player_category || null,
@@ -7239,15 +7249,38 @@ function BookingScreen({
 
   // Format date for display
   const formatDateLabel = (dateStr: string) => {
-    const now = new Date()
-    const d = new Date(dateStr + 'T12:00:00')
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-    const target = new Date(d.getFullYear(), d.getMonth(), d.getDate())
-    const diffDays = Math.round((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
-    const dayNames = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
-    if (diffDays === 0) return 'Hoje'
-    if (diffDays === 1) return 'Amanhã'
-    return `${dayNames[d.getDay()]} ${d.getDate()}/${(d.getMonth() + 1).toString().padStart(2, '0')}`
+    if (!dateStr) return ''
+    
+    try {
+      const now = new Date()
+      const d = new Date(dateStr + 'T12:00:00')
+      
+      // Verificar se a data é válida
+      if (isNaN(d.getTime())) {
+        return dateStr // Retornar a string original se a data for inválida
+      }
+      
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+      const target = new Date(d.getFullYear(), d.getMonth(), d.getDate())
+      const diffDays = Math.round((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
+      
+      if (diffDays === 0) return t.common.today || 'Hoje'
+      if (diffDays === 1) return t.common.tomorrow || 'Amanhã'
+      
+      // Usar fallback se dayNamesShort não existir
+      const dayNames = t.common.dayNamesShort || ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
+      const dayIndex = d.getDay()
+      
+      // Verificar se o índice é válido
+      if (dayIndex < 0 || dayIndex >= dayNames.length) {
+        return `${d.getDate()}/${(d.getMonth() + 1).toString().padStart(2, '0')}`
+      }
+      
+      return `${dayNames[dayIndex]} ${d.getDate()}/${(d.getMonth() + 1).toString().padStart(2, '0')}`
+    } catch (error) {
+      console.error('Error formatting date:', error, dateStr)
+      return dateStr // Retornar a string original em caso de erro
+    }
   }
 
   // Search players
@@ -7362,7 +7395,7 @@ function BookingScreen({
         if (onRefresh) onRefresh()
       } else {
         setCreating(false)
-        alert(result.error || 'Erro ao criar jogo')
+        alert(result.error || t.games.createError)
       }
     } else {
       // Private booking: create via open_game with isPrivate flag
@@ -7411,7 +7444,7 @@ function BookingScreen({
         // Update the court_booking notes to indicate private
         await supabase
           .from('court_bookings')
-          .update({ notes: `Reserva Privada - Criada pela app Player | ID: ${result.gameId}` })
+          .update({ notes: `${t.common.privateBookingNote} | ID: ${result.gameId}` })
           .like('notes', `%ID: ${result.gameId}%`)
           .eq('event_type', 'open_game')
 
@@ -7420,7 +7453,7 @@ function BookingScreen({
         if (onRefresh) onRefresh()
       } else {
         setCreating(false)
-        alert(result.error || 'Erro ao criar reserva')
+        alert(result.error || t.booking.bookingError)
       }
     }
   }
@@ -7479,7 +7512,7 @@ function BookingScreen({
         <button onClick={step === 1 ? onBack : () => setStep(prev => Math.max(1, prev - 1) as any)} className="p-1 -ml-1">
           <ChevronLeft className="w-6 h-6 text-gray-700" />
         </button>
-        <h1 className="text-2xl font-bold text-gray-900">Reservar</h1>
+        <h1 className="text-2xl font-bold text-gray-900">{t.booking.title}</h1>
       </div>
 
       {/* Progress bar */}
@@ -7495,13 +7528,13 @@ function BookingScreen({
       {step === 1 && (
         <div className="space-y-3">
           <div>
-            <h2 className="text-lg font-bold text-gray-900">Escolhe o clube</h2>
-            <p className="text-xs text-gray-500">Seleciona o clube onde queres jogar</p>
+            <h2 className="text-lg font-bold text-gray-900">{t.common.chooseClub}</h2>
+            <p className="text-xs text-gray-500">{t.common.selectClubWherePlay}</p>
           </div>
           {loadingClubs ? (
             <div className="text-center py-10">
               <div className="animate-spin w-8 h-8 border-2 border-lime-600 border-t-transparent rounded-full mx-auto mb-3" />
-              <p className="text-sm text-gray-500">A carregar clubes...</p>
+              <p className="text-sm text-gray-500">{t.common.loadingClubs}</p>
             </div>
           ) : clubs.length > 0 ? (
             <div className="space-y-3">
@@ -7534,8 +7567,8 @@ function BookingScreen({
           ) : (
             <div className="card p-8 text-center">
               <span className="text-4xl block mb-3">🏟️</span>
-              <p className="font-semibold text-gray-700 mb-1">Sem clubes disponíveis</p>
-              <p className="text-sm text-gray-500">Nenhum clube com disponibilidade neste momento</p>
+              <p className="font-semibold text-gray-700 mb-1">{t.common.noClubsAvailable}</p>
+              <p className="text-sm text-gray-500">{t.common.noClubsAvailability}</p>
             </div>
           )}
         </div>
@@ -7560,7 +7593,7 @@ function BookingScreen({
 
           {/* Date picker */}
           <div>
-            <label className="text-sm font-semibold text-gray-700 mb-2 block">📅 Data</label>
+            <label className="text-sm font-semibold text-gray-700 mb-2 block">📅 {t.common.date}</label>
             <div className="flex gap-2 overflow-x-auto pb-2 -mx-1 px-1 snap-x">
               {availableDates.map(d => (
                 <button
@@ -7579,7 +7612,7 @@ function BookingScreen({
           {/* Time picker */}
           {selectedDate && (
             <div>
-              <label className="text-sm font-semibold text-gray-700 mb-2 block">🕐 Hora</label>
+              <label className="text-sm font-semibold text-gray-700 mb-2 block">🕐 {t.common.time}</label>
               {availableSlots.length > 0 ? (
                 <div className="flex gap-2 flex-wrap">
                   {availableSlots.map(slot => (
@@ -7599,7 +7632,7 @@ function BookingScreen({
                   ))}
                 </div>
               ) : (
-                <p className="text-sm text-gray-400 text-center py-4">Sem horários disponíveis para esta data</p>
+                <p className="text-sm text-gray-400 text-center py-4">{t.common.noTimeSlotsAvailable}</p>
               )}
             </div>
           )}
@@ -7607,10 +7640,10 @@ function BookingScreen({
           {/* Court picker */}
           {selectedTime && availableCourts.length > 1 && (
             <div>
-              <label className="text-sm font-semibold text-gray-700 mb-2 block">🏟️ Campo</label>
+              <label className="text-sm font-semibold text-gray-700 mb-2 block">🏟️ {t.common.court}</label>
               <div className="flex gap-2 flex-wrap">
                 {availableCourts.map(court => {
-                  const typeLabel = court.court_type === 'indoor' ? '🏠 Indoor' : court.court_type === 'outdoor' ? '☀️ Outdoor' : court.court_type === 'covered' ? '🏗️ Coberto' : ''
+                  const typeLabel = court.court_type === 'indoor' ? `🏠 ${t.games.indoor}` : court.court_type === 'outdoor' ? `☀️ ${t.games.outdoor}` : court.court_type === 'covered' ? `🏗️ ${t.games.covered}` : ''
                   return (
                     <button
                       key={court.court_id}
@@ -7639,7 +7672,7 @@ function BookingScreen({
                 {selectedCourt.court_name}
                 {selectedCourt.court_type && (
                   <span className="ml-2 text-xs font-normal text-indigo-500">
-                    {selectedCourt.court_type === 'indoor' ? '🏠 Indoor' : selectedCourt.court_type === 'outdoor' ? '☀️ Outdoor' : '🏗️ Coberto'}
+                    {selectedCourt.court_type === 'indoor' ? `🏠 ${t.games.indoor}` : selectedCourt.court_type === 'outdoor' ? `☀️ ${t.games.outdoor}` : `🏗️ ${t.games.covered}`}
                   </span>
                 )}
               </span>
@@ -7652,7 +7685,7 @@ function BookingScreen({
               onClick={() => setStep(3)}
               className="w-full py-3 bg-lime-600 text-white rounded-xl font-bold text-sm hover:bg-lime-700 transition-colors"
             >
-              Continuar →
+              {t.common.continue} →
             </button>
           )}
         </div>
@@ -7669,7 +7702,7 @@ function BookingScreen({
 
           {/* Public / Private */}
           <div>
-            <label className="text-sm font-semibold text-gray-700 mb-2 block">Tipo de reserva</label>
+            <label className="text-sm font-semibold text-gray-700 mb-2 block">{t.common.bookingType}</label>
             <div className="flex gap-2">
               <button
                 onClick={() => setIsPublic(false)}
@@ -7678,7 +7711,7 @@ function BookingScreen({
                 }`}
               >
                 <Lock className="w-4 h-4 inline-block mr-1.5 -mt-0.5" />
-                Privado
+                {t.common.private}
               </button>
               <button
                 onClick={() => setIsPublic(true)}
@@ -7687,19 +7720,19 @@ function BookingScreen({
                 }`}
               >
                 <Globe className="w-4 h-4 inline-block mr-1.5 -mt-0.5" />
-                Público
+                {t.common.public}
               </button>
             </div>
             <p className="text-xs text-gray-400 mt-1.5">
               {isPublic
-                ? '🌍 Qualquer jogador pode encontrar e pedir para entrar neste jogo'
-                : '🔒 Apenas jogadores que tu adicionares poderão jogar'}
+                ? t.common.publicDesc
+                : t.common.privateDesc}
             </p>
           </div>
 
           {/* Duration */}
           <div>
-            <label className="text-sm font-semibold text-gray-700 mb-2 block">⏱️ Duração</label>
+            <label className="text-sm font-semibold text-gray-700 mb-2 block">⏱️ {t.common.duration}</label>
             <div className="flex gap-2">
               {(selectedCourt.durations || [90]).map(d => (
                 <button
@@ -7717,7 +7750,7 @@ function BookingScreen({
 
           {/* Game Type */}
           <div>
-            <label className="text-sm font-semibold text-gray-700 mb-2 block">🎯 Tipo de jogo</label>
+            <label className="text-sm font-semibold text-gray-700 mb-2 block">🎯 {t.common.gameType}</label>
             <div className="flex gap-2">
               <button
                 onClick={() => setGameType('friendly')}
@@ -7740,13 +7773,13 @@ function BookingScreen({
 
           {/* Gender */}
           <div>
-            <label className="text-sm font-semibold text-gray-700 mb-2 block">👤 Género</label>
+            <label className="text-sm font-semibold text-gray-700 mb-2 block">👤 {t.booking.gender}</label>
             <div className="grid grid-cols-2 gap-2">
               {[
-                { value: 'all' as const, label: 'Todos', icon: '👥' },
-                { value: 'male' as const, label: 'Masculino', icon: '♂️' },
-                { value: 'female' as const, label: 'Feminino', icon: '♀️' },
-                { value: 'mixed' as const, label: 'Misto', icon: '⚥' },
+                { value: 'all' as const, label: t.common.all, icon: '👥' },
+                { value: 'male' as const, label: t.games.male, icon: '♂️' },
+                { value: 'female' as const, label: t.games.female, icon: '♀️' },
+                { value: 'mixed' as const, label: t.learn.mixed, icon: '⚥' },
               ].map(g => (
                 <button
                   key={g.value}
@@ -7797,11 +7830,11 @@ function BookingScreen({
 
           {/* Teams layout */}
           <div>
-            <label className="text-sm font-semibold text-gray-700 mb-3 block">🎾 Equipas</label>
+            <label className="text-sm font-semibold text-gray-700 mb-3 block">🎾 {t.common.teams}</label>
             <div className="flex items-start gap-4">
               {/* Team A */}
               <div className="flex-1">
-                <p className="text-center text-xs font-bold text-gray-400 mb-2">EQUIPA A</p>
+                <p className="text-center text-xs font-bold text-gray-400 mb-2">{t.common.teamA}</p>
                 <div className="flex gap-3 justify-center">
                   {renderSlot(1, 'A')}
                   {renderSlot(2, 'A')}
@@ -7815,7 +7848,7 @@ function BookingScreen({
               </div>
               {/* Team B */}
               <div className="flex-1">
-                <p className="text-center text-xs font-bold text-gray-400 mb-2">EQUIPA B</p>
+                <p className="text-center text-xs font-bold text-gray-400 mb-2">{t.common.teamB}</p>
                 <div className="flex gap-3 justify-center">
                   {renderSlot(3, 'B')}
                   {renderSlot(4, 'B')}
@@ -7827,7 +7860,7 @@ function BookingScreen({
           {/* Swap buttons */}
           {players.length >= 2 && (
             <div className="text-center">
-              <p className="text-xs text-gray-400 mb-2">Trocar jogadores entre equipas</p>
+              <p className="text-xs text-gray-400 mb-2">{t.common.swapPlayersBetweenTeams}</p>
               <div className="flex gap-2 justify-center flex-wrap">
                 {players.length >= 2 && players.some(p => p.slot <= 2) && players.some(p => p.slot >= 3) && (
                   <button
@@ -7841,7 +7874,7 @@ function BookingScreen({
                     }}
                     className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg text-xs font-medium text-gray-600 transition-colors"
                   >
-                    🔄 Trocar
+                    🔄 {t.common.swap}
                   </button>
                 )}
               </div>
@@ -7852,7 +7885,7 @@ function BookingScreen({
           {selectedSlot != null && (
             <div className="border border-indigo-200 rounded-2xl overflow-hidden bg-white shadow-sm">
               <div className="p-3 bg-indigo-50 border-b border-indigo-100 flex items-center justify-between">
-                <p className="text-sm font-semibold text-indigo-800">Adicionar jogador (posição {selectedSlot})</p>
+                <p className="text-sm font-semibold text-indigo-800">{t.common.addPlayerPosition} {selectedSlot})</p>
                 <button onClick={() => setSelectedSlot(null)} className="p-1 hover:bg-indigo-100 rounded-full">
                   <X className="w-4 h-4 text-indigo-500" />
                 </button>
@@ -7862,16 +7895,16 @@ function BookingScreen({
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                   <input
                     type="text"
-                    placeholder="Pesquisar por nome..."
+                    placeholder={t.common.searchByName}
                     value={searchQuery}
                     onChange={(e) => handleSearch(e.target.value)}
                     className="w-full pl-10 pr-4 py-2.5 bg-gray-100 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300"
                     autoFocus
                   />
                 </div>
-                {searching && <p className="text-center text-sm text-gray-400 py-3">A pesquisar...</p>}
+                {searching && <p className="text-center text-sm text-gray-400 py-3">{t.common.searching}</p>}
                 {!searching && searchQuery.length >= 2 && searchResults.length === 0 && (
-                  <p className="text-center text-sm text-gray-400 py-3">Nenhum jogador encontrado</p>
+                  <p className="text-center text-sm text-gray-400 py-3">{t.common.noPlayersFound}</p>
                 )}
                 {searchResults.length > 0 && (
                   <div className="max-h-48 overflow-y-auto space-y-1">
@@ -7919,12 +7952,12 @@ function BookingScreen({
             </div>
             {paymentChoice === 'full_court' ? (
               <div className="flex items-center justify-between border-t border-green-200 pt-2">
-                <span className="text-sm font-semibold text-gray-700">Total (campo inteiro)</span>
+                <span className="text-sm font-semibold text-gray-700">{t.common.total} ({t.games.fullCourt})</span>
                 <span className="font-bold text-green-700 text-lg">{(pricePerPlayer * 4).toFixed(2)}€</span>
               </div>
             ) : (
               <div className="flex items-center justify-between border-t border-green-200 pt-2">
-                <span className="text-sm font-semibold text-gray-700">Total ({players.length} jogador{players.length > 1 ? 'es' : ''})</span>
+                <span className="text-sm font-semibold text-gray-700">{t.common.total} ({players.length} {players.length > 1 ? t.common.players : t.common.player})</span>
                 <span className="font-bold text-green-700 text-lg">{(pricePerPlayer * players.length).toFixed(2)}€</span>
               </div>
             )}
@@ -7933,7 +7966,7 @@ function BookingScreen({
           {/* Payment method selection */}
           {pricePerPlayer > 0 && paymentOptions.length > 0 && (
             <div className="space-y-2">
-              <label className="text-sm font-semibold text-gray-700 block">💳 Como queres pagar?</label>
+              <label className="text-sm font-semibold text-gray-700 block">💳 {t.booking.paymentMethod}</label>
               <div className="space-y-2">
                 {paymentOptions.map(opt => (
                   <button
@@ -7979,9 +8012,9 @@ function BookingScreen({
                 A criar...
               </span>
             ) : paymentChoice !== 'at_club' && pricePerPlayer > 0 ? (
-              `💳 Criar e pagar ${paymentChoice === 'full_court' ? (pricePerPlayer * 4).toFixed(2) : pricePerPlayer.toFixed(2)}€`
+              `💳 ${t.booking.createAndPay} ${paymentChoice === 'full_court' ? (pricePerPlayer * 4).toFixed(2) : pricePerPlayer.toFixed(2)}€`
             ) : (
-              isPublic ? '🎾 Criar jogo público' : '📅 Confirmar reserva'
+              isPublic ? `🎾 ${t.booking.createPublic}` : `📅 ${t.booking.createPrivate}`
             )}
           </button>
         </div>
@@ -7995,12 +8028,12 @@ function BookingScreen({
           </div>
           <div>
             <h2 className="text-xl font-bold text-gray-900 mb-2">
-              {isPublic ? 'Jogo criado!' : 'Reserva confirmada!'}
+              {isPublic ? t.booking.gameCreated : t.booking.bookingConfirmed}
             </h2>
             <p className="text-sm text-gray-500">
               {isPublic
-                ? 'O teu jogo está visível para outros jogadores. Boa partida! 🎾'
-                : 'A tua reserva foi registada no calendário do clube. Boa partida! 🎾'}
+                ? t.booking.gameCreatedMessage
+                : t.booking.bookingConfirmedMessage}
             </p>
           </div>
 
@@ -8035,7 +8068,7 @@ function BookingScreen({
             onClick={onBack}
             className="px-8 py-3 bg-lime-600 text-white rounded-xl font-bold text-sm hover:bg-lime-700 transition-colors"
           >
-            Voltar ao início
+            {t.common.back} {t.menu.home.toLowerCase()}
           </button>
         </div>
       )}
@@ -8082,7 +8115,7 @@ function GamesScreen({
 
   return (
     <div className="space-y-4 animate-fade-in">
-      <h1 className="text-2xl font-bold text-gray-900">Jogos</h1>
+      <h1 className="text-2xl font-bold text-gray-900">{t.games.title}</h1>
 
       <div className="flex gap-2 bg-gray-100 p-1 rounded-xl">
         <button
@@ -8091,7 +8124,7 @@ function GamesScreen({
             activeTab === 'upcoming' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'
           }`}
         >
-          Próximos
+          {t.games.upcoming}
         </button>
         <button
           onClick={() => setActiveTab('history')}
@@ -8099,7 +8132,7 @@ function GamesScreen({
             activeTab === 'history' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'
           }`}
         >
-          Histórico
+          {t.games.history}
         </button>
       </div>
 
@@ -8621,7 +8654,7 @@ function OtherPlayerProfileScreen({
       <div>
         <h2 className="text-lg font-bold text-gray-900 mb-3 flex items-center gap-2">
           <Users className="w-5 h-5 text-red-600" />
-          Jogadores com quem mais joga
+          {t.learn.playersYouPlayWith}
         </h2>
         {profile.topPlayers.length > 0 ? (
           <div className="overflow-x-auto pb-2 -mx-4 px-4 sm:mx-0 sm:px-0 snap-x snap-mandatory scroll-smooth">
@@ -8650,7 +8683,7 @@ function OtherPlayerProfileScreen({
           </div>
         ) : (
           <div className="card p-4 text-center">
-            <p className="text-sm text-gray-500">Sem dados de parceiros de jogo</p>
+            <p className="text-sm text-gray-500">{t.common.noGameData}</p>
           </div>
         )}
       </div>
@@ -8660,7 +8693,7 @@ function OtherPlayerProfileScreen({
         <div>
           <h2 className="text-lg font-bold text-gray-900 mb-3 flex items-center gap-2">
             <Building2 className="w-5 h-5 text-red-600" />
-            Clube favorito
+            {t.learn.favoriteClub}
           </h2>
           <div className="card overflow-hidden p-0">
             <div className="p-4 flex items-center gap-3">
@@ -8991,7 +9024,7 @@ function ProfileViewScreen({
       <div>
         <h2 className="text-lg font-bold text-gray-900 mb-3 flex items-center gap-2">
           <Users className="w-5 h-5 text-red-600" />
-          Jogadores com quem mais joga
+          {t.learn.playersYouPlayWith}
         </h2>
         {topPlayers.length > 0 ? (
           <div className="overflow-x-auto pb-2 -mx-4 px-4 sm:mx-0 sm:px-0 snap-x snap-mandatory scroll-smooth">
@@ -9029,7 +9062,7 @@ function ProfileViewScreen({
       <div>
         <h2 className="text-lg font-bold text-gray-900 mb-3 flex items-center gap-2">
           <Building2 className="w-5 h-5 text-red-600" />
-          Clubes onde joga {player?.name?.split(' ')[0] || 'o jogador'}
+          {t.learn.clubsYouPlayAt} {player?.name?.split(' ')[0] || t.common.player.toLowerCase()}
         </h2>
         {clubsWherePlays.length > 0 ? (
           <div className="overflow-x-auto pb-2 -mx-4 px-4 sm:mx-0 sm:px-0 snap-x snap-mandatory scroll-smooth">
@@ -9121,14 +9154,14 @@ function ProfileEditScreen({
 
     // Validar tamanho (max 1MB)
     if (file.size > 1 * 1024 * 1024) {
-      setSaveMsg('A imagem deve ter no máximo 1MB')
+      setSaveMsg(t.settings.imageMaxSize)
       setTimeout(() => setSaveMsg(''), 3000)
       return
     }
 
     // Validar tipo
     if (!file.type.startsWith('image/')) {
-      setSaveMsg('O ficheiro deve ser uma imagem')
+      setSaveMsg(t.settings.fileMustBeImage)
       setTimeout(() => setSaveMsg(''), 3000)
       return
     }
@@ -9158,11 +9191,11 @@ function ProfileEditScreen({
 
       // Guardar URL no perfil
       await onSaveProfile({ avatar_url })
-      setSaveMsg('Foto atualizada!')
+      setSaveMsg(t.settings.photoUpdated)
       setTimeout(() => setSaveMsg(''), 3000)
     } catch (err) {
       console.error('[AVATAR] Upload error:', err)
-      setSaveMsg('Erro ao carregar foto')
+      setSaveMsg(t.settings.photoUploadError)
       setTimeout(() => setSaveMsg(''), 3000)
     } finally {
       setUploadingAvatar(false)
@@ -9174,18 +9207,18 @@ function ProfileEditScreen({
   const handleSave = async () => {
     // Validar campos obrigatórios (exceto Sobre mim)
     const missing: string[] = []
-    if (!editName.trim()) missing.push('Nome')
-    if (!editEmail.trim()) missing.push('Email')
-    if (!editGender) missing.push('Género')
-    if (!editBirthDate) missing.push('Data de Nascimento')
-    if (!editLocation.trim()) missing.push('Localização')
-    if (!editHand) missing.push('Mão Preferida')
-    if (!editPosition) missing.push('Posição em Campo')
-    if (!editGameType) missing.push('Tipo de Jogo Preferido')
-    if (!editPreferredTime) missing.push('Horário de Jogo Preferido')
+    if (!editName.trim()) missing.push(t.settings.name)
+    if (!editEmail.trim()) missing.push(t.settings.email)
+    if (!editGender) missing.push(t.settings.gender)
+    if (!editBirthDate) missing.push(t.settings.birthDate)
+    if (!editLocation.trim()) missing.push(t.settings.location)
+    if (!editHand) missing.push(t.settings.preferredHand)
+    if (!editPosition) missing.push(t.settings.courtPosition)
+    if (!editGameType) missing.push(t.settings.preferredGameType)
+    if (!editPreferredTime) missing.push(t.settings.preferredTime)
 
     if (missing.length > 0) {
-      setSaveMsg(`Preenche os campos obrigatórios: ${missing.join(', ')}`)
+      setSaveMsg(`${t.settings.fillRequiredFields} ${missing.join(', ')}`)
       setTimeout(() => setSaveMsg(''), 5000)
       return
     }
@@ -9205,10 +9238,10 @@ function ProfileEditScreen({
         game_type: editGameType as any,
         preferred_time: editPreferredTime as any,
       })
-      setSaveMsg('Perfil guardado!')
+      setSaveMsg(t.settings.profileSaved)
       setTimeout(() => setSaveMsg(''), 3000)
     } catch {
-      setSaveMsg('Erro ao guardar')
+      setSaveMsg(t.settings.saveError)
     } finally {
       setSaving(false)
     }
@@ -9247,7 +9280,7 @@ function ProfileEditScreen({
             />
           </label>
         </div>
-        <h2 className="text-xl font-bold text-gray-900 mt-3">{player?.name || 'Jogador'}</h2>
+        <h2 className="text-xl font-bold text-gray-900 mt-3">{player?.name || t.settings.player}</h2>
         <p className="text-gray-500 text-sm">{player?.phone_number || player?.phone}</p>
         
         {/* Category Badge apenas */}
@@ -9262,7 +9295,7 @@ function ProfileEditScreen({
 
       {/* Success/Error Message */}
       {saveMsg && (
-        <div className={`text-center text-sm font-medium py-2 px-4 rounded-lg ${saveMsg.includes('Erro') || saveMsg.includes('obrigatórios') ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}>
+        <div className={`text-center text-sm font-medium py-2 px-4 rounded-lg ${saveMsg.includes(t.settings.saveError) || saveMsg.includes(t.settings.fillRequiredFields) ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}>
           {saveMsg}
         </div>
       )}
@@ -9271,35 +9304,35 @@ function ProfileEditScreen({
       <div className="card p-4 space-y-4">
             {/* Nome */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Nome <span className="text-red-600">*</span></label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{t.settings.name} <span className="text-red-600">*</span></label>
               <input
                 type="text"
                 value={editName}
                 onChange={(e) => setEditName(e.target.value)}
                 className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none"
-                placeholder="O teu nome"
+                placeholder={t.settings.namePlaceholder}
               />
             </div>
 
             {/* Email */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{t.settings.email}</label>
               <input
                 type="email"
                 value={editEmail}
                 onChange={(e) => setEditEmail(e.target.value)}
                 className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none"
-                placeholder="email@exemplo.com"
+                placeholder={t.settings.emailPlaceholder}
               />
             </div>
 
             {/* Género */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Género <span className="text-red-600">*</span></label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{t.settings.gender} <span className="text-red-600">*</span></label>
               <div className="grid grid-cols-2 gap-2">
                 {[
-                  { value: 'male', label: 'Masculino' },
-                  { value: 'female', label: 'Feminino' },
+                  { value: 'male', label: t.games.male },
+                  { value: 'female', label: t.games.female },
                 ].map((opt) => (
                   <button
                     key={opt.value}
@@ -9318,7 +9351,7 @@ function ProfileEditScreen({
 
             {/* Data de Nascimento */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Data de Nascimento <span className="text-red-600">*</span></label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{t.settings.birthDate} <span className="text-red-600">*</span></label>
               <input
                 type="date"
                 value={editBirthDate}
@@ -9329,24 +9362,24 @@ function ProfileEditScreen({
 
             {/* Localização */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Localização <span className="text-red-600">*</span></label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{t.settings.location} <span className="text-red-600">*</span></label>
               <input
                 type="text"
                 value={editLocation}
                 onChange={(e) => setEditLocation(e.target.value)}
                 className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none"
-                placeholder="Cidade ou região"
+                placeholder={t.settings.locationPlaceholder}
               />
             </div>
 
             {/* Mão Preferida */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Mão Preferida <span className="text-red-600">*</span></label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{t.settings.preferredHand} <span className="text-red-600">*</span></label>
               <div className="grid grid-cols-3 gap-2">
                 {[
-                  { value: 'right', label: 'Direita' },
-                  { value: 'left', label: 'Esquerda' },
-                  { value: 'ambidextrous', label: 'Ambidestro' },
+                  { value: 'right', label: t.settings.right },
+                  { value: 'left', label: t.settings.left },
+                  { value: 'ambidextrous', label: t.settings.ambidextrous },
                 ].map((opt) => (
                   <button
                     key={opt.value}
@@ -9365,12 +9398,12 @@ function ProfileEditScreen({
 
             {/* Posição em Campo */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Posição em Campo <span className="text-red-600">*</span></label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{t.settings.courtPosition} <span className="text-red-600">*</span></label>
               <div className="grid grid-cols-3 gap-2">
                 {[
-                  { value: 'right', label: 'Direita' },
-                  { value: 'left', label: 'Esquerda' },
-                  { value: 'both', label: 'Ambas' },
+                  { value: 'right', label: t.settings.right },
+                  { value: 'left', label: t.settings.left },
+                  { value: 'both', label: t.settings.both },
                 ].map((opt) => (
                   <button
                     key={opt.value}
@@ -9389,12 +9422,12 @@ function ProfileEditScreen({
 
             {/* Tipo de Jogo Preferido */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Tipo de Jogo Preferido <span className="text-red-600">*</span></label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{t.settings.preferredGameType} <span className="text-red-600">*</span></label>
               <div className="grid grid-cols-3 gap-2">
                 {[
-                  { value: 'competitive', label: 'Competitivo' },
-                  { value: 'friendly', label: 'Amigável' },
-                  { value: 'both', label: 'Ambos' },
+                  { value: 'competitive', label: t.games.competitive },
+                  { value: 'friendly', label: t.games.friendly },
+                  { value: 'both', label: t.settings.both },
                 ].map((opt) => (
                   <button
                     key={opt.value}
@@ -9413,7 +9446,7 @@ function ProfileEditScreen({
 
             {/* Horário Preferido */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Horário de Jogo Preferido <span className="text-red-600">*</span></label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{t.settings.preferredTime} <span className="text-red-600">*</span></label>
               <div className="grid grid-cols-4 gap-2">
                 {[
                   { value: 'morning', label: t.common.morning },
@@ -9438,13 +9471,13 @@ function ProfileEditScreen({
 
             {/* Bio */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Sobre mim</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{t.settings.aboutMe}</label>
               <textarea
                 value={editBio}
                 onChange={(e) => setEditBio(e.target.value)}
                 rows={3}
                 className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none resize-none"
-                placeholder="Uma breve descrição sobre ti..."
+                placeholder={t.settings.aboutMePlaceholder}
               />
             </div>
 
@@ -9459,7 +9492,7 @@ function ProfileEditScreen({
               ) : (
                 <>
                   <Save className="w-4 h-4" />
-                  Guardar Perfil
+                  {t.settings.saveProfile}
                 </>
               )}
             </button>
@@ -9470,22 +9503,22 @@ function ProfileEditScreen({
         <div className="p-4 border-b border-gray-100">
           <div className="flex items-center gap-2">
             <Building2 className="w-5 h-5 text-red-600" />
-            <h3 className="font-semibold text-gray-900">Clube Favorito</h3>
+            <h3 className="font-semibold text-gray-900">{t.settings.favoriteClub}</h3>
           </div>
-          <p className="text-sm text-gray-500 mt-1">Escolhe o teu clube na lista de clubes geridos pela Padel One.</p>
+          <p className="text-sm text-gray-500 mt-1">{t.settings.favoriteClubDesc}</p>
         </div>
         <div className="divide-y divide-gray-100 max-h-56 overflow-y-auto">
           {loadingClubs ? (
-            <div className="p-4 text-center text-gray-500">A carregar clubes...</div>
+            <div className="p-4 text-center text-gray-500">{t.settings.loadingClubs}</div>
           ) : clubs.length === 0 ? (
-            <div className="p-4 text-center text-gray-500">Nenhum clube disponível.</div>
+            <div className="p-4 text-center text-gray-500">{t.settings.noClubsAvailable}</div>
           ) : (
             <>
               <button
                 onClick={() => onSaveFavoriteClub(null)}
                 className={`w-full p-4 flex items-center justify-between text-left ${!favoriteClubId ? 'bg-red-50' : 'hover:bg-gray-50'}`}
               >
-                <span className="text-gray-600">Nenhum</span>
+                <span className="text-gray-600">{t.settings.none}</span>
                 {!favoriteClubId && <span className="text-xs text-red-600 font-medium">✓</span>}
               </button>
               {clubs.map((club) => (
@@ -9703,13 +9736,25 @@ function RegisterScreen({ onBack, onSuccess }: {
     try {
       // Normalizar telefone
       let normalizedPhone = regPhone.trim().replace(/\s+/g, '')
-      if (!normalizedPhone.startsWith('+')) {
+      
+      // Se começar só com + sem indicativo, adiciona +351
+      if (normalizedPhone === '+' || (normalizedPhone.startsWith('+') && normalizedPhone.length < 4)) {
+        normalizedPhone = '+351' + normalizedPhone.substring(1)
+      } else if (!normalizedPhone.startsWith('+')) {
         normalizedPhone = '+351' + normalizedPhone
       }
 
       // Validações
       if (!name.trim()) { setError(t.auth.nameRequired); setSaving(false); return }
-      if (!normalizedPhone || normalizedPhone.length < 9) { setError(t.auth.invalidPhone); setSaving(false); return }
+      if (!normalizedPhone || normalizedPhone.length < 9) { 
+        if (regPhone.trim() === '+' || (regPhone.trim().startsWith('+') && regPhone.trim().length < 4)) {
+          setError('Por favor, adicione o indicativo do país (ex: +351)');
+        } else {
+          setError(t.auth.invalidPhone);
+        }
+        setSaving(false); 
+        return 
+      }
       if (!email.trim() || !email.includes('@')) { setError(t.auth.invalidEmail); setSaving(false); return }
       if (regPassword.length < 6) { setError(t.auth.passwordMinLength); setSaving(false); return }
       if (regPassword !== confirmPwd) { setError(t.auth.passwordsDontMatch); setSaving(false); return }
@@ -9854,6 +9899,9 @@ function RegisterScreen({ onBack, onSuccess }: {
                 <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
                 <input value={regPhone} onChange={e => setRegPhone(e.target.value)} placeholder="912 345 678" type="tel" className="w-full pl-11 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-red-500/20 focus:border-red-500" />
               </div>
+              <p className="mt-1 text-xs text-gray-500">
+                O indicativo +351 será adicionado automaticamente se não fornecido
+              </p>
             </div>
             <div>
               <label className="text-sm font-medium text-gray-700 mb-1 block">Email</label>
@@ -10205,34 +10253,34 @@ function InfoModal({ type, onClose }: { type: 'help' | 'howItWorks' | 'privacy';
   const { t } = useI18n()
   const content = {
     help: {
-      title: 'Ajuda',
+      title: t.help.title,
       icon: HelpCircle,
       sections: [
-        { title: 'Contacto', text: 'Para qualquer questão, envie um email para info@boostpadel.store ou contacte-nos via WhatsApp: +351 969 365 059.' },
-        { title: 'Problemas com a conta', text: 'Se tem problemas para fazer login ou aceder à sua conta, contacte o organizador do torneio ou o clube onde joga.' },
+        { title: t.help.contact, text: t.help.contactText },
+        { title: t.help.accountProblems, text: t.help.accountProblemsText },
         { title: t.common.incorrectResults, text: t.common.incorrectResultsText },
-        { title: 'Nível e Fiabilidade', text: 'O seu nível é calculado automaticamente com base nos resultados dos seus jogos. Quanto mais jogos fizer, mais fiável será o seu nível.' },
+        { title: t.help.levelReliability, text: t.help.levelReliabilityText },
       ]
     },
     howItWorks: {
-      title: 'Como funciona a Padel One',
+      title: t.howItWorks.title,
       icon: GraduationCap,
       sections: [
-        { title: '🏆 Torneios', text: 'Inscreva-se em torneios através do link do clube. Os resultados são registados pelo organizador e contam para o seu ranking.' },
-        { title: '📊 Nível ELO', text: 'O seu nível (0.5 a 7.0) é calculado automaticamente após cada jogo. Jogadores novos têm variações maiores para calibrar rapidamente. Após ~30 jogos, o nível estabiliza.' },
-        { title: '🏅 Ligas', text: 'Acumule pontos ao longo dos torneios. Os melhores classificados de cada liga são reconhecidos.' },
-        { title: '👥 Comunidade', text: 'Siga outros jogadores, veja os seus resultados e mantenha-se a par da atividade da sua comunidade de padel.' },
-        { title: '🎮 Jogos Abertos', text: 'Crie ou junte-se a jogos avulsos. Reserve um campo, convide jogadores e organize partidas facilmente.' },
+        { title: t.howItWorks.tournaments, text: t.howItWorks.tournamentsText },
+        { title: t.howItWorks.eloLevel, text: t.howItWorks.eloLevelText },
+        { title: t.howItWorks.leagues, text: t.howItWorks.leaguesText },
+        { title: t.howItWorks.community, text: t.howItWorks.communityText },
+        { title: t.howItWorks.openGames, text: t.howItWorks.openGamesText },
       ]
     },
     privacy: {
-      title: 'Privacidade',
+      title: t.privacy.title,
       icon: Shield,
       sections: [
         { title: t.common.personalData, text: t.common.personalDataText },
-        { title: 'Visibilidade', text: 'O seu perfil (nome e nível) é visível para outros jogadores. O seu número de telefone e email são privados.' },
-        { title: 'Partilha de dados', text: 'Não partilhamos os seus dados com terceiros. Os organizadores de torneios têm acesso apenas aos dados necessários para a gestão dos eventos.' },
-        { title: 'Eliminação de conta', text: 'Pode solicitar a eliminação da sua conta e todos os dados associados contactando info@boostpadel.store.' },
+        { title: t.privacy.visibility, text: t.privacy.visibilityText },
+        { title: t.privacy.dataSharing, text: t.privacy.dataSharingText },
+        { title: t.privacy.accountDeletion, text: t.privacy.accountDeletionText },
       ]
     }
   }

@@ -775,7 +775,7 @@ export async function enrollInClass(classId: string, userId: string, playerAccou
     .insert({
       class_id: classId,
       student_id: userId, // user_id (mantido para compatibilidade)
-      student_name: player?.name || 'Jogador',
+      student_name: player?.name || (typeof window !== 'undefined' ? (() => { try { return (require('./translations') as any).getTranslations().common.player } catch { return 'Jogador' } })() : 'Jogador'),
       status: 'enrolled',
       organizer_player_id: organizerPlayerId,
       player_account_id: playerAccountId // Adicionar player_account_id diretamente

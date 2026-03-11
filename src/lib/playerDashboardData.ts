@@ -680,27 +680,61 @@ export async function enrichDashboardWithEdgeFunction(currentDashboardData?: Pla
       enriched.pastTournamentDetails = edgeData.pastTournamentDetails
     }
     // Merge stats from edge function (bypasses RLS, always has correct data)
+    // Edge Function now includes open game results in stats
     if (edgeData.stats) {
-      enriched.stats = {
-        totalMatches: edgeData.stats.totalMatches || 0,
-        wins: edgeData.stats.wins || 0,
-        losses: edgeData.stats.losses || 0,
-        winRate: edgeData.stats.winRate || 0,
-        tournamentsPlayed: edgeData.pastTournaments?.length || 0,
-        bestFinish: '-',
+      // Check if Edge Function already includes open games (v2+)
+      const edgeHasOpenGames = (edgeData.recentMatches || []).some((m: any) => m.is_open_game)
+      
+      if (edgeHasOpenGames) {
+        // Edge Function v2+ already includes open games in stats
+        enriched.stats = {
+          totalMatches: edgeData.stats.totalMatches || 0,
+          wins: edgeData.stats.wins || 0,
+          losses: edgeData.stats.losses || 0,
+          winRate: edgeData.stats.winRate || 0,
+          tournamentsPlayed: edgeData.pastTournaments?.length || 0,
+          bestFinish: '-',
+        }
+      } else {
+        // Edge Function v1 (doesn't include open games) - add open game stats from client
+        let openGameWins = 0
+        let openGameLosses = 0
+        ;(currentDashboardData?.recentMatches || []).filter(m => m.is_open_game).forEach(m => {
+          if (m.is_winner === true) openGameWins++
+          else if (m.is_winner === false) openGameLosses++
+        })
+        const totalWins = (edgeData.stats.wins || 0) + openGameWins
+        const totalLosses = (edgeData.stats.losses || 0) + openGameLosses
+        const totalAll = totalWins + totalLosses
+        enriched.stats = {
+          totalMatches: (edgeData.stats.totalMatches || 0) + openGameWins + openGameLosses,
+          wins: totalWins,
+          losses: totalLosses,
+          winRate: totalAll > 0 ? Math.round((totalWins / totalAll) * 100) : 0,
+          tournamentsPlayed: edgeData.pastTournaments?.length || 0,
+          bestFinish: '-',
+        }
       }
-      console.log('[Dashboard] Edge Function stats:', enriched.stats)
+      console.log('[Dashboard] Edge Function stats (final):', enriched.stats)
     }
     // Merge recent matches from edge function (bypasses RLS)
-    // IMPORTANT: Don't replace, merge with existing open games
     if (edgeData.recentMatches?.length) {
-      // Get existing open games from current dashboardData
-      const currentOpenGames = (currentDashboardData?.recentMatches || []).filter(m => m.is_open_game)
-      // Combine edge function matches with open games, then sort by date
-      const allMatches = [...edgeData.recentMatches, ...currentOpenGames]
-        .sort((a, b) => new Date(b.start_time).getTime() - new Date(a.start_time).getTime())
-      enriched.recentMatches = allMatches
-      console.log('[Dashboard] Edge Function recentMatches:', edgeData.recentMatches.length, '+ open games:', currentOpenGames.length, '= total:', allMatches.length)
+      // Check if Edge Function already includes open games
+      const edgeOpenGames = edgeData.recentMatches.filter((m: any) => m.is_open_game)
+      
+      if (edgeOpenGames.length > 0) {
+        // Edge Function v2+ already includes open games - use directly
+        enriched.recentMatches = edgeData.recentMatches
+          .sort((a: any, b: any) => new Date(b.start_time).getTime() - new Date(a.start_time).getTime())
+        console.log('[Dashboard] Edge Function recentMatches (includes open games):', edgeData.recentMatches.length, '(', edgeOpenGames.length, 'open games)')
+      } else {
+        // Edge Function v1 - merge with client-side open games
+        const currentOpenGames = (currentDashboardData?.recentMatches || []).filter(m => m.is_open_game)
+        const allMatches = [...edgeData.recentMatches, ...currentOpenGames]
+          .sort((a, b) => new Date(b.start_time).getTime() - new Date(a.start_time).getTime())
+        enriched.recentMatches = allMatches
+        console.log('[Dashboard] Edge Function recentMatches:', edgeData.recentMatches.length, '+ open games:', currentOpenGames.length, '= total:', allMatches.length)
+      }
     } else if (currentDashboardData?.recentMatches) {
       // If edge function doesn't return matches, keep current ones (includes open games)
       enriched.recentMatches = currentDashboardData.recentMatches

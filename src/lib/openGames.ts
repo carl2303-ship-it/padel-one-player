@@ -4,6 +4,7 @@
  */
 import { supabase } from './supabase'
 import { notifyOpenGamePlayers, notifyGameCreator, sendPushToPlayer } from './pushNotifications'
+import { getTranslations } from './translations'
 
 // ============================
 // Types
@@ -254,7 +255,7 @@ export async function fetchOpenGames(filters?: {
           player_account_id: p.player_account_id,
           status: p.status,
           position: p.position,
-          name: account?.name || 'Jogador',
+          name: account?.name || (typeof window !== 'undefined' ? getTranslations().common.player : 'Jogador'),
           avatar_url: account?.avatar_url || null,
           level: account?.level || null,
           player_category: account?.player_category || null,
@@ -262,7 +263,7 @@ export async function fetchOpenGames(filters?: {
         }
       })
 
-    const club = clubsMap[g.club_id] || { name: 'Clube', logo_url: null, city: null, payment_method: 'at_club' as ClubPaymentMethod }
+    const club = clubsMap[g.club_id] || { name: (typeof window !== 'undefined' ? getTranslations().common.club : 'Clube'), logo_url: null, city: null, payment_method: 'at_club' as ClubPaymentMethod }
     const court = g.court_id ? courtsMap[g.court_id] : null
 
     return {
@@ -637,7 +638,7 @@ export async function createOpenGame(params: {
     if (club) {
       const endTime = new Date(new Date(params.scheduledAt).getTime() + params.durationMinutes * 60000)
       const gameTypeLabel = params.gameType === 'competitive' ? 'Competitivo' : 'Amigável'
-      const bookingName = resolvedName || 'Jogador'
+      const bookingName = resolvedName || (typeof window !== 'undefined' ? getTranslations().common.player : 'Jogador')
 
       await supabase.from('court_bookings').insert({
         user_id: club.owner_id,
@@ -674,7 +675,11 @@ export async function createOpenGame(params: {
   if (resolvedAccountId) {
     try {
       await awardGameRewardPoints(game.id, 'create_game')
-    } catch {}
+      // Check if this is the player's first game on the platform
+      await checkAndAwardFirstGame(game.id)
+    } catch (err) {
+      console.error('[Rewards] Error awarding create_game points:', err)
+    }
   }
 
   return { success: true, gameId: game.id }
@@ -791,7 +796,7 @@ async function syncBookingPlayers(gameId: string) {
 
     // 7. Update the court_booking
     const updateData: Record<string, any> = {
-      booked_by_name: playerSlots[0].name || 'Jogador',
+      booked_by_name: playerSlots[0].name || (typeof window !== 'undefined' ? getTranslations().common.player : 'Jogador'),
       booked_by_phone: playerSlots[0].phone || null,
       player1_name: playerSlots[0].name || null,
       player1_phone: playerSlots[0].phone || null,
@@ -937,32 +942,37 @@ export async function joinOpenGame(params: {
   if (joinStatus === 'confirmed') {
     try {
       await awardGameRewardPoints(params.gameId, 'join_game')
-    } catch {}
+      // Check if this is the player's first game on the platform
+      await checkAndAwardFirstGame(params.gameId)
+    } catch (err) {
+      console.error('[Rewards] Error awarding join_game points:', err)
+    }
   }
 
   // 🔔 Push: notify game creator and other players
   try {
+    const t = getTranslations()
     const playerName = await getPlayerName(resolvedAccountId)
     if (joinStatus === 'confirmed') {
       // Notify creator: someone joined
       notifyGameCreator(params.gameId, {
-        title: 'Novo jogador no teu jogo! 🎾',
-        body: `${playerName} entrou no teu jogo.`,
+        title: t.notifications.newPlayerInYourGame,
+        body: t.notifications.newPlayerInGameBody.replace('{name}', playerName),
         url: '/?screen=games',
         tag: `join-${params.gameId}`,
       })
       // Notify other players
       notifyOpenGamePlayers(params.gameId, resolvedAccountId, {
-        title: 'Novo jogador no jogo! 🎾',
-        body: `${playerName} juntou-se ao jogo.`,
+        title: t.notifications.newPlayerInGame,
+        body: t.notifications.newPlayerInGameBody.replace('{name}', playerName),
         url: '/?screen=games',
         tag: `join-${params.gameId}`,
       })
     } else {
       // Pending request - notify confirmed players
       notifyOpenGamePlayers(params.gameId, resolvedAccountId, {
-        title: 'Pedido para entrar no jogo 📋',
-        body: `${playerName} quer juntar-se ao teu jogo. Vota para aceitar ou rejeitar.`,
+        title: t.notifications.joinRequest,
+        body: t.notifications.joinRequestBody.replace('{name}', playerName),
         url: '/?screen=games',
         tag: `request-${params.gameId}`,
       })
@@ -1010,17 +1020,18 @@ export async function leaveOpenGame(gameId: string, userId: string): Promise<boo
       .select('id, name')
       .eq('user_id', realUserId)
       .maybeSingle()
-    const leavingName = pa?.name || 'Um jogador'
+    const t = getTranslations()
+    const leavingName = pa?.name || t.notifications.aPlayer
     
     notifyGameCreator(gameId, {
-      title: 'Jogador saiu do jogo 😔',
-      body: `${leavingName} saiu do teu jogo.`,
+      title: t.notifications.playerLeftGame,
+      body: t.notifications.playerLeftYourGame.replace('{name}', leavingName),
       url: '/?screen=games',
       tag: `leave-${gameId}`,
     })
     notifyOpenGamePlayers(gameId, pa?.id || null, {
-      title: 'Jogador saiu do jogo 😔',
-      body: `${leavingName} saiu do jogo.`,
+      title: t.notifications.playerLeftGame,
+      body: t.notifications.playerLeftGameBody.replace('{name}', leavingName),
       url: '/?screen=games',
       tag: `leave-${gameId}`,
     })
@@ -1108,17 +1119,18 @@ export async function addPlayerToOpenGame(params: {
 
   // 🔔 Push: notify the added player
   try {
+    const t = getTranslations()
     const playerName = await getPlayerName(params.playerAccountId)
     sendPushToPlayer(params.playerAccountId, {
-      title: 'Foste adicionado a um jogo! 🎾',
-      body: 'Um organizador adicionou-te a um jogo. Verifica os teus jogos.',
+      title: t.notifications.addedToGame,
+      body: t.notifications.addedToGameBody,
       url: '/?screen=games',
       tag: `added-${params.gameId}`,
     })
     // Also notify other players
     notifyOpenGamePlayers(params.gameId, params.playerAccountId, {
-      title: 'Novo jogador no jogo! 🎾',
-      body: `${playerName} foi adicionado ao jogo.`,
+      title: t.notifications.newPlayerInGame,
+      body: t.notifications.newPlayerInGameBody.replace('{name}', playerName),
       url: '/?screen=games',
       tag: `added-${params.gameId}`,
     })
@@ -1161,17 +1173,18 @@ export async function voteOnJoinRequest(
         .maybeSingle()
       
       if (reqPlayer?.player_account_id) {
+        const t = getTranslations()
         if (result.new_status === 'confirmed') {
           sendPushToPlayer(reqPlayer.player_account_id, {
-            title: 'Pedido aprovado! ✅',
-            body: 'O teu pedido para entrar no jogo foi aceite. Bom jogo!',
+            title: t.notifications.requestApproved,
+            body: t.notifications.requestApprovedBody,
             url: '/?screen=games',
             tag: `approved-${reqPlayer.game_id}`,
           })
         } else if (result.new_status === 'rejected') {
           sendPushToPlayer(reqPlayer.player_account_id, {
-            title: 'Pedido rejeitado ❌',
-            body: 'O teu pedido para entrar no jogo foi rejeitado.',
+            title: t.notifications.requestRejected,
+            body: t.notifications.requestRejectedBody,
             url: '/?screen=find-game',
             tag: `rejected-${reqPlayer.game_id}`,
           })
@@ -1280,7 +1293,7 @@ export async function fetchMyGamesPendingRequests(userId: string): Promise<{
       player_account_id: p.player_account_id,
       status: p.status,
       position: p.position,
-      name: details?.name || 'Jogador',
+      name: details?.name || (typeof window !== 'undefined' ? getTranslations().common.player : 'Jogador'),
       avatar_url: details?.avatar_url || null,
       level: details?.level || null,
       player_category: details?.player_category || null,
@@ -1384,7 +1397,9 @@ export async function submitGameResult(params: {
   // Award reward points for submitting result
   try {
     await awardGameRewardPoints(params.gameId, 'submit_result')
-  } catch {}
+  } catch (err) {
+    console.error('[Rewards] Error awarding submit_result points:', err)
+  }
 
   // 🔔 Push: notify other players that result was submitted
   try {
@@ -1395,9 +1410,10 @@ export async function submitGameResult(params: {
       .eq('user_id', me?.id || '')
       .maybeSingle()
 
+    const t = getTranslations()
     notifyOpenGamePlayers(params.gameId, myAccount?.id || null, {
-      title: 'Resultado submetido 📊',
-      body: 'Um resultado foi introduzido no teu jogo. Confirma ou disputa.',
+      title: t.notifications.resultSubmitted,
+      body: t.notifications.resultSubmittedBody,
       url: '/?screen=games',
       tag: `result-${params.gameId}`,
     })
@@ -1421,6 +1437,22 @@ export async function confirmGameResult(gameId: string): Promise<{ success: bool
     return { success: false, error: result?.error || 'Erro desconhecido' }
   }
 
+  // Update game status to 'completed' after result confirmation
+  try {
+    const { error: statusError } = await supabase
+      .from('open_games')
+      .update({ status: 'completed' })
+      .eq('id', gameId)
+    
+    if (statusError) {
+      console.error('[OpenGames] Error updating game status to completed:', statusError)
+    } else {
+      console.log('[OpenGames] Game status updated to completed:', gameId)
+    }
+  } catch (err) {
+    console.error('[OpenGames] Error updating game status:', err)
+  }
+
   // Process rating after confirmation
   try {
     await processOpenGameRating(gameId)
@@ -1428,11 +1460,43 @@ export async function confirmGameResult(gameId: string): Promise<{ success: bool
     console.error('[OpenGames] Error processing rating after confirmation:', err)
   }
 
-  // Award reward points
+  // Award reward points to the confirmer
   try {
     await awardGameRewardPoints(gameId, 'confirm_result')
   } catch (err) {
-    console.error('[OpenGames] Error awarding reward points:', err)
+    console.error('[Rewards] Error awarding confirm_result points:', err)
+  }
+
+  // Award confirm_result to ALL other players who didn't submit or confirm
+  // (submitter already got submit_result, confirmer just got confirm_result)
+  try {
+    const { data: { user: currentUser } } = await supabase.auth.getUser()
+    const { data: gamePlayers } = await supabase
+      .from('open_game_players')
+      .select('player_account_id, user_id')
+      .eq('game_id', gameId)
+      .eq('status', 'confirmed')
+
+    const { data: gameResult } = await supabase
+      .from('open_game_results')
+      .select('submitted_by_user_id')
+      .eq('game_id', gameId)
+      .maybeSingle()
+
+    if (gamePlayers) {
+      for (const p of gamePlayers) {
+        // Skip the current user (confirmer) and the submitter - they already got rewards
+        if (p.user_id === currentUser?.id) continue
+        if (p.user_id === gameResult?.submitted_by_user_id) continue
+        if (p.player_account_id) {
+          try {
+            await awardGameRewardPoints(gameId, 'confirm_result', p.player_account_id)
+          } catch {}
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[Rewards] Error awarding confirm_result to all players:', err)
   }
 
   // 🔔 Push: notify all players that result was confirmed
@@ -1444,9 +1508,10 @@ export async function confirmGameResult(gameId: string): Promise<{ success: bool
       .eq('user_id', me?.id || '')
       .maybeSingle()
 
+    const t = getTranslations()
     notifyOpenGamePlayers(gameId, myAccount?.id || null, {
-      title: 'Resultado confirmado ✅',
-      body: 'O resultado do teu jogo foi confirmado. O teu nível será atualizado!',
+      title: t.notifications.resultConfirmed,
+      body: t.notifications.resultConfirmedBody,
       url: '/?screen=games',
       tag: `result-confirmed-${gameId}`,
     })
@@ -1478,34 +1543,71 @@ export async function disputeGameResult(gameId: string): Promise<{ success: bool
 // ============================
 
 async function processOpenGameRating(gameId: string): Promise<void> {
+  console.log('[OpenGames] processOpenGameRating: Starting for game:', gameId)
+  
   // 1. Get the confirmed result
-  const { data: result } = await supabase
+  const { data: result, error: resultError } = await supabase
     .from('open_game_results')
     .select('*')
     .eq('game_id', gameId)
     .eq('status', 'confirmed')
     .single()
 
-  if (!result || result.rating_processed) return
+  if (resultError) {
+    console.error('[OpenGames] processOpenGameRating: Error fetching result:', resultError)
+    return
+  }
+  if (!result) {
+    console.warn('[OpenGames] processOpenGameRating: No confirmed result found for game:', gameId)
+    return
+  }
+  if (result.rating_processed) {
+    console.log('[OpenGames] processOpenGameRating: Rating already processed for game:', gameId)
+    return
+  }
+  
+  console.log('[OpenGames] processOpenGameRating: Found confirmed result:', result.id)
 
   // 2. Get all confirmed players sorted by position
-  const { data: players } = await supabase
+  const { data: players, error: playersError } = await supabase
     .from('open_game_players')
     .select('player_account_id, position')
     .eq('game_id', gameId)
     .eq('status', 'confirmed')
     .order('position', { ascending: true })
 
-  if (!players || players.length < 4) return
+  if (playersError) {
+    console.error('[OpenGames] processOpenGameRating: Error fetching players:', playersError)
+    return
+  }
+  if (!players || players.length < 4) {
+    console.warn('[OpenGames] processOpenGameRating: Not enough players (need 4, got', players?.length || 0, ')')
+    return
+  }
+  
+  console.log('[OpenGames] processOpenGameRating: Found', players.length, 'players')
 
   // 3. Get player accounts
   const accountIds = players.map(p => p.player_account_id).filter(Boolean) as string[]
-  const { data: accounts } = await supabase
+  console.log('[OpenGames] processOpenGameRating: Account IDs:', accountIds)
+  
+  const { data: accounts, error: accountsError } = await supabase
     .from('player_accounts')
     .select('id, user_id, name, level, rated_matches, wins, losses')
     .in('id', accountIds)
 
-  if (!accounts || accounts.length < 4) return
+  if (accountsError) {
+    console.error('[OpenGames] processOpenGameRating: Error fetching accounts:', accountsError)
+    console.error('[OpenGames] This may be due to RLS restrictions on player_accounts table')
+    return
+  }
+  if (!accounts || accounts.length < 4) {
+    console.warn('[OpenGames] processOpenGameRating: Not enough accounts (need 4, got', accounts?.length || 0, ')')
+    console.warn('[OpenGames] processOpenGameRating: This is likely due to RLS blocking access to player_accounts')
+    return
+  }
+  
+  console.log('[OpenGames] processOpenGameRating: Found', accounts.length, 'accounts')
 
   const accountMap = new Map(accounts.map(a => [a.id, a]))
 
@@ -1556,57 +1658,282 @@ async function processOpenGameRating(gameId: string): Promise<void> {
     ratingResult.team2.p3, ratingResult.team2.p4,
   ]
 
+  console.log('[OpenGames] processOpenGameRating: Updating ratings for', allPlayers.length, 'players')
+  
   for (const rp of allPlayers) {
     const newReliability = calculateReliability(rp.matches)
-    await supabase.rpc('update_player_rating', {
+    console.log('[OpenGames] processOpenGameRating: Updating player', rp.id, rp.name, '- new rating:', rp.rating, 'won:', rp.won)
+    
+    const { error: rpcError } = await supabase.rpc('update_player_rating', {
       p_player_account_id: rp.id,
       p_new_level: rp.rating,
       p_new_reliability: newReliability,
       p_match_won: rp.won,
     })
+    
+    if (rpcError) {
+      console.error('[OpenGames] processOpenGameRating: Error updating rating for', rp.id, ':', rpcError)
+    }
   }
 
   // 6. Mark result as processed
-  await supabase
+  const { error: markError } = await supabase
     .from('open_game_results')
     .update({ rating_processed: true, updated_at: new Date().toISOString() })
     .eq('id', result.id)
 
-  console.log('[OpenGames] Rating processed for game:', gameId)
+  if (markError) {
+    console.error('[OpenGames] processOpenGameRating: Error marking as processed:', markError)
+  }
+
+  console.log('[OpenGames] Rating processed successfully for game:', gameId)
 }
 
 // ============================
 // Award reward points for game actions
 // ============================
 
-export async function awardGameRewardPoints(gameId: string, actionType: string): Promise<void> {
+export async function awardGameRewardPoints(gameId: string, actionType: string, specificPlayerAccountId?: string): Promise<void> {
   // Get the game's club
-  const { data: game } = await supabase
+  const { data: game, error: gameError } = await supabase
     .from('open_games')
     .select('club_id')
     .eq('id', gameId)
     .single()
 
-  if (!game) return
+  if (!game || !game.club_id) {
+    console.error('[Rewards] Cannot award points - game not found or no club_id:', gameId, gameError)
+    return
+  }
 
-  // Get current user's player_account_id
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return
+  let playerAccountId = specificPlayerAccountId
 
-  const { data: pa } = await supabase
-    .from('player_accounts')
+  if (!playerAccountId) {
+    // Get current user's player_account_id
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      console.error('[Rewards] Cannot award points - no auth user')
+      return
+    }
+
+    const { data: pa } = await supabase
+      .from('player_accounts')
+      .select('id')
+      .eq('user_id', user.id)
+      .maybeSingle()
+
+    if (!pa) {
+      console.error('[Rewards] Cannot award points - no player_account for user:', user.id)
+      return
+    }
+    playerAccountId = pa.id
+  }
+
+  // First, ensure the club has reward rules (auto-create if missing)
+  const { data: existingRules } = await supabase
+    .from('reward_rules')
     .select('id')
-    .eq('user_id', user.id)
-    .maybeSingle()
+    .eq('club_id', game.club_id)
+    .limit(1)
 
-  if (!pa) return
+  if (!existingRules || existingRules.length === 0) {
+    console.log('[Rewards] No reward rules found for club:', game.club_id, '- creating defaults...')
+    const defaultRules = [
+      { club_id: game.club_id, action_type: 'create_game', points: 15, description: 'Criou um jogo aberto', is_active: true },
+      { club_id: game.club_id, action_type: 'join_game', points: 10, description: 'Entrou num jogo aberto', is_active: true },
+      { club_id: game.club_id, action_type: 'submit_result', points: 5, description: 'Submeteu resultado', is_active: true },
+      { club_id: game.club_id, action_type: 'confirm_result', points: 5, description: 'Confirmou resultado', is_active: true },
+      { club_id: game.club_id, action_type: 'tournament_played', points: 20, description: 'Participou num torneio', is_active: true },
+      { club_id: game.club_id, action_type: 'bar_spend', points: 5, description: 'Consumo no bar (por cada 10€)', is_active: true },
+      { club_id: game.club_id, action_type: 'first_game', points: 25, description: 'Primeiro jogo na plataforma', is_active: true },
+      { club_id: game.club_id, action_type: 'streak_3', points: 15, description: '3 jogos seguidos', is_active: true },
+      { club_id: game.club_id, action_type: 'streak_7', points: 30, description: '7 jogos seguidos', is_active: true },
+    ]
+    const { error: insertError } = await supabase.from('reward_rules').insert(defaultRules)
+    if (insertError) {
+      console.error('[Rewards] Error creating default rules:', insertError)
+    } else {
+      console.log('[Rewards] Default reward rules created for club:', game.club_id)
+    }
+  }
 
-  await supabase.rpc('award_reward_points', {
-    p_player_account_id: pa.id,
+  // Award the reward points
+  const { data: rpcResult, error: rpcError } = await supabase.rpc('award_reward_points', {
+    p_player_account_id: playerAccountId,
     p_club_id: game.club_id,
     p_action_type: actionType,
     p_reference_id: gameId,
   })
+
+  if (rpcError) {
+    console.error('[Rewards] RPC error awarding', actionType, 'for game', gameId, ':', rpcError)
+  } else {
+    const result = rpcResult as any
+    if (result?.success) {
+      console.log('[Rewards] ✅ Awarded', actionType, ':', result.points_earned, 'pts → total:', result.new_total, '(tier:', result.tier, ')')
+    } else {
+      console.warn('[Rewards] ⚠️ Award failed for', actionType, ':', result?.error || 'unknown error')
+    }
+  }
+}
+
+// Award first_game bonus if this is the player's first game
+async function checkAndAwardFirstGame(gameId: string, playerAccountId?: string): Promise<void> {
+  try {
+    let paId = playerAccountId
+    if (!paId) {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+      const { data: pa } = await supabase
+        .from('player_accounts')
+        .select('id')
+        .eq('user_id', user.id)
+        .maybeSingle()
+      if (!pa) return
+      paId = pa.id
+    }
+
+    // Check if player has any previous reward transactions (not just first_game)
+    const { data: prevGames } = await supabase
+      .from('reward_transactions')
+      .select('id')
+      .eq('player_account_id', paId)
+      .in('action_type', ['create_game', 'join_game'])
+      .limit(2)
+
+    // If this is the first create_game or join_game transaction (only 1 exists = the current one)
+    if (!prevGames || prevGames.length <= 1) {
+      console.log('[Rewards] 🎉 First game detected! Awarding first_game bonus for player:', paId)
+      await awardGameRewardPoints(gameId, 'first_game', paId)
+    }
+  } catch (err) {
+    console.error('[Rewards] Error checking first_game bonus:', err)
+  }
+}
+
+// Award rewards to ALL confirmed players in a game
+async function awardAllPlayersReward(gameId: string, actionType: string): Promise<void> {
+  try {
+    const { data: players } = await supabase
+      .from('open_game_players')
+      .select('player_account_id')
+      .eq('game_id', gameId)
+      .eq('status', 'confirmed')
+
+    if (!players || players.length === 0) {
+      console.warn('[Rewards] No confirmed players found for game:', gameId)
+      return
+    }
+
+    console.log('[Rewards] Awarding', actionType, 'to', players.length, 'players in game:', gameId)
+    for (const player of players) {
+      if (player.player_account_id) {
+        await awardGameRewardPoints(gameId, actionType, player.player_account_id)
+      }
+    }
+  } catch (err) {
+    console.error('[Rewards] Error awarding all players:', err)
+  }
+}
+
+// ============================
+// Fetch player reward points
+// ============================
+
+// ============================
+// Retroactively award missing rewards for completed games
+// Called when loading player rewards to ensure nothing was missed
+// ============================
+export async function retroactivelyAwardMissingRewards(playerAccountId: string): Promise<void> {
+  try {
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+
+    // Find games where the player participated but has no reward transactions
+    const { data: myGames } = await supabase
+      .from('open_game_players')
+      .select('game_id, user_id, position')
+      .eq('player_account_id', playerAccountId)
+      .eq('status', 'confirmed')
+
+    if (!myGames || myGames.length === 0) return
+
+    // Get existing reward transactions for this player
+    const { data: existingTx } = await supabase
+      .from('reward_transactions')
+      .select('reference_id, action_type')
+      .eq('player_account_id', playerAccountId)
+      .in('action_type', ['create_game', 'join_game', 'submit_result', 'confirm_result', 'first_game'])
+
+    const txSet = new Set((existingTx || []).map(t => `${t.reference_id}_${t.action_type}`))
+
+    let awardedCount = 0
+
+    for (const gp of myGames) {
+      const gameId = gp.game_id
+
+      // Check if player created or joined this game
+      const { data: game } = await supabase
+        .from('open_games')
+        .select('creator_user_id, club_id, status')
+        .eq('id', gameId)
+        .maybeSingle()
+
+      if (!game || !game.club_id) continue
+
+      const isCreator = game.creator_user_id === user.id
+
+      // Award create_game or join_game if missing
+      if (isCreator && !txSet.has(`${gameId}_create_game`)) {
+        console.log('[Rewards] Retroactively awarding create_game for game:', gameId)
+        await awardGameRewardPoints(gameId, 'create_game', playerAccountId)
+        awardedCount++
+      } else if (!isCreator && !txSet.has(`${gameId}_join_game`)) {
+        console.log('[Rewards] Retroactively awarding join_game for game:', gameId)
+        await awardGameRewardPoints(gameId, 'join_game', playerAccountId)
+        awardedCount++
+      }
+
+      // Check if result was confirmed
+      const { data: result } = await supabase
+        .from('open_game_results')
+        .select('status, submitted_by_user_id')
+        .eq('game_id', gameId)
+        .eq('status', 'confirmed')
+        .maybeSingle()
+
+      if (result) {
+        // Award submit_result if player submitted and doesn't have it
+        if (result.submitted_by_user_id === user.id && !txSet.has(`${gameId}_submit_result`)) {
+          console.log('[Rewards] Retroactively awarding submit_result for game:', gameId)
+          await awardGameRewardPoints(gameId, 'submit_result', playerAccountId)
+          awardedCount++
+        }
+        // Award confirm_result if player doesn't have it and didn't submit
+        if (result.submitted_by_user_id !== user.id && !txSet.has(`${gameId}_confirm_result`)) {
+          console.log('[Rewards] Retroactively awarding confirm_result for game:', gameId)
+          await awardGameRewardPoints(gameId, 'confirm_result', playerAccountId)
+          awardedCount++
+        }
+      }
+    }
+
+    // Check first_game bonus
+    if (!txSet.has(`${myGames[0]?.game_id}_first_game`)) {
+      const hasFirstGame = (existingTx || []).some(t => t.action_type === 'first_game')
+      if (!hasFirstGame && myGames.length > 0) {
+        console.log('[Rewards] Retroactively awarding first_game bonus')
+        await awardGameRewardPoints(myGames[0].game_id, 'first_game', playerAccountId)
+        awardedCount++
+      }
+    }
+
+    if (awardedCount > 0) {
+      console.log('[Rewards] ✅ Retroactively awarded', awardedCount, 'missing rewards')
+    }
+  } catch (err) {
+    console.error('[Rewards] Error in retroactive reward fix:', err)
+  }
 }
 
 // ============================
@@ -1631,7 +1958,7 @@ export async function fetchPlayerRewards(playerAccountId: string): Promise<{
     totalPoints += r.total_points
     return {
       clubId: r.club_id,
-      clubName: (r.club as any)?.name || 'Clube',
+      clubName: (r.club as any)?.name || (typeof window !== 'undefined' ? getTranslations().common.club : 'Clube'),
       points: r.total_points,
       tier: r.tier || 'silver',
     }
@@ -1735,7 +2062,7 @@ export async function fetchRewardCatalog(playerAccountId: string): Promise<{
       const club = clubMap.get(c.club_id)
       return {
         ...c,
-        club_name: club?.name || 'Clube',
+        club_name: club?.name || (typeof window !== 'undefined' ? getTranslations().common.club : 'Clube'),
         club_logo_url: club?.logo_url || null,
       }
     })
@@ -2257,12 +2584,12 @@ export async function fetchGamesAwaitingResult(userId: string, playerAccountId?:
         return {
           id: p.id, user_id: p.user_id, player_account_id: p.player_account_id,
           status: p.status, position: p.position,
-          name: account?.name || 'Jogador', avatar_url: account?.avatar_url || null,
+          name: account?.name || (typeof window !== 'undefined' ? getTranslations().common.player : 'Jogador'), avatar_url: account?.avatar_url || null,
           level: account?.level || null, player_category: account?.player_category || null,
         }
       })
 
-    const club = clubsMap[g.club_id] || { name: 'Clube', logo_url: null, city: null }
+    const club = clubsMap[g.club_id] || { name: (typeof window !== 'undefined' ? getTranslations().common.club : 'Clube'), logo_url: null, city: null }
     const court = g.court_id ? courtsMap[g.court_id] : null
     const resultStatus = resultsMap.get(g.id) || null
 
@@ -2336,6 +2663,30 @@ export async function fetchConfirmedOpenGameResults(userId: string, playerAccoun
     }
   }
 
+  // Auto-fix: Try to process ratings for any unprocessed confirmed results
+  // This catches cases where processOpenGameRating failed silently
+  try {
+    const { data: unprocessedResults } = await supabase
+      .from('open_game_results')
+      .select('game_id')
+      .eq('status', 'confirmed')
+      .eq('rating_processed', false)
+      .limit(5)
+
+    if (unprocessedResults && unprocessedResults.length > 0) {
+      console.log('[OpenGames] Found', unprocessedResults.length, 'unprocessed confirmed results, retrying...')
+      for (const r of unprocessedResults) {
+        try {
+          await processOpenGameRating(r.game_id)
+        } catch (err) {
+          console.error('[OpenGames] Retry failed for game:', r.game_id, err)
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[OpenGames] Error checking for unprocessed results:', err)
+  }
+
   // Get all games where user participated (priority: player_account_id, then user_id)
   const queries = []
   
@@ -2388,8 +2739,10 @@ export async function fetchConfirmedOpenGameResults(userId: string, playerAccoun
   const confirmedGameIds = confirmedResults.map(r => r.game_id)
   console.log('[OpenGames] fetchConfirmedOpenGameResults: found', confirmedResults.length, 'confirmed results for', confirmedGameIds.length, 'games')
 
-  // Fetch game details
-  const { data: gamesData, error: gamesError } = await supabase
+  // Fetch game details - use 'let' to allow fallback reassignment
+  let gamesData: any[] | null = null
+  
+  const { data: directGamesData, error: gamesError } = await supabase
     .from('open_games')
     .select('id, scheduled_at, club_id, court_id')
     .in('id', confirmedGameIds)
@@ -2397,16 +2750,22 @@ export async function fetchConfirmedOpenGameResults(userId: string, playerAccoun
   if (gamesError) {
     console.error('[OpenGames] Error fetching game details:', gamesError)
   }
-  console.log('[OpenGames] Fetched', gamesData?.length || 0, 'game details')
+  
+  gamesData = directGamesData
+  console.log('[OpenGames] Fetched', gamesData?.length || 0, 'game details directly')
   
   if (!gamesData || gamesData.length === 0) {
-    console.error('[OpenGames] No game details found - RLS may be blocking. Game IDs:', confirmedGameIds)
+    console.warn('[OpenGames] No game details found directly - RLS may be blocking. Trying JOIN workaround...')
     // Try to fetch through open_game_results JOIN as workaround
-    const { data: gamesViaResults } = await supabase
+    const { data: gamesViaResults, error: joinError } = await supabase
       .from('open_game_results')
       .select('game_id, open_games(id, scheduled_at, club_id, court_id)')
       .in('game_id', confirmedGameIds)
       .eq('status', 'confirmed')
+    
+    if (joinError) {
+      console.error('[OpenGames] JOIN workaround error:', joinError)
+    }
     
     if (gamesViaResults && gamesViaResults.length > 0) {
       console.log('[OpenGames] Found', gamesViaResults.length, 'games via open_game_results JOIN')
@@ -2420,10 +2779,21 @@ export async function fetchConfirmedOpenGameResults(userId: string, playerAccoun
           court_id: g.court_id
         }))
       if (gamesFromJoin.length > 0) {
-        // Use games from JOIN
-        gamesData = gamesFromJoin as any
+        gamesData = gamesFromJoin
         console.log('[OpenGames] Using games from JOIN:', gamesData.length)
       }
+    }
+    
+    // If still no data, try constructing minimal game data from the results themselves
+    if (!gamesData || gamesData.length === 0) {
+      console.warn('[OpenGames] JOIN workaround also failed. Constructing minimal game data from results...')
+      gamesData = confirmedResults.map(r => ({
+        id: r.game_id,
+        scheduled_at: r.created_at, // Use result creation date as fallback
+        club_id: null,
+        court_id: null
+      }))
+      console.log('[OpenGames] Constructed', gamesData.length, 'minimal game entries from results')
     }
   }
 
@@ -2495,7 +2865,7 @@ export async function fetchConfirmedOpenGameResults(userId: string, playerAccoun
       const p = gamePlayers[idx]
       if (!p) return { name: 'TBD', avatar_url: null }
       const acct = (p.player_account_id ? accountsMap.get('pa_' + p.player_account_id) : null) || accountsMap.get('u_' + p.user_id)
-      return { name: acct?.name || 'Jogador', avatar_url: acct?.avatar_url || null }
+      return { name: acct?.name || (typeof window !== 'undefined' ? getTranslations().common.player : 'Jogador'), avatar_url: acct?.avatar_url || null }
     }
 
     const p1 = getPlayerInfo(0)
@@ -2525,7 +2895,8 @@ export async function fetchConfirmedOpenGameResults(userId: string, playerAccoun
     const myTeam = myPlayer ? ((myPlayer.position || 0) <= 2 ? 1 : 2) : 0
     const is_winner = myTeam === 1 ? sets1 > sets2 : myTeam === 2 ? sets2 > sets1 : undefined
 
-    const clubName = game ? clubsMap.get(game.club_id) || 'Clube' : 'Clube'
+    const t = typeof window !== 'undefined' ? getTranslations() : null
+    const clubName = game ? clubsMap.get(game.club_id) || (t?.common.club || 'Clube') : (t?.common.club || 'Clube')
 
     return {
       id: `open_result_${result.game_id}`,

@@ -1,5 +1,6 @@
 import { supabase } from './supabase'
 import { sendPushToPlayer } from './pushNotifications'
+import { getTranslations } from './translations'
 
 // ============================================
 // Helpers
@@ -145,9 +146,11 @@ export async function followUser(followerId: string, followingId: string): Promi
       .maybeSingle()
     
     if (followedAccount?.id) {
+      const { getTranslations } = await import('./translations')
+      const t = getTranslations()
       sendPushToPlayer(followedAccount.id, {
-        title: 'Novo seguidor! 👋',
-        body: `${followerAccount?.name || 'Alguém'} começou a seguir-te.`,
+        title: t.notifications.newFollower,
+        body: t.notifications.newFollowerBody.replace('{name}', followerAccount?.name || t.notifications.someone),
         url: '/?screen=community',
         tag: `follow-${followerId}`,
       })
@@ -332,7 +335,7 @@ export async function getFeedPosts(userId: string): Promise<CommunityPost[]> {
     const author = authorMap.get(p.user_id)
     return {
       ...p,
-      author_name: author?.name || 'Jogador',
+      author_name: author?.name || (typeof window !== 'undefined' ? getTranslations().common.player : 'Jogador'),
       author_avatar: author?.avatar_url,
       author_level: author?.level,
     }
@@ -670,14 +673,17 @@ export async function getFeedMatches(userId: string): Promise<FeedMatchItem[]> {
             const byPos = new Map<number, string>()
             gamePlayers.forEach(p => {
               if (p.position && p.player_account_id) {
-                byPos.set(p.position, nameMap.get(p.player_account_id) || 'Jogador')
+                const t = typeof window !== 'undefined' ? getTranslations() : null
+                byPos.set(p.position, nameMap.get(p.player_account_id) || (t?.common.player || 'Jogador'))
               }
             })
 
-            const p1Name = byPos.get(1) || 'Jogador 1'
-            const p2Name = byPos.get(2) || 'Jogador 2'
-            const p3Name = byPos.get(3) || 'Jogador 3'
-            const p4Name = byPos.get(4) || 'Jogador 4'
+            const t = typeof window !== 'undefined' ? (() => { try { return (require('./translations') as any).getTranslations() } catch { return null } })() : null
+            const playerLabel = t?.common.player || 'Jogador'
+            const p1Name = byPos.get(1) || `${playerLabel} 1`
+            const p2Name = byPos.get(2) || `${playerLabel} 2`
+            const p3Name = byPos.get(3) || `${playerLabel} 3`
+            const p4Name = byPos.get(4) || `${playerLabel} 4`
 
             const team1Sets = [
               (result.team1_score_set1 || 0) > (result.team2_score_set1 || 0) ? 1 : 0,
