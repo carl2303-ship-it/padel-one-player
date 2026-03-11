@@ -1611,7 +1611,7 @@ export async function disputeGameResult(gameId: string): Promise<{ success: bool
 // ============================
 
 async function processOpenGameRating(gameId: string): Promise<void> {
-  console.log('[OpenGames] processOpenGameRating: Starting for game:', gameId)
+  console.log('[OpenGames] processOpenGameRating v3: Starting for game:', gameId)
   
   // 1. Get the confirmed result
   const { data: result, error: resultError } = await supabase
@@ -1634,12 +1634,15 @@ async function processOpenGameRating(gameId: string): Promise<void> {
     return
   }
   
-  console.log('[OpenGames] processOpenGameRating: Found confirmed result:', result.id)
+  console.log('[OpenGames] processOpenGameRating: Found confirmed result:', result.id, 
+    'Scores:', result.team1_score_set1, '-', result.team2_score_set1, '|', 
+    result.team1_score_set2, '-', result.team2_score_set2, '|',
+    result.team1_score_set3, '-', result.team2_score_set3)
 
   // 2. Get all confirmed players sorted by position
   const { data: players, error: playersError } = await supabase
     .from('open_game_players')
-    .select('player_account_id, position')
+    .select('player_account_id, position, user_id')
     .eq('game_id', gameId)
     .eq('status', 'confirmed')
     .order('position', { ascending: true })
@@ -1650,18 +1653,27 @@ async function processOpenGameRating(gameId: string): Promise<void> {
   }
   if (!players || players.length < 4) {
     console.warn('[OpenGames] processOpenGameRating: Not enough players (need 4, got', players?.length || 0, ')')
+    console.warn('[OpenGames] Players found:', JSON.stringify(players))
     return
   }
   
-  console.log('[OpenGames] processOpenGameRating: Found', players.length, 'players')
+  console.log('[OpenGames] processOpenGameRating: Found', players.length, 'players:', 
+    players.map(p => `pos${p.position}:${p.player_account_id}`).join(', '))
 
-  // 3. Get player accounts
+  // 3. Get player accounts (include level_reliability_percent for protected reliability)
   const accountIds = players.map(p => p.player_account_id).filter(Boolean) as string[]
+  
+  if (accountIds.length < 4) {
+    console.warn('[OpenGames] processOpenGameRating: Not enough player_account_ids (need 4, got', accountIds.length, ')')
+    console.warn('[OpenGames] Some players might not have player_account_id set')
+    return
+  }
+  
   console.log('[OpenGames] processOpenGameRating: Account IDs:', accountIds)
   
   const { data: accounts, error: accountsError } = await supabase
     .from('player_accounts')
-    .select('id, user_id, name, level, rated_matches, wins, losses')
+    .select('id, user_id, name, level, rated_matches, wins, losses, level_reliability_percent')
     .in('id', accountIds)
 
   if (accountsError) {
@@ -1675,12 +1687,13 @@ async function processOpenGameRating(gameId: string): Promise<void> {
     return
   }
   
-  console.log('[OpenGames] processOpenGameRating: Found', accounts.length, 'accounts')
+  console.log('[OpenGames] processOpenGameRating: Found', accounts.length, 'accounts:',
+    accounts.map(a => `${a.name}(lvl:${a.level}, rm:${a.rated_matches}, rel:${a.level_reliability_percent}%)`).join(', '))
 
   const accountMap = new Map(accounts.map(a => [a.id, a]))
 
   // 4. Build ratings (positions 1,2 = team 1; positions 3,4 = team 2)
-  const { calculateNewRatings, calculateReliability } = await import('./ratingEngine')
+  const { calculateNewRatings, calculateReliability, calculateProtectedReliability } = await import('./ratingEngine')
 
   const buildPlayerRating = (paId: string) => {
     const acct = accountMap.get(paId)
@@ -1699,7 +1712,15 @@ async function processOpenGameRating(gameId: string): Promise<void> {
   const p3 = buildPlayerRating(players[2].player_account_id!)
   const p4 = buildPlayerRating(players[3].player_account_id!)
 
-  if (!p1 || !p2 || !p3 || !p4) return
+  if (!p1 || !p2 || !p3 || !p4) {
+    console.error('[OpenGames] processOpenGameRating: Could not build all player ratings', 
+      { p1: !!p1, p2: !!p2, p3: !!p3, p4: !!p4 })
+    return
+  }
+
+  console.log('[OpenGames] processOpenGameRating: Player ratings before:',
+    `Team1: ${p1.name}(${p1.rating}) + ${p2.name}(${p2.rating})`,
+    `vs Team2: ${p3.name}(${p3.rating}) + ${p4.name}(${p4.rating})`)
 
   const s1 = [result.team1_score_set1 ?? 0, result.team2_score_set1 ?? 0] as [number, number]
   const s2 = [result.team1_score_set2 ?? 0, result.team2_score_set2 ?? 0] as [number, number]
@@ -1710,7 +1731,13 @@ async function processOpenGameRating(gameId: string): Promise<void> {
   const gamesTotal1 = s1[0] + s2[0] + s3[0]
   const gamesTotal2 = s1[1] + s2[1] + s3[1]
 
-  if (sets1 === 0 && sets2 === 0) return
+  console.log('[OpenGames] processOpenGameRating: Score analysis:',
+    `sets ${sets1}-${sets2}, games ${gamesTotal1}-${gamesTotal2}`)
+
+  if (sets1 === 0 && sets2 === 0 && gamesTotal1 === 0 && gamesTotal2 === 0) {
+    console.warn('[OpenGames] processOpenGameRating: No scores at all, skipping')
+    return
+  }
 
   const ratingResult = calculateNewRatings(
     { p1, p2 },
@@ -1718,9 +1745,22 @@ async function processOpenGameRating(gameId: string): Promise<void> {
     { sets1, sets2, gamesTotal1, gamesTotal2 }
   )
 
-  if (ratingResult.skipped || !ratingResult.team1 || !ratingResult.team2) return
+  if (ratingResult.skipped) {
+    console.warn('[OpenGames] processOpenGameRating: Rating calculation skipped:', ratingResult.message)
+    // Still mark as processed to avoid retrying forever
+    await supabase
+      .from('open_game_results')
+      .update({ rating_processed: true, updated_at: new Date().toISOString() })
+      .eq('id', result.id)
+    return
+  }
 
-  // 5. Update ratings
+  if (!ratingResult.team1 || !ratingResult.team2) {
+    console.error('[OpenGames] processOpenGameRating: No rating result teams')
+    return
+  }
+
+  // 5. Update ratings with protected reliability
   const allPlayers = [
     ratingResult.team1.p1, ratingResult.team1.p2,
     ratingResult.team2.p3, ratingResult.team2.p4,
@@ -1729,18 +1769,28 @@ async function processOpenGameRating(gameId: string): Promise<void> {
   console.log('[OpenGames] processOpenGameRating: Updating ratings for', allPlayers.length, 'players')
   
   for (const rp of allPlayers) {
-    const newReliability = calculateReliability(rp.matches)
-    console.log('[OpenGames] processOpenGameRating: Updating player', rp.id, rp.name, '- new rating:', rp.rating, 'won:', rp.won)
+    const formulaReliability = calculateReliability(rp.matches)
+    const currentAccount = accountMap.get(rp.id)
+    const currentReliability = currentAccount?.level_reliability_percent ?? 0
+    const protectedReliability = calculateProtectedReliability(formulaReliability, currentReliability)
+    
+    console.log('[OpenGames] processOpenGameRating: Updating player', rp.name,
+      `- rating: ${(currentAccount?.level ?? 3.0).toFixed(2)} → ${rp.rating.toFixed(2)} (Δ${rp.delta >= 0 ? '+' : ''}${rp.delta.toFixed(4)})`,
+      `| reliability: ${currentReliability}% → ${protectedReliability}% (formula: ${formulaReliability}%)`,
+      `| won: ${rp.won}`,
+      `| matches: ${rp.matches}`)
     
     const { error: rpcError } = await supabase.rpc('update_player_rating', {
       p_player_account_id: rp.id,
       p_new_level: rp.rating,
-      p_new_reliability: newReliability,
+      p_new_reliability: protectedReliability,
       p_match_won: rp.won,
     })
     
     if (rpcError) {
-      console.error('[OpenGames] processOpenGameRating: Error updating rating for', rp.id, ':', rpcError)
+      console.error('[OpenGames] processOpenGameRating: Error updating rating for', rp.id, rp.name, ':', rpcError)
+    } else {
+      console.log('[OpenGames] processOpenGameRating: ✅ Successfully updated', rp.name)
     }
   }
 
@@ -1754,7 +1804,7 @@ async function processOpenGameRating(gameId: string): Promise<void> {
     console.error('[OpenGames] processOpenGameRating: Error marking as processed:', markError)
   }
 
-  console.log('[OpenGames] Rating processed successfully for game:', gameId)
+  console.log('[OpenGames] ✅ Rating processed successfully for game:', gameId)
 }
 
 // ============================

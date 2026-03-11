@@ -1,15 +1,18 @@
 /**
- * Padel One Rating Engine v2
+ * Padel One Rating Engine v3
  * Sistema ELO adaptado para Padel em Duplas
  * 
  * Escala: 0.5 (iniciante) a 7.0 (profissional)
  * Fiabilidade: 0% (0 jogos) a 100% (75+ jogos rated)
  * 
- * v2 Fixes:
- * - K-Factor agora usa rated_matches (contagem real de jogos processados)
- * - wins/losses/rated_matches atualizados em player_accounts após cada jogo
- * - Fiabilidade calculada diretamente a partir de rated_matches
- * - K-Factor inicial reduzido de 0.15 para 0.12 (menos agressivo)
+ * v3 Fixes:
+ * - K-Factor SIGNIFICATIVAMENTE aumentado para jogadores novos (0.5 vs 0.12)
+ *   para que o nível mude visivelmente após cada jogo
+ * - Fórmula ELO com divisor ajustado (1.2 vs 2.0) para maior sensibilidade
+ * - Intensidade do resultado melhorada (3 sets, vitória dominante, etc.)
+ * - Fiabilidade protegida: nunca cai mais de 2% por jogo (preserva avaliação do clube)
+ * - Empate (1-1 sets) tratado com base em games totais
+ * - Logs detalhados para diagnóstico
  */
 
 import { supabase } from './supabase'
@@ -53,6 +56,10 @@ export interface RatingResult {
 /**
  * Calcula os novos ratings de 4 jogadores após um jogo de duplas.
  * Baseado no sistema ELO com adaptações para padel.
+ * 
+ * Escala 0.5-7.0 (range = 6.5). ELO clássico usa range ~2000.
+ * K-Factor proporcional: K_classic=40 → K_padel = 40*(6.5/2000) ≈ 0.13 para veteranos.
+ * Para novos jogadores: K muito mais alto para convergência rápida.
  */
 export function calculateNewRatings(
   team1: { p1: PlayerRating; p2: PlayerRating },
@@ -66,40 +73,75 @@ export function calculateNewRatings(
   const avg1 = (p1.rating + p2.rating) / 2
   const avg2 = (p3.rating + p4.rating) / 2
 
-  // 2. Verificação de Disparidade (Regra do 1.5)
-  if (Math.abs(avg1 - avg2) > 1.5) {
+  console.log(`[RatingEngine] Team averages: ${avg1.toFixed(2)} vs ${avg2.toFixed(2)}`)
+
+  // 2. Verificação de Disparidade (Regra do 2.0)
+  // Aumentado de 1.5 para 2.0 para permitir mais jogos entre níveis diferentes
+  if (Math.abs(avg1 - avg2) > 2.0) {
     return {
       skipped: true,
-      message: `Disparidade demasiado alta (${Math.abs(avg1 - avg2).toFixed(2)} > 1.5), nível inalterado`,
+      message: `Disparidade demasiado alta (${Math.abs(avg1 - avg2).toFixed(2)} > 2.0), nível inalterado`,
     }
   }
 
   // 3. Probabilidade de Vitória (Expected Outcome)
-  const expected1 = 1 / (1 + Math.pow(10, (avg2 - avg1) / 2))
-  const actual1 = score.sets1 > score.sets2 ? 1 : (score.sets1 < score.sets2 ? 0 : 0.5)
+  // Divisor 1.2 (vs 2.0 anterior) — torna a fórmula mais sensível a diferenças de nível
+  // Com divisor 1.2: diferença de 0.5 → expected ≈ 0.27 (antes era 0.36)
+  const expected1 = 1 / (1 + Math.pow(10, (avg2 - avg1) / 1.2))
 
-  // 4. Intensidade do Resultado (Multiplicador)
+  // 4. Resultado Actual
+  // Se empate em sets (1-1), usar diferença de games para desempatar
+  let actual1: number
+  if (score.sets1 > score.sets2) {
+    actual1 = 1
+  } else if (score.sets1 < score.sets2) {
+    actual1 = 0
+  } else {
+    // Empate em sets — usar games totais para determinar vencedor parcial
+    if (score.gamesTotal1 > score.gamesTotal2) {
+      actual1 = 0.6  // Ligeira vantagem (não vitória completa)
+    } else if (score.gamesTotal1 < score.gamesTotal2) {
+      actual1 = 0.4
+    } else {
+      actual1 = 0.5  // Empate verdadeiro
+    }
+  }
+
+  // 5. Intensidade do Resultado (Multiplicador)
   let intensity = 1.0
   const gameDiff = Math.abs(score.gamesTotal1 - score.gamesTotal2)
 
   if (score.sets1 + score.sets2 === 3) {
-    intensity = 0.7  // Jogo renhido de 3 sets
+    // Jogo de 3 sets — verificar se foi renhido
+    if (gameDiff <= 3) {
+      intensity = 0.6   // Muito renhido (ex: 6-4, 4-6, 7-6)
+    } else {
+      intensity = 0.8   // 3 sets mas com margem
+    }
   } else if (gameDiff > 8) {
-    intensity = 1.2  // Vitória dominante
+    intensity = 1.3   // Vitória dominante (ex: 6-1, 6-2)
+  } else if (gameDiff > 5) {
+    intensity = 1.15  // Vitória clara (ex: 6-3, 6-3)
   }
 
-  // 5. K-Factor baseado em jogos RATED
+  console.log(`[RatingEngine] Score: sets ${score.sets1}-${score.sets2}, games ${score.gamesTotal1}-${score.gamesTotal2} | expected: ${expected1.toFixed(4)}, actual: ${actual1}, intensity: ${intensity}`)
+
+  // 6. K-Factor baseado em jogos RATED
+  // Muito mais alto para jogadores novos — convergência rápida do nível
   const getKFactor = (matches: number): number => {
-    if (matches < 10) return 0.12
-    if (matches < 30) return 0.08
-    if (matches < 50) return 0.05
-    return 0.03
+    if (matches < 5) return 0.50    // Muito novo — convergência rápida
+    if (matches < 10) return 0.35   // Ainda novo
+    if (matches < 20) return 0.25   // A construir histórico
+    if (matches < 40) return 0.15   // Estabelecido
+    if (matches < 60) return 0.10   // Experiente
+    return 0.06                      // Veterano
   }
 
-  // 6. Cálculo do Delta
+  // 7. Cálculo do Delta
   const calculateDelta = (player: PlayerRating, actual: number, expected: number, intens: number): number => {
     const K = getKFactor(player.matches)
     const change = K * (actual - expected) * intens
+    console.log(`[RatingEngine]   ${player.name}: K=${K}, delta=${change.toFixed(4)} (actual=${actual}, expected=${expected.toFixed(4)}, intensity=${intens})`)
     return parseFloat(change.toFixed(4))
   }
 
@@ -108,11 +150,13 @@ export function calculateNewRatings(
   const delta3 = calculateDelta(p3, 1 - actual1, 1 - expected1, intensity)
   const delta4 = calculateDelta(p4, 1 - actual1, 1 - expected1, intensity)
 
-  // 7. Clamp para manter dentro da escala 0.5 - 7.0
+  // 8. Clamp para manter dentro da escala 0.5 - 7.0
   const clamp = (val: number) => Math.max(0.5, Math.min(7.0, parseFloat(val.toFixed(2))))
 
-  // 8. Determinar quem ganhou/perdeu
-  const team1Won = actual1 === 1 ? true : actual1 === 0 ? false : null
+  // 9. Determinar quem ganhou/perdeu
+  const team1Won = actual1 >= 0.6 ? true : actual1 <= 0.4 ? false : null
+
+  console.log(`[RatingEngine] Results: P1 ${p1.rating.toFixed(2)}→${clamp(p1.rating + delta1).toFixed(2)}, P2 ${p2.rating.toFixed(2)}→${clamp(p2.rating + delta2).toFixed(2)}, P3 ${p3.rating.toFixed(2)}→${clamp(p3.rating + delta3).toFixed(2)}, P4 ${p4.rating.toFixed(2)}→${clamp(p4.rating + delta4).toFixed(2)}`)
 
   return {
     team1: {
@@ -130,11 +174,30 @@ export function calculateNewRatings(
 // Fiabilidade (Reliability)
 // ============================================
 
+/**
+ * Calcula a fiabilidade baseada em jogos rated.
+ * 0 jogos = 0%, 75+ jogos = 100%
+ */
 export function calculateReliability(totalMatches: number): number {
   if (totalMatches <= 0) return 0
   if (totalMatches >= 75) return 100
   const reliability = Math.min(100, Math.round(100 * (Math.log(totalMatches + 1) / Math.log(76))))
   return reliability
+}
+
+/**
+ * Calcula a fiabilidade "protegida" — nunca cai mais de 2% por jogo.
+ * Isto preserva a avaliação feita pelo clube/management.
+ * 
+ * @param newReliability - fiabilidade calculada a partir dos rated_matches
+ * @param currentReliability - fiabilidade actual no player_accounts
+ * @returns fiabilidade a guardar (máximo entre fórmula e decaimento lento)
+ */
+export function calculateProtectedReliability(newReliability: number, currentReliability: number): number {
+  // Se a fiabilidade pela fórmula é maior (normal progression), usa a fórmula
+  // Se a fiabilidade pela fórmula é menor (ex: clube definiu 80%, rated_matches=2 → 25%),
+  // usa decaimento lento: -2% por jogo para não destruir a avaliação do clube
+  return Math.max(newReliability, currentReliability - 2)
 }
 
 export function calculateMatchesFromReliability(reliability: number): number {
@@ -154,6 +217,7 @@ export interface CachedPlayer {
   name: string
   rating: number
   matchCount: number
+  currentReliability: number
 }
 
 export type PlayerCache = Map<string, CachedPlayer>
@@ -330,7 +394,11 @@ export async function processMatchRating(matchId: string, cache?: PlayerCache): 
     const allUpdatedPlayers = [result.team1.p1, result.team1.p2, result.team2.p3, result.team2.p4]
 
     for (const rp of allUpdatedPlayers) {
-      const newReliability = calculateReliability(rp.matches)
+      const formulaReliability = calculateReliability(rp.matches)
+      // Get current reliability from account or cache
+      const acctData = Array.from(accountsMap.values()).find((a: any) => a.id === rp.id)
+      const currentReliability = cache?.get(rp.id)?.currentReliability ?? acctData?.level_reliability_percent ?? 0
+      const protectedReliability = calculateProtectedReliability(formulaReliability, currentReliability)
 
       if (cache) {
         cache.set(rp.id, {
@@ -339,13 +407,14 @@ export async function processMatchRating(matchId: string, cache?: PlayerCache): 
           name: rp.name,
           rating: rp.rating,
           matchCount: rp.matches,
+          currentReliability: protectedReliability,
         })
       }
 
       const { error } = await supabase.rpc('update_player_rating', {
         p_player_account_id: rp.id,
         p_new_level: rp.rating,
-        p_new_reliability: newReliability,
+        p_new_reliability: protectedReliability,
         p_match_won: rp.won,
       })
 
@@ -363,7 +432,7 @@ export async function processMatchRating(matchId: string, cache?: PlayerCache): 
 
     console.log('[RatingEngine] Updated ratings for match:', matchId)
     const logPlayer = (before: PlayerRating, after: PlayerRating & { delta: number }) => {
-      const K = after.matches < 10 ? 0.12 : after.matches < 30 ? 0.08 : after.matches < 50 ? 0.05 : 0.03
+      const K = getKFactorForLog(after.matches)
       console.log(`  ${after.name}: ${before.rating.toFixed(2)} → ${after.rating.toFixed(2)} (Δ${after.delta >= 0 ? '+' : ''}${after.delta.toFixed(4)}) | K=${K} | jogos: ${after.matches} | fiab: ${calculateReliability(after.matches)}%`)
     }
     logPlayer(p1, result.team1.p1)
@@ -373,6 +442,16 @@ export async function processMatchRating(matchId: string, cache?: PlayerCache): 
   }
 
   return result
+}
+
+// Helper for logging
+function getKFactorForLog(matches: number): number {
+  if (matches < 5) return 0.50
+  if (matches < 10) return 0.35
+  if (matches < 20) return 0.25
+  if (matches < 40) return 0.15
+  if (matches < 60) return 0.10
+  return 0.06
 }
 
 export async function processAllUnratedMatches(
