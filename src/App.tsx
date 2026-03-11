@@ -8125,6 +8125,7 @@ function GamesScreen({
   onOpenPlayerProfile: (userId: string) => void
   initialTab?: 'upcoming' | 'history'
 }) {
+  const { t } = useI18n()
   const [activeTab, setActiveTab] = useState<'upcoming' | 'history'>(initialTab || 'upcoming')
   
   // Update tab when initialTab changes
