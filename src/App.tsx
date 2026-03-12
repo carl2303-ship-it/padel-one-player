@@ -2463,6 +2463,14 @@ function HomeScreen({
 
   const rewardPoints = rewardData?.totalPoints ?? player?.total_reward_points ?? 0
 
+  // Histórico de variação de nível (últimos 5 jogos)
+  const [ratingHistory, setRatingHistory] = useState<import('./lib/openGames').RatingHistoryEntry[]>([])
+  useEffect(() => {
+    import('./lib/openGames').then(({ fetchRatingHistory }) => {
+      fetchRatingHistory(5).then(setRatingHistory).catch(() => {})
+    })
+  }, [player?.id])
+
   // Determinar nível de reward
   const getRewardTier = (pts: number) => {
     if (pts >= 1000) return { name: 'Diamond', emoji: '💎', bgColor: 'bg-gradient-to-br from-cyan-50 to-cyan-100', textColor: 'text-cyan-700' }
@@ -2540,6 +2548,65 @@ function HomeScreen({
                   </span>
                 </div>
               )}
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* Card: Variação do Nível – últimos 5 jogos */}
+      {ratingHistory.length > 0 && (() => {
+        const totalDelta = ratingHistory.reduce((sum, e) => sum + e.delta, 0)
+        const isPositive = totalDelta > 0.001
+        const isNegative = totalDelta < -0.001
+        const trendBg   = isPositive ? 'bg-green-50 border-green-200' : isNegative ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-200'
+        const trendIcon = isPositive ? '📈' : isNegative ? '📉' : '➡️'
+
+        return (
+          <div className={`card p-4 border ${trendBg}`}>
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-sm font-semibold text-gray-700 flex items-center gap-1.5">
+                {trendIcon} Evolução do Nível
+              </p>
+              <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                isPositive ? 'bg-green-100 text-green-700' :
+                isNegative ? 'bg-red-100 text-red-700' :
+                'bg-gray-100 text-gray-600'
+              }`}>
+                {isPositive ? '+' : ''}{totalDelta.toFixed(2)} últimos {ratingHistory.length} jogos
+              </span>
+            </div>
+
+            {/* Mini gráfico de barras */}
+            <div className="space-y-1.5">
+              {[...ratingHistory].reverse().map((entry, idx) => {
+                const entryPositive = entry.delta > 0.001
+                const entryNegative = entry.delta < -0.001
+                const barColor = entryPositive ? 'bg-green-500' : entryNegative ? 'bg-red-400' : 'bg-gray-300'
+                const barWidth = Math.min(Math.abs(entry.delta) / 0.5 * 60, 60)
+                const date = new Date(entry.created_at)
+                const dateStr = `${date.getDate().toString().padStart(2,'0')}/${(date.getMonth()+1).toString().padStart(2,'0')}`
+                return (
+                  <div key={entry.id} className="flex items-center gap-2">
+                    <span className="text-[10px] text-gray-400 w-6 text-right shrink-0">J{idx + 1}</span>
+                    <span className="text-[11px] text-gray-600 w-20 shrink-0 font-mono">
+                      {entry.old_level.toFixed(2)} → {entry.new_level.toFixed(2)}
+                    </span>
+                    <div className="flex-1 flex items-center gap-1.5">
+                      <div
+                        className={`h-3 rounded-full ${barColor} transition-all`}
+                        style={{ width: barWidth < 3 ? 3 : barWidth }}
+                      />
+                      <span className={`text-[11px] font-semibold ${entryPositive ? 'text-green-600' : entryNegative ? 'text-red-500' : 'text-gray-400'}`}>
+                        {entryPositive ? '+' : ''}{entry.delta.toFixed(2)}
+                      </span>
+                    </div>
+                    <span className="text-[10px] text-gray-400 shrink-0">{dateStr}</span>
+                    {entry.match_won !== null && (
+                      <span className="text-sm shrink-0">{entry.match_won ? '✅' : '❌'}</span>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           </div>
         )

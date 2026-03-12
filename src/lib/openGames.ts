@@ -1785,6 +1785,8 @@ async function processOpenGameRating(gameId: string): Promise<void> {
       p_new_level: rp.rating,
       p_new_reliability: protectedReliability,
       p_match_won: rp.won,
+      p_source: 'open_game',
+      p_source_id: gameId,
     })
     
     if (rpcError) {
@@ -1805,6 +1807,52 @@ async function processOpenGameRating(gameId: string): Promise<void> {
   }
 
   console.log('[OpenGames] ✅ Rating processed successfully for game:', gameId)
+}
+
+// ============================
+// Rating history
+// ============================
+
+export interface RatingHistoryEntry {
+  id: string
+  old_level: number
+  new_level: number
+  delta: number
+  source: 'open_game' | 'tournament' | 'manual'
+  source_id: string | null
+  match_won: boolean | null
+  created_at: string
+}
+
+/**
+ * Busca o histórico de variações de nível do jogador autenticado.
+ * @param limit  Número máximo de entradas a retornar (default 5)
+ */
+export async function fetchRatingHistory(limit = 5): Promise<RatingHistoryEntry[]> {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return []
+
+  const { data: pa } = await supabase
+    .from('player_accounts')
+    .select('id')
+    .eq('user_id', user.id)
+    .maybeSingle()
+
+  if (!pa?.id) return []
+
+  const { data, error } = await supabase
+    .from('player_rating_history')
+    .select('id, old_level, new_level, delta, source, source_id, match_won, created_at')
+    .eq('player_account_id', pa.id)
+    .order('created_at', { ascending: false })
+    .limit(limit)
+
+  if (error) {
+    console.error('[RatingHistory] Error fetching:', error)
+    return []
+  }
+
+  return (data ?? []) as RatingHistoryEntry[]
 }
 
 // ============================
