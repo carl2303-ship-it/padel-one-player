@@ -1785,8 +1785,6 @@ async function processOpenGameRating(gameId: string): Promise<void> {
       p_new_level: rp.rating,
       p_new_reliability: protectedReliability,
       p_match_won: rp.won,
-      p_source: 'open_game',
-      p_source_id: gameId,
     })
     
     if (rpcError) {
@@ -1807,106 +1805,6 @@ async function processOpenGameRating(gameId: string): Promise<void> {
   }
 
   console.log('[OpenGames] ✅ Rating processed successfully for game:', gameId)
-}
-
-// ============================
-// Rating history
-// ============================
-
-export interface RatingHistoryEntry {
-  id: string
-  old_level: number
-  new_level: number
-  delta: number
-  source: 'open_game' | 'tournament' | 'manual'
-  source_id: string | null
-  match_won: boolean | null
-  created_at: string
-}
-
-/**
- * Busca o histórico de variações de nível do jogador autenticado.
- * Primeiro tenta a tabela player_rating_history.
- * Se estiver vazia (ou não existir), faz fallback aos últimos resultados
- * confirmados de open_game_results.
- * @param limit  Número máximo de entradas a retornar (default 5)
- */
-export async function fetchRatingHistory(limit = 5): Promise<RatingHistoryEntry[]> {
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return []
-
-  const { data: pa } = await supabase
-    .from('player_accounts')
-    .select('id, level')
-    .eq('user_id', user.id)
-    .maybeSingle()
-
-  if (!pa?.id) return []
-
-  // 1) Tentar tabela player_rating_history
-  const { data: histData, error: histError } = await supabase
-    .from('player_rating_history')
-    .select('id, old_level, new_level, delta, source, source_id, match_won, created_at')
-    .eq('player_account_id', pa.id)
-    .order('created_at', { ascending: false })
-    .limit(limit)
-
-  if (!histError && histData && histData.length > 0) {
-    return histData as RatingHistoryEntry[]
-  }
-
-  console.log('[RatingHistory] No history table data, falling back to open_game_results...')
-
-  // 2) Fallback: buscar últimos jogos confirmados onde o jogador participou
-  // Buscar game_ids do jogador
-  const { data: playerGames } = await supabase
-    .from('open_game_players')
-    .select('game_id, position')
-    .or(`user_id.eq.${user.id},player_account_id.eq.${pa.id}`)
-    .eq('status', 'confirmed')
-
-  if (!playerGames || playerGames.length === 0) return []
-
-  const gameIds = [...new Set(playerGames.map(g => g.game_id))]
-  const positionMap = new Map(playerGames.map(g => [g.game_id, g.position || 0]))
-
-  // Buscar resultados confirmados
-  const { data: results } = await supabase
-    .from('open_game_results')
-    .select('id, game_id, team1_score_set1, team2_score_set1, team1_score_set2, team2_score_set2, team1_score_set3, team2_score_set3, created_at, confirmed_at')
-    .in('game_id', gameIds)
-    .eq('status', 'confirmed')
-    .order('confirmed_at', { ascending: false })
-    .limit(limit)
-
-  if (!results || results.length === 0) return []
-
-  const currentLevel = pa.level ?? 3.0
-
-  return results.map((r, idx) => {
-    // Calcular quem ganhou
-    const sets1 = (r.team1_score_set1 > r.team2_score_set1 ? 1 : 0) +
-      (r.team1_score_set2 > r.team2_score_set2 ? 1 : 0) +
-      (r.team1_score_set3 > r.team2_score_set3 ? 1 : 0)
-    const sets2 = (r.team2_score_set1 > r.team1_score_set1 ? 1 : 0) +
-      (r.team2_score_set2 > r.team1_score_set2 ? 1 : 0) +
-      (r.team2_score_set3 > r.team1_score_set3 ? 1 : 0)
-
-    const myPos = positionMap.get(r.game_id) || 0
-    const myTeam = myPos <= 2 ? 1 : 2
-    const won = myTeam === 1 ? sets1 > sets2 : sets2 > sets1
-
-    return {
-      id: r.id,
-      old_level: currentLevel,
-      new_level: currentLevel,
-      delta: 0,
-      source: 'open_game' as const,
-      source_id: r.game_id,
-      match_won: won,
-      created_at: r.confirmed_at || r.created_at,
-    }
-  })
 }
 
 // ============================
