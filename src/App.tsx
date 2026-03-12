@@ -2555,18 +2555,21 @@ function HomeScreen({
 
       {/* Card: Variação do Nível – últimos 5 jogos */}
       {(() => {
-        const totalDelta = ratingHistory.reduce((sum, e) => sum + e.delta, 0)
-        const isPositive = totalDelta > 0.001
-        const isNegative = totalDelta < -0.001
         const hasData = ratingHistory.length > 0
-        const trendBg   = !hasData ? 'bg-gray-50 border-gray-200' : isPositive ? 'bg-green-50 border-green-200' : isNegative ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-200'
+        const hasDeltaData = ratingHistory.some(e => Math.abs(e.delta) > 0.001)
+        const totalDelta = ratingHistory.reduce((sum, e) => sum + e.delta, 0)
+        const winsCount = ratingHistory.filter(e => e.match_won === true).length
+        const lossesCount = ratingHistory.filter(e => e.match_won === false).length
+        const isPositive = hasDeltaData ? totalDelta > 0.001 : winsCount > lossesCount
+        const isNegative = hasDeltaData ? totalDelta < -0.001 : lossesCount > winsCount
+        const trendBg = !hasData ? 'bg-gray-50 border-gray-200' : isPositive ? 'bg-green-50 border-green-200' : isNegative ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-200'
         const trendIcon = !hasData ? '📊' : isPositive ? '📈' : isNegative ? '📉' : '➡️'
 
         return (
           <div className={`card p-4 border ${trendBg}`}>
             <div className="flex items-center justify-between mb-3">
               <p className="text-sm font-semibold text-gray-700 flex items-center gap-1.5">
-                {trendIcon} Evolução do Nível
+                {trendIcon} Últimos Resultados
               </p>
               {hasData && (
                 <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
@@ -2574,7 +2577,10 @@ function HomeScreen({
                   isNegative ? 'bg-red-100 text-red-700' :
                   'bg-gray-100 text-gray-600'
                 }`}>
-                  {isPositive ? '+' : ''}{totalDelta.toFixed(2)} últimos {ratingHistory.length} jogos
+                  {hasDeltaData 
+                    ? `${isPositive ? '+' : ''}${totalDelta.toFixed(2)} últimos ${ratingHistory.length} jogos`
+                    : `${winsCount}V - ${lossesCount}D últimos ${ratingHistory.length} jogos`
+                  }
                 </span>
               )}
             </div>
@@ -2582,33 +2588,47 @@ function HomeScreen({
             {!hasData ? (
               <div className="text-center py-4">
                 <p className="text-2xl mb-2">🎾</p>
-                <p className="text-sm text-gray-500">Sem jogos processados ainda</p>
-                <p className="text-[11px] text-gray-400 mt-1">A evolução do teu nível aparecerá aqui após os primeiros jogos</p>
+                <p className="text-sm text-gray-500">Sem jogos confirmados ainda</p>
+                <p className="text-[11px] text-gray-400 mt-1">Os teus últimos resultados aparecerão aqui</p>
               </div>
             ) : (
               <div className="space-y-1.5">
                 {[...ratingHistory].reverse().map((entry, idx) => {
-                  const entryPositive = entry.delta > 0.001
-                  const entryNegative = entry.delta < -0.001
+                  const hasDelta = Math.abs(entry.delta) > 0.001
+                  const entryPositive = hasDelta ? entry.delta > 0.001 : entry.match_won === true
+                  const entryNegative = hasDelta ? entry.delta < -0.001 : entry.match_won === false
                   const barColor = entryPositive ? 'bg-green-500' : entryNegative ? 'bg-red-400' : 'bg-gray-300'
-                  const barWidth = Math.min(Math.abs(entry.delta) / 0.5 * 60, 60)
+                  const barWidth = hasDelta 
+                    ? Math.min(Math.abs(entry.delta) / 0.5 * 60, 60)
+                    : (entry.match_won !== null ? 30 : 8) // Barra fixa para fallback
                   const date = new Date(entry.created_at)
                   const dateStr = `${date.getDate().toString().padStart(2,'0')}/${(date.getMonth()+1).toString().padStart(2,'0')}`
                   return (
                     <div key={entry.id} className="flex items-center gap-2">
                       <span className="text-[10px] text-gray-400 w-6 text-right shrink-0">J{idx + 1}</span>
-                      <span className="text-[11px] text-gray-600 w-20 shrink-0 font-mono">
-                        {entry.old_level.toFixed(2)} → {entry.new_level.toFixed(2)}
-                      </span>
+                      
+                      {hasDelta ? (
+                        <span className="text-[11px] text-gray-600 w-20 shrink-0 font-mono">
+                          {entry.old_level.toFixed(2)} → {entry.new_level.toFixed(2)}
+                        </span>
+                      ) : (
+                        <span className={`text-[11px] w-20 shrink-0 font-semibold ${entryPositive ? 'text-green-600' : entryNegative ? 'text-red-500' : 'text-gray-500'}`}>
+                          {entryPositive ? 'Vitória' : entryNegative ? 'Derrota' : 'Empate'}
+                        </span>
+                      )}
+
                       <div className="flex-1 flex items-center gap-1.5">
                         <div
                           className={`h-3 rounded-full ${barColor} transition-all`}
                           style={{ width: barWidth < 3 ? 3 : barWidth }}
                         />
-                        <span className={`text-[11px] font-semibold ${entryPositive ? 'text-green-600' : entryNegative ? 'text-red-500' : 'text-gray-400'}`}>
-                          {entryPositive ? '+' : ''}{entry.delta.toFixed(2)}
-                        </span>
+                        {hasDelta && (
+                          <span className={`text-[11px] font-semibold ${entryPositive ? 'text-green-600' : entryNegative ? 'text-red-500' : 'text-gray-400'}`}>
+                            {entryPositive ? '+' : ''}{entry.delta.toFixed(2)}
+                          </span>
+                        )}
                       </div>
+
                       <span className="text-[10px] text-gray-400 shrink-0">{dateStr}</span>
                       {entry.match_won !== null && (
                         <span className="text-sm shrink-0">{entry.match_won ? '✅' : '❌'}</span>
