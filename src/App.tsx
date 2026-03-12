@@ -1126,9 +1126,9 @@ function GameCardPlaytomic({
           <div 
             className="mt-0.5 px-2 py-0.5 rounded-full text-[9px] font-bold text-white"
             style={{ backgroundColor: colors?.hex || '#9ca3af' }}
-            title={`Nível ${level.toFixed(1)}${category ? ` - ${category}` : ''}`}
+            title={`Nível ${level.toFixed(2)}${category ? ` - ${category}` : ''}`}
           >
-            {level.toFixed(1)}
+            {level.toFixed(2)}
           </div>
         )}
       </div>
@@ -1517,7 +1517,7 @@ function OpenGameCard({
             {game.game_type === 'competitive' ? '🏆' : '🤝'}
           </span>
           <span className="flex items-center gap-1">
-            📊 {game.level_min.toFixed(1)}-{game.level_max.toFixed(1)}
+            📊 {game.level_min.toFixed(2)}-{game.level_max.toFixed(2)}
           </span>
         </div>
 
@@ -1541,7 +1541,7 @@ function OpenGameCard({
                     <span className="text-[9px] text-gray-700 font-medium mt-1 truncate max-w-[50px] text-center">{(p.name || '').split(' ')[0]}</span>
                     {p.level != null && (
                       <div className="mt-0.5 px-1.5 py-0.5 rounded-full text-[8px] font-bold text-white" style={{ backgroundColor: pColors?.hex || '#9ca3af' }}>
-                        {p.level.toFixed(1)}
+                        {p.level.toFixed(2)}
                       </div>
                     )}
                   </div>
@@ -1584,7 +1584,7 @@ function OpenGameCard({
                     <span className="text-[9px] text-gray-700 font-medium mt-1 truncate max-w-[50px] text-center">{(p.name || '').split(' ')[0]}</span>
                     {p.level != null && (
                       <div className="mt-0.5 px-1.5 py-0.5 rounded-full text-[8px] font-bold text-white" style={{ backgroundColor: pColors?.hex || '#9ca3af' }}>
-                        {p.level.toFixed(1)}
+                        {p.level.toFixed(2)}
                       </div>
                     )}
                   </div>
@@ -1657,7 +1657,7 @@ function OpenGameCard({
                     </div>
                     {r.level != null && (
                       <span className="text-[10px] font-bold text-white px-1.5 py-0.5 rounded-full flex-shrink-0" style={{ backgroundColor: rColors?.hex || '#9ca3af' }}>
-                        {r.level.toFixed(1)}
+                        {r.level.toFixed(2)}
                       </span>
                     )}
                     <UserPlus className="w-4 h-4 text-blue-500 flex-shrink-0" />
@@ -2527,7 +2527,7 @@ function HomeScreen({
             <div className="flex items-center justify-between">
               <div className="flex-1">
                 <p className={`text-5xl font-bold ${hasGradient ? 'text-white' : 'text-red-600'}`}>
-                  {t.home.level} {player?.level?.toFixed(1) || '3.0'}
+                  {t.home.level} {player?.level?.toFixed(2) || '3.00'}
                 </p>
                 <p className={`text-sm mt-2 flex items-center gap-1.5 ${hasGradient ? 'text-white/90' : 'text-gray-600'}`}>
                   <span>📊</span> {t.home.reliability} {player?.level_reliability_percent?.toFixed(0) ?? '85'}%
@@ -5203,7 +5203,7 @@ function FindGameScreen({
               {game.game_type === 'competitive' ? '🏆' : '🤝'} {game.game_type === 'competitive' ? t.games.competitive : t.games.friendly}
             </span>
             <span className="flex items-center gap-1">
-              📊 {game.level_min.toFixed(1)} - {game.level_max.toFixed(1)}
+              📊 {game.level_min.toFixed(2)} - {game.level_max.toFixed(2)}
             </span>
             {game.gender !== 'all' && (
               <span className="flex items-center gap-1">
@@ -5249,7 +5249,7 @@ function FindGameScreen({
                       <span className="text-[10px] text-gray-700 font-medium mt-1 truncate max-w-[70px] text-center">{(p.name || '').split(' ')[0]}</span>
                       {p.level != null && (
                         <div className="mt-0.5 px-2 py-0.5 rounded-full text-[9px] font-bold text-white" style={{ backgroundColor: pColors?.hex || '#9ca3af' }}>
-                          {p.level.toFixed(1)}
+                          {p.level.toFixed(2)}
                         </div>
                       )}
                     </div>
@@ -5309,7 +5309,7 @@ function FindGameScreen({
                       <span className="text-[10px] text-gray-700 font-medium mt-1 truncate max-w-[70px] text-center">{(p.name || '').split(' ')[0]}</span>
                       {p.level != null && (
                         <div className="mt-0.5 px-2 py-0.5 rounded-full text-[9px] font-bold text-white" style={{ backgroundColor: pColors?.hex || '#9ca3af' }}>
-                          {p.level.toFixed(1)}
+                          {p.level.toFixed(2)}
                         </div>
                       )}
                     </div>
@@ -5405,7 +5405,7 @@ function FindGameScreen({
                               <div className="flex items-center gap-1">
                                 {pp.level != null && (
                                   <span className="text-[9px] font-bold text-white px-1.5 py-0 rounded-full" style={{ backgroundColor: ppColors?.hex || '#9ca3af' }}>
-                                    {pp.level.toFixed(1)}
+                                    {pp.level.toFixed(2)}
                                   </span>
                                 )}
                                 {pp.player_category && <span className="text-[9px] text-gray-500">{pp.player_category}</span>}
@@ -6393,9 +6393,9 @@ function FindGameScreen({
               <div className="p-3 bg-gray-50 rounded-xl text-center">
                 <p className="text-xs text-gray-500">Intervalo de nível</p>
                 <p className="font-bold text-gray-900">
-                  {Math.max(1.0, playerLevel - 0.5).toFixed(1)} - {Math.min(7.0, playerLevel + 0.5).toFixed(1)}
+                  {Math.max(1.0, playerLevel - 0.5).toFixed(2)} - {Math.min(7.0, playerLevel + 0.5).toFixed(2)}
                 </p>
-                <p className="text-[10px] text-gray-400">Baseado no teu nível ({playerLevel.toFixed(1)})</p>
+                <p className="text-[10px] text-gray-400">Baseado no teu nível ({playerLevel.toFixed(2)})</p>
               </div>
 
               {/* Create button */}
@@ -6482,7 +6482,7 @@ function FindGameScreen({
                       <div className="flex items-center gap-2 mt-0.5">
                         {pr.level != null && (
                           <span className="px-2 py-0.5 rounded-full text-[10px] font-bold text-white" style={{ backgroundColor: prColors?.hex || '#9ca3af' }}>
-                            {pr.level.toFixed(1)}
+                            {pr.level.toFixed(2)}
                           </span>
                         )}
                         {pr.player_category && (
@@ -7478,7 +7478,7 @@ function BookingScreen({
           <span className="text-[10px] text-gray-700 font-medium mt-1 truncate max-w-[70px] text-center">{(p.name || '').split(' ')[0]}</span>
           {p.level != null && (
             <div className="mt-0.5 px-2 py-0.5 rounded-full text-[9px] font-bold text-white" style={{ backgroundColor: pColors?.hex || '#9ca3af' }}>
-              {p.level.toFixed(1)}
+                          {p.level.toFixed(2)}
             </div>
           )}
           {slotNum !== 1 && (
@@ -7962,7 +7962,7 @@ function BookingScreen({
                             <div className="flex items-center gap-1.5">
                               {r.level != null && (
                                 <span className="text-[9px] font-bold text-white px-1.5 py-0 rounded-full" style={{ backgroundColor: rColors?.hex || '#9ca3af' }}>
-                                  {r.level.toFixed(1)}
+                                  {r.level.toFixed(2)}
                                 </span>
                               )}
                               {r.player_category && <span className="text-[10px] text-gray-500">{r.player_category}</span>}
@@ -8559,7 +8559,7 @@ function OtherPlayerProfileScreen({
             <div className="flex items-center justify-between">
               <div className="flex-1">
                 <p className={`text-5xl font-bold ${hasGradient ? 'text-white' : 'text-red-600'}`}>
-                  Nível {profile.level?.toFixed(1) || '3.0'}
+                  Nível {profile.level?.toFixed(2) || '3.00'}
                 </p>
                 <p className={`text-sm mt-2 flex items-center gap-1.5 ${hasGradient ? 'text-white/90' : 'text-gray-600'}`}>
                   <span>📊</span> Fiabilidade {profile.level_reliability_percent?.toFixed(0) ?? '85'}%
@@ -8919,7 +8919,7 @@ function ProfileViewScreen({
             <div className="flex items-center justify-between">
               <div className="flex-1">
                 <p className={`text-5xl font-bold ${hasGradient ? 'text-white' : 'text-red-600'}`}>
-                  Nível {player?.level?.toFixed(1) || '3.0'}
+                  Nível {player?.level?.toFixed(2) || '3.00'}
                 </p>
                 <p className={`text-sm mt-2 flex items-center gap-1.5 ${hasGradient ? 'text-white/90' : 'text-gray-600'}`}>
                   <span>📊</span> Fiabilidade {player?.level_reliability_percent?.toFixed(0) ?? '85'}%
@@ -9993,7 +9993,7 @@ function RegisterScreen({ onBack, onSuccess }: {
                 {selfLevel !== null && (
                   <div className="bg-green-50 border border-green-200 rounded-xl p-3 flex items-center justify-between">
                     <div>
-                      <p className="text-sm font-semibold text-green-800">Nível selecionado: {selfLevel.toFixed(1)}</p>
+                      <p className="text-sm font-semibold text-green-800">Nível selecionado: {selfLevel.toFixed(2)}</p>
                       <p className="text-xs text-green-600">{getCategoryFromLevel(selfLevel)}</p>
                     </div>
                     <button onClick={() => setSelfLevel(null)} className="text-xs text-green-700 underline">Alterar</button>
@@ -10137,7 +10137,7 @@ function RegisterScreen({ onBack, onSuccess }: {
                 </div>
                 <div>
                   <p className="text-gray-500">Nível estimado</p>
-                  <p className="font-bold text-red-600 text-lg">{calculateLevel().toFixed(1)}</p>
+                  <p className="font-bold text-red-600 text-lg">{calculateLevel().toFixed(2)}</p>
                 </div>
                 <div>
                   <p className="text-gray-500">Categoria</p>
