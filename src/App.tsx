@@ -1936,6 +1936,7 @@ function RewardsScreen({ player, onBack }: { player: PlayerAccount; onBack: () =
   const [confirmItem, setConfirmItem] = useState<import('./lib/openGames').CatalogItem | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
   const [filterCategory, setFilterCategory] = useState<string>('all')
+  const [showHowToEarn, setShowHowToEarn] = useState(false)
 
   // Total points across all clubs
   const totalPoints = Array.from(pointsByClub.values()).reduce((s, p) => s + p, 0)
@@ -2055,6 +2056,80 @@ function RewardsScreen({ player, onBack }: { player: PlayerAccount; onBack: () =
           )}
         </div>
       </div>
+
+      {/* Botão Como Ganhar Pontos */}
+      <button
+        onClick={() => setShowHowToEarn(true)}
+        className="w-full py-3 rounded-xl border-2 border-dashed border-amber-300 bg-amber-50 hover:bg-amber-100 transition-colors flex items-center justify-center gap-2"
+      >
+        <span className="text-lg">💡</span>
+        <span className="text-sm font-semibold text-amber-700">Como ganhar pontos?</span>
+      </button>
+
+      {/* Modal Como Ganhar Pontos */}
+      {showHowToEarn && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fade-in" onClick={() => setShowHowToEarn(false)}>
+          <div className="bg-white w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="sticky top-0 bg-white border-b border-gray-100 px-5 py-4 flex items-center justify-between rounded-t-2xl">
+              <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                💡 Como ganhar pontos
+              </h2>
+              <button onClick={() => setShowHowToEarn(false)} className="p-1.5 rounded-full hover:bg-gray-100">
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+            <div className="p-5 space-y-3">
+              {[
+                { emoji: '🎾', action: 'Criar um jogo aberto', points: 15, desc: 'Organiza um jogo e convida outros jogadores' },
+                { emoji: '🤝', action: 'Entrar num jogo', points: 10, desc: 'Junta-te a um jogo criado por outro jogador' },
+                { emoji: '📝', action: 'Submeter resultado', points: 5, desc: 'Regista o resultado do jogo após terminar' },
+                { emoji: '✅', action: 'Confirmar resultado', points: 5, desc: 'Valida o resultado submetido por outro jogador' },
+                { emoji: '🏆', action: 'Participar num torneio', points: 20, desc: 'Inscreve-te e participa num torneio' },
+                { emoji: '🍺', action: 'Consumo no bar', points: 5, desc: 'Por cada 10€ gastos no bar do clube' },
+                { emoji: '⭐', action: 'Primeiro jogo', points: 25, desc: 'Bónus pelo teu primeiro jogo na plataforma' },
+                { emoji: '🔥', action: '3 jogos seguidos', points: 15, desc: 'Joga 3 jogos consecutivos numa semana' },
+                { emoji: '💪', action: '7 jogos seguidos', points: 30, desc: 'Joga 7 jogos consecutivos' },
+              ].map((rule, idx) => (
+                <div key={idx} className="flex items-start gap-3 p-3 rounded-xl bg-gray-50 hover:bg-gray-100 transition-colors">
+                  <span className="text-2xl mt-0.5">{rule.emoji}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm font-semibold text-gray-900">{rule.action}</p>
+                      <span className="text-xs font-bold text-amber-600 bg-amber-100 px-2 py-0.5 rounded-full whitespace-nowrap">
+                        +{rule.points} pts
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-gray-500 mt-0.5">{rule.desc}</p>
+                  </div>
+                </div>
+              ))}
+
+              {/* Tiers info */}
+              <div className="mt-4 pt-4 border-t border-gray-200">
+                <p className="text-sm font-bold text-gray-800 mb-3">🏅 Níveis de Recompensa</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { name: 'Silver', emoji: '🥈', min: 0, color: 'bg-gray-100 text-gray-700' },
+                    { name: 'Gold', emoji: '🥇', min: 200, color: 'bg-amber-50 text-amber-700' },
+                    { name: 'Platinum', emoji: '🏅', min: 500, color: 'bg-purple-50 text-purple-700' },
+                    { name: 'Diamond', emoji: '💎', min: 1000, color: 'bg-cyan-50 text-cyan-700' },
+                  ].map(t => (
+                    <div key={t.name} className={`p-3 rounded-xl ${t.color} text-center`}>
+                      <span className="text-xl">{t.emoji}</span>
+                      <p className="text-xs font-bold mt-1">{t.name}</p>
+                      <p className="text-[10px] opacity-70">{t.min}+ pontos</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <p className="text-[10px] text-gray-400 text-center mt-3">
+                Os pontos por ação podem variar conforme o clube. Valores acima são os valores padrão.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Success Toast */}
       {successMessage && (
