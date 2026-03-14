@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { supabase, PlayerAccount } from './lib/supabase'
 import { useI18n } from './lib/i18nContext'
 import {
@@ -125,6 +125,31 @@ function App() {
   useEffect(() => {
     checkAuth()
   }, [])
+
+  // Auto-refresh when app returns to foreground (e.g., user switches back to the app on iPhone/Android)
+  const lastForegroundRefresh = useRef(Date.now())
+  useEffect(() => {
+    const handleVisibilityChange = async () => {
+      if (document.visibilityState === 'visible') {
+        const elapsed = Date.now() - lastForegroundRefresh.current
+        // Only refresh if more than 30 seconds have passed since last refresh
+        if (elapsed > 30_000 && isAuthenticated && player?.user_id) {
+          lastForegroundRefresh.current = Date.now()
+          console.log('[App] Foreground refresh triggered')
+          const data = await fetchPlayerDashboardData(player.user_id)
+          setDashboardData(data)
+          enrichDashboardWithEdgeFunction(data).then(enriched => {
+            if (enriched) {
+              setEdgeEnrichedData(enriched)
+              setDashboardData(prev => prev ? { ...prev, ...enriched } : prev)
+            }
+          })
+        }
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
+  }, [isAuthenticated, player?.user_id])
 
   // Handle Stripe payment return
   useEffect(() => {
@@ -486,7 +511,7 @@ function App() {
   return (
     <div className="min-h-screen bg-gray-50 pb-20">
       {/* Header */}
-      <header className="sticky top-0 z-40 glass-light">
+      <header className="sticky top-0 z-40 glass-light safe-area-top">
         <div className="px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <img 
@@ -517,7 +542,7 @@ function App() {
       {menuOpen && (
         <div className="fixed inset-0 bg-black/50 z-50" onClick={() => setMenuOpen(false)}>
           <div 
-            className="absolute top-0 right-0 h-full w-[min(320px,85vw)] bg-white shadow-xl animate-fade-in"
+            className="absolute top-0 right-0 h-full w-[min(320px,85vw)] bg-white shadow-xl animate-fade-in safe-area-top"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="p-4 border-b flex items-center justify-between">
