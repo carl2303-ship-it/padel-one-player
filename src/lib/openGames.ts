@@ -1109,6 +1109,71 @@ export async function leaveOpenGame(gameId: string, userId: string): Promise<boo
 }
 
 // ============================
+// Remove a player from an open game (creator or club owner can remove any player)
+// ============================
+
+export async function removePlayerFromOpenGame(params: {
+  gameId: string
+  playerId: string // open_game_players.id
+  playerAccountId?: string | null
+  playerName?: string
+}): Promise<boolean> {
+  const { data: { user: authUser } } = await supabase.auth.getUser()
+  if (!authUser?.id) return false
+
+  // Delete the player from the game
+  const { error } = await supabase
+    .from('open_game_players')
+    .delete()
+    .eq('id', params.playerId)
+    .eq('game_id', params.gameId)
+
+  if (error) {
+    console.error('[OpenGames] Error removing player from game:', error)
+    return false
+  }
+
+  // Re-open game if it was full
+  await supabase
+    .from('open_games')
+    .update({ status: 'open' })
+    .eq('id', params.gameId)
+    .in('status', ['full'])
+
+  // Sync player details to court_booking
+  await syncBookingPlayers(params.gameId)
+
+  // 🔔 Push: notify the removed player
+  try {
+    if (params.playerAccountId) {
+      const t = getTranslations()
+      sendPushToPlayer(params.playerAccountId, {
+        title: t.notifications.removedFromGame || 'Removido do jogo',
+        body: t.notifications.removedFromGameBody || 'O organizador removeu-te do jogo.',
+        url: '/?screen=games',
+        tag: `removed-${params.gameId}`,
+      })
+    }
+    // Notify other players
+    const { data: pa } = await supabase
+      .from('player_accounts')
+      .select('id, name')
+      .eq('user_id', authUser.id)
+      .maybeSingle()
+    const t = getTranslations()
+    const removedName = params.playerName || 'Um jogador'
+    notifyOpenGamePlayers(params.gameId, params.playerAccountId || null, {
+      title: t.notifications.playerLeftGame,
+      body: `${removedName} foi removido do jogo`,
+      url: '/?screen=games',
+      tag: `removed-${params.gameId}`,
+    })
+  } catch {}
+
+  return true
+}
+
+// ============================
 // Cancel an open game (creator only)
 // ============================
 

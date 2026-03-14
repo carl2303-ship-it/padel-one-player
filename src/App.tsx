@@ -1387,6 +1387,69 @@ function OpenGameCard({
   const isInGame = game.players.some(p => p.user_id === userId || p.player_account_id === playerAccountId)
   const isCreator = game.creator_user_id === userId || game.players.some(p => p.position === 1 && (p.user_id === userId || p.player_account_id === playerAccountId))
 
+  const refetchGame = async () => {
+    const { supabase } = await import('./lib/supabase')
+    const { data } = await supabase.from('open_games').select('*').eq('id', gameId).single()
+    if (data) {
+      const { data: playersData } = await supabase
+        .from('open_game_players')
+        .select('*')
+        .eq('game_id', gameId)
+        .eq('status', 'confirmed')
+        .order('position')
+      const uIds = [...new Set((playersData || []).map((p2: any) => p2.user_id).filter(Boolean))]
+      const paIds = [...new Set((playersData || []).map((p2: any) => p2.player_account_id).filter(Boolean))]
+      let acctMap: { [key: string]: any } = {}
+      if (uIds.length > 0 || paIds.length > 0) {
+        let q = supabase.from('player_accounts').select('id, user_id, name, avatar_url, level, player_category')
+        if (uIds.length > 0) q = q.in('user_id', uIds)
+        else if (paIds.length > 0) q = q.in('id', paIds)
+        const { data: accts } = await q
+        if (accts) accts.forEach((a: any) => { if (a.user_id) acctMap[a.user_id] = a; acctMap[a.id] = a })
+      }
+      const enriched = (playersData || []).map((p2: any) => {
+        const acct = acctMap[p2.user_id] || acctMap[p2.player_account_id]
+        return { ...p2, name: acct?.name || t.common.player, avatar_url: acct?.avatar_url || null, level: acct?.level || null, player_category: acct?.player_category || null }
+      })
+      const { data: clubData } = await supabase.from('clubs').select('name, logo_url, city, payment_method').eq('id', data.club_id).single()
+      let courtData2 = null
+      if (data.court_id) {
+        const { data: cr } = await supabase.from('club_courts').select('name, type').eq('id', data.court_id).single()
+        courtData2 = cr
+      }
+      setGame({
+        ...data,
+        club_name: clubData?.name || '',
+        club_logo_url: clubData?.logo_url || null,
+        club_city: clubData?.city || null,
+        court_name: courtData2?.name || null,
+        court_type: courtData2?.type || null,
+        players: enriched,
+        club_payment_method: clubData?.payment_method || 'at_club',
+      })
+    }
+  }
+
+  const handleRemovePlayerFromGame = async (p: any) => {
+    const playerName = (p.name || '').split(' ')[0] || t.common.player
+    if (!confirm((t.games.removePlayerConfirm || 'Remover {name} do jogo?').replace('{name}', playerName))) return
+    setActionLoading(true)
+    const { removePlayerFromOpenGame } = await import('./lib/openGames')
+    const success = await removePlayerFromOpenGame({
+      gameId: game.id,
+      playerId: p.id,
+      playerAccountId: p.player_account_id,
+      playerName: p.name,
+    })
+    setActionLoading(false)
+    if (success) {
+      await refetchGame()
+      await onRefresh()
+    } else {
+      alert(t.games.removePlayerError || 'Erro ao remover jogador')
+    }
+  }
+
   const handleLeaveGame = async () => {
     if (!confirm(t.games.leaveConfirm)) return
     setActionLoading(true)
@@ -1450,43 +1513,8 @@ function OpenGameCard({
       setShowAddPlayer(false)
       setAddPlayerSearch('')
       setAddPlayerResults([])
+      await refetchGame()
       await onRefresh()
-      // Re-fetch game data
-      const { supabase } = await import('./lib/supabase')
-      const { data } = await supabase.from('open_games').select('*').eq('id', gameId).single()
-      if (data) {
-        const { data: playersData } = await supabase
-          .from('open_game_players')
-          .select('*')
-          .eq('game_id', gameId)
-          .eq('status', 'confirmed')
-          .order('position')
-        const userIds2 = [...new Set((playersData || []).map((p2: any) => p2.user_id).filter(Boolean))]
-        let acctMap2: { [key: string]: any } = {}
-        if (userIds2.length > 0) {
-          const { data: accts } = await supabase.from('player_accounts').select('id, user_id, name, avatar_url, level, player_category').in('user_id', userIds2)
-          if (accts) accts.forEach((a: any) => { if (a.user_id) acctMap2[a.user_id] = a; acctMap2[a.id] = a })
-        }
-        const enriched = (playersData || []).map((p2: any) => {
-          const acct = acctMap2[p2.user_id] || acctMap2[p2.player_account_id]
-          return { ...p2, name: acct?.name || 'Jogador', avatar_url: acct?.avatar_url || null, level: acct?.level || null, player_category: acct?.player_category || null }
-        })
-        const { data: clubData } = await supabase.from('clubs').select('name, logo_url, city').eq('id', data.club_id).single()
-        let courtData2 = null
-        if (data.court_id) {
-          const { data: cr } = await supabase.from('club_courts').select('name, type').eq('id', data.court_id).single()
-          courtData2 = cr
-        }
-        setGame({
-          ...data,
-          club_name: clubData?.name || '',
-          club_logo_url: clubData?.logo_url || null,
-          club_city: clubData?.city || null,
-          court_name: courtData2?.name || null,
-          court_type: courtData2?.type || null,
-          players: enriched,
-        })
-      }
     } else {
       alert(result.error || t.common.addPlayerError)
     }
@@ -1529,8 +1557,10 @@ function OpenGameCard({
               const p = confirmedPlayers[i]
               if (p) {
                 const pColors = p.player_category ? categoryColors(p.player_category) : null
+                const isMe = p.user_id === userId || p.player_account_id === playerAccountId
+                const canRemove = isCreator && !isMe && !actionLoading
                 return (
-                  <div key={p.id} className="flex flex-col items-center">
+                  <div key={p.id} className="flex flex-col items-center relative group">
                     <div className="w-12 h-12 rounded-full overflow-hidden bg-gray-200 flex items-center justify-center">
                       {p.avatar_url ? (
                         <img src={p.avatar_url} alt={p.name} className="w-full h-full object-cover" />
@@ -1538,6 +1568,15 @@ function OpenGameCard({
                         <span className="text-sm font-bold text-gray-600">{(p.name || '?').charAt(0).toUpperCase()}</span>
                       )}
                     </div>
+                    {canRemove && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleRemovePlayerFromGame(p) }}
+                        className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity shadow-sm hover:bg-red-600"
+                        title={t.games.removePlayer}
+                      >
+                        ✕
+                      </button>
+                    )}
                     <span className="text-[9px] text-gray-700 font-medium mt-1 truncate max-w-[50px] text-center">{(p.name || '').split(' ')[0]}</span>
                     {p.level != null && (
                       <div className="mt-0.5 px-1.5 py-0.5 rounded-full text-[8px] font-bold text-white" style={{ backgroundColor: pColors?.hex || '#9ca3af' }}>
@@ -1556,7 +1595,7 @@ function OpenGameCard({
                     <div className={`w-12 h-12 rounded-full border-2 border-dashed flex items-center justify-center transition-colors ${isInGame ? 'border-blue-400 hover:border-blue-500 hover:bg-blue-50' : 'border-gray-300'}`}>
                       <UserPlus className={`w-5 h-5 ${isInGame ? 'text-blue-500' : 'text-gray-400'}`} />
                     </div>
-                    <span className={`text-[9px] font-medium mt-1 ${isInGame ? 'text-blue-600' : 'text-gray-400'}`}>{isInGame ? 'Adicionar' : 'Livre'}</span>
+                    <span className={`text-[9px] font-medium mt-1 ${isInGame ? 'text-blue-600' : 'text-gray-400'}`}>{isInGame ? t.common.add : t.common.free}</span>
                   </div>
                 )
               }
@@ -1572,8 +1611,10 @@ function OpenGameCard({
               const p = confirmedPlayers[i]
               if (p) {
                 const pColors = p.player_category ? categoryColors(p.player_category) : null
+                const isMe = p.user_id === userId || p.player_account_id === playerAccountId
+                const canRemove = isCreator && !isMe && !actionLoading
                 return (
-                  <div key={p.id} className="flex flex-col items-center">
+                  <div key={p.id} className="flex flex-col items-center relative group">
                     <div className="w-12 h-12 rounded-full overflow-hidden bg-gray-200 flex items-center justify-center">
                       {p.avatar_url ? (
                         <img src={p.avatar_url} alt={p.name} className="w-full h-full object-cover" />
@@ -1581,6 +1622,15 @@ function OpenGameCard({
                         <span className="text-sm font-bold text-gray-600">{(p.name || '?').charAt(0).toUpperCase()}</span>
                       )}
                     </div>
+                    {canRemove && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleRemovePlayerFromGame(p) }}
+                        className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity shadow-sm hover:bg-red-600"
+                        title={t.games.removePlayer}
+                      >
+                        ✕
+                      </button>
+                    )}
                     <span className="text-[9px] text-gray-700 font-medium mt-1 truncate max-w-[50px] text-center">{(p.name || '').split(' ')[0]}</span>
                     {p.level != null && (
                       <div className="mt-0.5 px-1.5 py-0.5 rounded-full text-[8px] font-bold text-white" style={{ backgroundColor: pColors?.hex || '#9ca3af' }}>
@@ -1599,7 +1649,7 @@ function OpenGameCard({
                     <div className={`w-12 h-12 rounded-full border-2 border-dashed flex items-center justify-center transition-colors ${isInGame ? 'border-blue-400 hover:border-blue-500 hover:bg-blue-50' : 'border-gray-300'}`}>
                       <UserPlus className={`w-5 h-5 ${isInGame ? 'text-blue-500' : 'text-gray-400'}`} />
                     </div>
-                    <span className={`text-[9px] font-medium mt-1 ${isInGame ? 'text-blue-600' : 'text-gray-400'}`}>{isInGame ? 'Adicionar' : 'Livre'}</span>
+                    <span className={`text-[9px] font-medium mt-1 ${isInGame ? 'text-blue-600' : 'text-gray-400'}`}>{isInGame ? t.common.add : t.common.free}</span>
                   </div>
                 )
               }
@@ -5255,6 +5305,33 @@ function FindGameScreen({
     }
   }
 
+  // Remove player from game (creator action)
+  const handleRemovePlayerFromGameScreen = async (game: import('./lib/openGames').OpenGame, p: any) => {
+    const playerName = (p.name || '').split(' ')[0] || t.common.player
+    if (!confirm((t.games.removePlayerConfirm || 'Remover {name} do jogo?').replace('{name}', playerName))) return
+    const { removePlayerFromOpenGame } = await import('./lib/openGames')
+    const success = await removePlayerFromOpenGame({
+      gameId: game.id,
+      playerId: p.id,
+      playerAccountId: p.player_account_id,
+      playerName: p.name,
+    })
+    if (success) {
+      // Refresh games
+      const { fetchOpenGames } = await import('./lib/openGames')
+      const dateStr = dates[selectedDay]?.dateStr
+      const data = await fetchOpenGames({
+        clubId: selectedClubId || undefined,
+        dateFrom: dateStr ? dateStr + 'T00:00:00' : undefined,
+        dateTo: dateStr ? dateStr + 'T23:59:59' : undefined,
+      })
+      setGames(data)
+      if (onRefresh) onRefresh()
+    } else {
+      alert(t.games.removePlayerError || 'Erro ao remover jogador')
+    }
+  }
+
   // Render game card (Playtomic style)
   const renderGameCard = (game: import('./lib/openGames').OpenGame, isRequest: boolean = false) => {
     const confirmedPlayers = game.players.filter(p => p.status === 'confirmed')
@@ -5309,8 +5386,10 @@ function FindGameScreen({
                 const p = confirmedPlayers.find(pl => pl.position === position)
                 if (p) {
                   const pColors = p.player_category ? categoryColors(p.player_category) : null
+                  const isMe = p.user_id === userId || (player?.id && p.player_account_id === player.id)
+                  const canRemove = isCreator && !isMe
                   return (
-                    <div key={p.id} className="flex flex-col items-center">
+                    <div key={p.id} className="flex flex-col items-center relative group">
                       <div 
                         className="w-14 h-14 rounded-full overflow-hidden bg-gray-200 flex items-center justify-center cursor-pointer hover:opacity-80 transition-opacity"
                         onClick={() => p.user_id && onOpenPlayerProfile(p.user_id)}
@@ -5321,6 +5400,15 @@ function FindGameScreen({
                           <span className="text-xl font-bold text-gray-600">{(p.name || '?').charAt(0).toUpperCase()}</span>
                         )}
                       </div>
+                      {canRemove && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleRemovePlayerFromGameScreen(game, p) }}
+                          className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity shadow-sm hover:bg-red-600"
+                          title={t.games.removePlayer}
+                        >
+                          ✕
+                        </button>
+                      )}
                       <span className="text-[10px] text-gray-700 font-medium mt-1 truncate max-w-[70px] text-center">{(p.name || '').split(' ')[0]}</span>
                       {p.level != null && (
                         <div className="mt-0.5 px-2 py-0.5 rounded-full text-[9px] font-bold text-white" style={{ backgroundColor: pColors?.hex || '#9ca3af' }}>
@@ -5369,8 +5457,10 @@ function FindGameScreen({
                 const p = confirmedPlayers.find(pl => pl.position === position)
                 if (p) {
                   const pColors = p.player_category ? categoryColors(p.player_category) : null
+                  const isMe = p.user_id === userId || (player?.id && p.player_account_id === player.id)
+                  const canRemove = isCreator && !isMe
                   return (
-                    <div key={p.id} className="flex flex-col items-center">
+                    <div key={p.id} className="flex flex-col items-center relative group">
                       <div 
                         className="w-14 h-14 rounded-full overflow-hidden bg-gray-200 flex items-center justify-center cursor-pointer hover:opacity-80 transition-opacity"
                         onClick={() => p.user_id && onOpenPlayerProfile(p.user_id)}
@@ -5381,6 +5471,15 @@ function FindGameScreen({
                           <span className="text-xl font-bold text-gray-600">{(p.name || '?').charAt(0).toUpperCase()}</span>
                         )}
                       </div>
+                      {canRemove && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleRemovePlayerFromGameScreen(game, p) }}
+                          className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity shadow-sm hover:bg-red-600"
+                          title={t.games.removePlayer}
+                        >
+                          ✕
+                        </button>
+                      )}
                       <span className="text-[10px] text-gray-700 font-medium mt-1 truncate max-w-[70px] text-center">{(p.name || '').split(' ')[0]}</span>
                       {p.level != null && (
                         <div className="mt-0.5 px-2 py-0.5 rounded-full text-[9px] font-bold text-white" style={{ backgroundColor: pColors?.hex || '#9ca3af' }}>
