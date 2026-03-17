@@ -162,7 +162,7 @@ export interface Class {
 }
 
 /** Busca aulas disponíveis (futuras, com vagas) */
-export async function fetchAvailableClasses(clubId?: string | null): Promise<Class[]> {
+export async function fetchAvailableClasses(clubId?: string | null, userId?: string | null, playerAccountId?: string | null): Promise<Class[]> {
   const now = new Date().toISOString()
   
   // Buscar club_owner_id se clubId fornecido
@@ -469,20 +469,100 @@ export async function fetchAvailableClasses(clubId?: string | null): Promise<Cla
     }
   })
   
-  return classes
+  // Filtrar: só mostrar aulas com vagas disponíveis
+  let filteredClasses = classes.filter(c => c.participants.length < c.maxPlayers)
+
+  // Filtrar: remover aulas onde o jogador já está inscrito
+  if (userId || playerAccountId) {
+    // Buscar todos os class_ids onde o jogador já está inscrito
+    const enrolledClassIds = new Set<string>()
+    
+    if (userId) {
+      const { data: myEnrollments } = await supabase
+        .from('class_enrollments')
+        .select('class_id')
+        .eq('student_id', userId)
+        .in('status', ['enrolled', 'attended'])
+      myEnrollments?.forEach(e => enrolledClassIds.add(e.class_id))
+    }
+    
+    if (playerAccountId) {
+      const { data: myEnrollments } = await supabase
+        .from('class_enrollments')
+        .select('class_id')
+        .eq('player_account_id', playerAccountId)
+        .in('status', ['enrolled', 'attended'])
+      myEnrollments?.forEach(e => enrolledClassIds.add(e.class_id))
+    }
+
+    // Se não tinha playerAccountId, tentar buscar pelo user_id
+    if (!playerAccountId && userId) {
+      const { data: playerAccount } = await supabase
+        .from('player_accounts')
+        .select('id')
+        .eq('user_id', userId)
+        .maybeSingle()
+      
+      if (playerAccount) {
+        const { data: myEnrollments } = await supabase
+          .from('class_enrollments')
+          .select('class_id')
+          .eq('player_account_id', playerAccount.id)
+          .in('status', ['enrolled', 'attended'])
+        myEnrollments?.forEach(e => enrolledClassIds.add(e.class_id))
+      }
+    }
+
+    filteredClasses = filteredClasses.filter(c => !enrolledClassIds.has(c.id))
+  }
+  
+  return filteredClasses
 }
 
 /** Busca aulas em que o jogador está inscrito */
-export async function fetchMyClasses(userId: string): Promise<Class[]> {
-  const { data: enrollments } = await supabase
+export async function fetchMyClasses(userId: string, playerAccountId?: string | null): Promise<Class[]> {
+  // Buscar enrollments por student_id (user_id)
+  const { data: enrollmentsByUserId } = await supabase
     .from('class_enrollments')
     .select('class_id')
     .eq('student_id', userId)
     .in('status', ['enrolled', 'attended'])
 
-  if (!enrollments || enrollments.length === 0) return []
+  // Também buscar por player_account_id (para aulas criadas pelo Manager)
+  let enrollmentsByPlayerAccountId: any[] = []
+  const effectivePlayerAccountId = playerAccountId || null
+  if (effectivePlayerAccountId) {
+    const { data } = await supabase
+      .from('class_enrollments')
+      .select('class_id')
+      .eq('player_account_id', effectivePlayerAccountId)
+      .in('status', ['enrolled', 'attended'])
+    enrollmentsByPlayerAccountId = data || []
+  }
 
-  const classIds = enrollments.map(e => e.class_id)
+  // Se não encontrou por player_account_id, tentar buscar o player_account_id pelo user_id
+  if (enrollmentsByPlayerAccountId.length === 0 && !effectivePlayerAccountId) {
+    const { data: playerAccount } = await supabase
+      .from('player_accounts')
+      .select('id')
+      .eq('user_id', userId)
+      .maybeSingle()
+    
+    if (playerAccount) {
+      const { data } = await supabase
+        .from('class_enrollments')
+        .select('class_id')
+        .eq('player_account_id', playerAccount.id)
+        .in('status', ['enrolled', 'attended'])
+      enrollmentsByPlayerAccountId = data || []
+    }
+  }
+
+  // Combinar e deduplicate class_ids
+  const allEnrollments = [...(enrollmentsByUserId || []), ...enrollmentsByPlayerAccountId]
+  if (allEnrollments.length === 0) return []
+
+  const classIds = [...new Set(allEnrollments.map(e => e.class_id))]
   
   const { data: classesData } = await supabase
     .from('club_classes')
@@ -515,14 +595,14 @@ export async function fetchMyClasses(userId: string): Promise<Class[]> {
   if (!classesData) return []
 
   // Buscar todos os enrollments para estas aulas
-  const { data: allEnrollments } = await supabase
+  const { data: classEnrollmentsData } = await supabase
     .from('class_enrollments')
     .select('id, class_id, student_name, student_id, organizer_player_id, player_account_id')
     .in('class_id', classIds)
     .in('status', ['enrolled', 'attended'])
 
   // Buscar dados dos jogadores inscritos via organizer_player_id
-  const organizerPlayerIds = allEnrollments?.filter(e => e.organizer_player_id != null && e.organizer_player_id !== '').map(e => e.organizer_player_id).filter((id): id is string => typeof id === 'string') || []
+  const organizerPlayerIds = classEnrollmentsData?.filter(e => e.organizer_player_id != null && e.organizer_player_id !== '').map(e => e.organizer_player_id).filter((id): id is string => typeof id === 'string') || []
   let organizerPlayersData: any[] = []
   if (organizerPlayerIds.length > 0) {
     const uniquePlayerIds = [...new Set(organizerPlayerIds)]
@@ -541,10 +621,10 @@ export async function fetchMyClasses(userId: string): Promise<Class[]> {
   }
 
   // PRIORIDADE: Buscar dados dos jogadores inscritos via player_account_id (direto, mais confiável)
-  const playerAccountIds = allEnrollments?.filter(e => e.player_account_id != null && e.player_account_id !== '').map(e => e.player_account_id).filter((id): id is string => typeof id === 'string') || []
+  const playerAccountIds = classEnrollmentsData?.filter(e => e.player_account_id != null && e.player_account_id !== '').map(e => e.player_account_id).filter((id): id is string => typeof id === 'string') || []
   
   // Fallback: Buscar dados dos jogadores inscritos via student_id (user_id) se não tiver player_account_id
-  const studentIds = allEnrollments?.filter(e => !e.player_account_id && e.student_id != null && e.student_id !== '').map(e => e.student_id).filter((id): id is string => typeof id === 'string') || []
+  const studentIds = classEnrollmentsData?.filter(e => !e.player_account_id && e.student_id != null && e.student_id !== '').map(e => e.student_id).filter((id): id is string => typeof id === 'string') || []
   
   let playerAccountsData: any[] = []
   
@@ -637,7 +717,7 @@ export async function fetchMyClasses(userId: string): Promise<Class[]> {
   const clubsMap = new Map(clubsData?.map(c => [c.owner_id, c]) || [])
 
   const classes: Class[] = classesData.map((cls: any) => {
-    const classEnrollments = allEnrollments?.filter(e => e.class_id === cls.id) || []
+    const classEnrollments = classEnrollmentsData?.filter(e => e.class_id === cls.id) || []
     const participants: ClassParticipant[] = classEnrollments.map(enrollment => {
       // PRIORIDADE 1: Tentar encontrar via player_account_id (mais direto e confiável)
       if (enrollment.player_account_id) {

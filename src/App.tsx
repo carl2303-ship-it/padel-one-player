@@ -6756,7 +6756,7 @@ function LearnScreen({
   const loadAvailableClasses = async () => {
     setLoading(true)
     try {
-      const classes = await fetchAvailableClasses()
+      const classes = await fetchAvailableClasses(null, userId, playerAccountId)
       setAvailableClasses(classes)
     } catch (error) {
       console.error('[LearnScreen] Error loading classes:', error)
@@ -6769,7 +6769,7 @@ function LearnScreen({
     if (!userId) return
     setLoading(true)
     try {
-      const classes = await fetchMyClasses(userId)
+      const classes = await fetchMyClasses(userId, playerAccountId)
       setMyClasses(classes)
     } catch (error) {
       console.error('[LearnScreen] Error loading my classes:', error)
