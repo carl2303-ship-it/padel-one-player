@@ -328,31 +328,24 @@ export async function fetchClubsWithAvailability(): Promise<ClubWithAvailability
   const result: ClubWithAvailability[] = []
   
   for (const club of clubs) {
-    // 2. Fetch courts for this club
+    // 2. Fetch courts for this club (including per-court slot config)
     const { data: courts } = await supabase
       .from('club_courts')
-      .select('id, name, type, hourly_rate, peak_rate')
+      .select('id, name, type, hourly_rate, peak_rate, court_slots')
       .eq('user_id', club.owner_id)
       .eq('is_active', true)
       .order('name')
 
     if (!courts || courts.length === 0) continue // Skip clubs without courts
 
-    // 3. Fetch operating hours + slot settings (including available_booking_slots)
+    // 3. Fetch global settings (max_advance_days) and legacy fallback
     const { data: settings } = await supabase
       .from('user_logo_settings')
       .select('booking_start_time, booking_end_time, booking_slot_duration, max_advance_days, available_booking_slots')
       .eq('user_id', club.owner_id)
       .maybeSingle()
 
-    const startTime = settings?.booking_start_time || '08:00'
-    const endTime = settings?.booking_end_time || '22:00'
-    const slotDuration = settings?.booking_slot_duration || 90 // minutes
     const daysAhead = settings?.max_advance_days || 7
-    // Club-defined available slots (array of "HH:MM" strings), or null for legacy behavior
-    const clubAvailableSlots: string[] | null = settings?.available_booking_slots && Array.isArray(settings.available_booking_slots)
-      ? settings.available_booking_slots
-      : null
 
     // 4. Generate dates
     const dates: string[] = []
@@ -384,33 +377,62 @@ export async function fetchClubsWithAvailability(): Promise<ClubWithAvailability
       .gte('scheduled_at', dateFrom)
       .lte('scheduled_at', dateTo)
 
-    // 7. Generate available time slots
+    // 7. Generate available time slots using per-court slot config
     const availability: { [date: string]: TimeSlot[] } = {}
-    const openH = parseInt(startTime.split(':')[0])
-    const openM = parseInt(startTime.split(':')[1] || '0')
-    const closeH = parseInt(endTime.split(':')[0])
-    const closeM = parseInt(endTime.split(':')[1] || '0')
-    const openMinutes = openH * 60 + openM
-    const closeMinutes = closeH * 60 + closeM
 
-    // Build the list of time strings to check
-    // If club has defined available_booking_slots, use those; otherwise fall back to legacy fixed intervals
-    let slotTimeStrings: string[] = []
-    if (clubAvailableSlots && clubAvailableSlots.length > 0) {
-      // Use club-defined slots (already sorted "HH:MM" strings)
-      slotTimeStrings = clubAvailableSlots.filter(s => {
-        const [h, m] = s.split(':').map(Number)
-        const mins = h * 60 + m
-        return mins >= openMinutes && mins < closeMinutes
-      })
-    } else {
-      // Legacy: generate slots at fixed intervals
-      for (let m = openMinutes; m + slotDuration <= closeMinutes; m += slotDuration) {
-        const h = Math.floor(m / 60)
-        const min = m % 60
-        slotTimeStrings.push(`${h.toString().padStart(2, '0')}:${min.toString().padStart(2, '0')}`)
+    // Collect all unique time strings across all courts
+    const allTimeStringsSet = new Set<string>()
+    // Map of court_id -> { time -> durations[] } for quick lookup
+    const courtSlotMap = new Map<string, Map<string, number[]>>()
+
+    for (const court of courts) {
+      const cs = (court as any).court_slots as { operating_start: string; operating_end: string; slots: { time: string; durations: number[] }[] } | null
+      if (cs && cs.slots && cs.slots.length > 0) {
+        const slotMap = new Map<string, number[]>()
+        for (const slot of cs.slots) {
+          if (slot.durations.length > 0) {
+            slotMap.set(slot.time, slot.durations)
+            allTimeStringsSet.add(slot.time)
+          }
+        }
+        courtSlotMap.set(court.id, slotMap)
+      } else {
+        // Legacy fallback: use global settings for courts without per-court config
+        const startTime = settings?.booking_start_time || '08:00'
+        const endTime = settings?.booking_end_time || '22:00'
+        const slotDuration = settings?.booking_slot_duration || 90
+        const clubAvailableSlots: string[] | null = settings?.available_booking_slots && Array.isArray(settings.available_booking_slots)
+          ? settings.available_booking_slots
+          : null
+
+        const [openH, openM] = startTime.split(':').map(Number)
+        const [closeH, closeM] = endTime.split(':').map(Number)
+        const openMinutes = openH * 60 + openM
+        const closeMinutes = closeH * 60 + closeM
+
+        const slotMap = new Map<string, number[]>()
+        let legacySlotTimes: string[] = []
+        if (clubAvailableSlots && clubAvailableSlots.length > 0) {
+          legacySlotTimes = clubAvailableSlots.filter(s => {
+            const [h, m] = s.split(':').map(Number)
+            return h * 60 + m >= openMinutes && h * 60 + m < closeMinutes
+          })
+        } else {
+          for (let m = openMinutes; m + slotDuration <= closeMinutes; m += slotDuration) {
+            const h = Math.floor(m / 60)
+            const min = m % 60
+            legacySlotTimes.push(`${h.toString().padStart(2, '0')}:${min.toString().padStart(2, '0')}`)
+          }
+        }
+        for (const t of legacySlotTimes) {
+          slotMap.set(t, [60, 90, 120]) // Legacy: all durations
+          allTimeStringsSet.add(t)
+        }
+        courtSlotMap.set(court.id, slotMap)
       }
     }
+
+    const allTimeStrings = Array.from(allTimeStringsSet).sort()
     
     for (const date of dates) {
       const slots: TimeSlot[] = []
@@ -420,7 +442,7 @@ export async function fetchClubsWithAvailability(): Promise<ClubWithAvailability
         ? now.getHours() * 60 + now.getMinutes() + 60
         : 0
 
-      for (const timeStr of slotTimeStrings) {
+      for (const timeStr of allTimeStrings) {
         const [slotH, slotM] = timeStr.split(':').map(Number)
         const slotMinutes = slotH * 60 + slotM
 
@@ -428,20 +450,24 @@ export async function fetchClubsWithAvailability(): Promise<ClubWithAvailability
         if (slotMinutes < minStartMinutes) continue
 
         const slotStart = new Date(`${date}T${timeStr}:00`)
-        const closingTime = new Date(`${date}T${endTime}:00`)
 
-        // Check if at least 60 min fits before closing
-        const slotEnd60 = new Date(slotStart.getTime() + 60 * 60000)
-        if (slotEnd60 > closingTime) continue
-
-        // Check ALL courts for availability at this time with multiple durations
+        // Check ALL courts for availability at this time with their configured durations
         const courtSlots: CourtSlot[] = []
-        const possibleDurations = [60, 90, 120]
 
         for (const court of courts) {
-          // Check which durations are available for this court at this time
+          const slotMap = courtSlotMap.get(court.id)
+          if (!slotMap) continue
+          const allowedDurations = slotMap.get(timeStr)
+          if (!allowedDurations || allowedDurations.length === 0) continue
+
+          // Get this court's closing time
+          const cs = (court as any).court_slots as { operating_start: string; operating_end: string; slots: any[] } | null
+          const courtEndTime = cs ? cs.operating_end : (settings?.booking_end_time || '22:00')
+          const closingTime = new Date(`${date}T${courtEndTime}:00`)
+
+          // Check which of the allowed durations are actually available (no conflicts)
           const availableDurations: number[] = []
-          for (const dur of possibleDurations) {
+          for (const dur of allowedDurations) {
             const durEnd = new Date(slotStart.getTime() + dur * 60000)
             if (durEnd > closingTime) continue
             if (isSlotAvailable(court.id, slotStart, durEnd, bookings || [], existingGames || [])) {
@@ -450,7 +476,6 @@ export async function fetchClubsWithAvailability(): Promise<ClubWithAvailability
           }
 
           if (availableDurations.length > 0) {
-            // Calculate price per player for each duration
             const hourlyRate = parseFloat(court.hourly_rate as any) || 0
             const price60 = Math.round((hourlyRate * 1) / 4 * 100) / 100
             const price90 = Math.round((hourlyRate * 1.5) / 4 * 100) / 100
