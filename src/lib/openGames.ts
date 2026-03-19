@@ -316,7 +316,7 @@ export async function fetchClubsWithAvailability(): Promise<ClubWithAvailability
   // 1. Fetch all active clubs
   const { data: clubs, error: clubsError } = await supabase
     .from('clubs')
-    .select('id, owner_id, name, logo_url, photo_url_1, photo_url_2, city, address, payment_method')
+    .select('id, owner_id, name, logo_url, photo_url_1, photo_url_2, city, address, payment_method, active_schedule')
     .eq('is_active', true)
     .order('name')
 
@@ -385,8 +385,18 @@ export async function fetchClubsWithAvailability(): Promise<ClubWithAvailability
     // Map of court_id -> { time -> durations[] } for quick lookup
     const courtSlotMap = new Map<string, Map<string, number[]>>()
 
+    const clubSchedule = (club as any).active_schedule || 'summer'
+
     for (const court of courts) {
-      const cs = (court as any).court_slots as { operating_start: string; operating_end: string; slots: { time: string; durations: number[] }[] } | null
+      // Extract schedule based on active_schedule (summer/winter)
+      const rawSlots = (court as any).court_slots as any
+      let cs: { operating_start: string; operating_end: string; slots: { time: string; durations: number[] }[] } | null = null
+      if (rawSlots?.schedules) {
+        cs = rawSlots.schedules[clubSchedule] || rawSlots.schedules.summer || null
+      } else if (rawSlots?.operating_start && rawSlots?.slots) {
+        cs = rawSlots // Legacy format
+      }
+
       if (cs && cs.slots && cs.slots.length > 0) {
         const slotMap = new Map<string, number[]>()
         for (const slot of cs.slots) {
@@ -460,10 +470,23 @@ export async function fetchClubsWithAvailability(): Promise<ClubWithAvailability
           const allowedDurations = slotMap.get(timeStr)
           if (!allowedDurations || allowedDurations.length === 0) continue
 
-          // Get this court's closing time
-          const cs = (court as any).court_slots as { operating_start: string; operating_end: string; slots: any[] } | null
-          const courtEndTime = cs ? cs.operating_end : (settings?.booking_end_time || '22:00')
-          const closingTime = new Date(`${date}T${courtEndTime}:00`)
+          // Get this court's closing time from active schedule
+          const rawCS = (court as any).court_slots as any
+          let courtSchedule: { operating_end: string } | null = null
+          if (rawCS?.schedules) {
+            courtSchedule = rawCS.schedules[clubSchedule] || rawCS.schedules.summer
+          } else if (rawCS?.operating_end) {
+            courtSchedule = rawCS
+          }
+          const courtEndTime = courtSchedule ? courtSchedule.operating_end : (settings?.booking_end_time || '22:00')
+          // Handle midnight: if end time is 00:00, set closing to next day midnight
+          let closingTime: Date
+          if (courtEndTime === '00:00') {
+            closingTime = new Date(`${date}T00:00:00`)
+            closingTime.setDate(closingTime.getDate() + 1)
+          } else {
+            closingTime = new Date(`${date}T${courtEndTime}:00`)
+          }
 
           // Check which of the allowed durations are actually available (no conflicts)
           const availableDurations: number[] = []
