@@ -849,12 +849,42 @@ function LoginScreen({ phone, setPhone, password, setPassword, showPassword, set
   onLogin: () => void
   onRegister?: () => void
 }) {
-  const { t } = useI18n()
+  const { t, language, setLanguage, languageNames, languageFlags } = useI18n()
+  const [langOpen, setLangOpen] = useState(false)
 
   return (
     <div className="min-h-screen bg-white flex flex-col">
+      {/* Language selector — top right */}
+      <div className="flex justify-end px-4 pt-4">
+        <div className="relative">
+          <button
+            onClick={() => setLangOpen(!langOpen)}
+            className="flex items-center gap-2 px-3 py-2 rounded-xl border border-gray-200 bg-gray-50 hover:bg-gray-100 transition-colors text-sm"
+          >
+            <Globe className="w-4 h-4 text-gray-500" />
+            <span className="text-lg">{languageFlags[language]}</span>
+            <span className="text-gray-700 font-medium">{languageNames[language]}</span>
+            <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${langOpen ? 'rotate-180' : ''}`} />
+          </button>
+          {langOpen && (
+            <div className="absolute right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-50 overflow-hidden min-w-[160px]">
+              {(Object.keys(languageNames) as Array<keyof typeof languageNames>).map((lang) => (
+                <button
+                  key={lang}
+                  onClick={() => { setLanguage(lang as any); setLangOpen(false) }}
+                  className={`w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-left hover:bg-gray-50 transition-colors ${language === lang ? 'bg-red-50 text-red-700 font-semibold' : 'text-gray-700'}`}
+                >
+                  <span className="text-lg">{languageFlags[lang]}</span>
+                  <span>{languageNames[lang]}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Hero Section */}
-      <div className="flex-1 flex flex-col items-center justify-center px-6 py-12">
+      <div className="flex-1 flex flex-col items-center justify-center px-6 py-8">
         {/* Logo */}
         <div className="mb-8 animate-fade-in">
           <img 
@@ -884,7 +914,7 @@ function LoginScreen({ phone, setPhone, password, setPassword, showPassword, set
             <Smartphone className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
             <input
               type="tel"
-              placeholder="Número de telemóvel"
+              placeholder={t.login.phonePlaceholder}
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
               className="w-full pl-12 pr-4 py-4 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:border-red-500 focus:ring-2 focus:ring-red-500/20 transition-all"
@@ -895,7 +925,7 @@ function LoginScreen({ phone, setPhone, password, setPassword, showPassword, set
             <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
             <input
               type={showPassword ? 'text' : 'password'}
-              placeholder="Password"
+              placeholder={t.login.passwordPlaceholder}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && onLogin()}
@@ -919,14 +949,14 @@ function LoginScreen({ phone, setPhone, password, setPassword, showPassword, set
               <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
             ) : (
               <>
-                Entrar
+                {t.login.enter}
                 <ChevronRight className="w-5 h-5" />
               </>
             )}
           </button>
 
           <p className="text-center text-gray-500 text-sm">
-            Introduz o teu número de telemóvel e password
+            {t.login.helpText}
           </p>
 
           {onRegister && (
@@ -943,9 +973,9 @@ function LoginScreen({ phone, setPhone, password, setPassword, showPassword, set
       {/* Features */}
       <div className="px-6 pb-8">
         <div className="grid grid-cols-3 gap-3">
-          <FeatureCard icon={Trophy} label="Torneios" />
-          <FeatureCard icon={Calendar} label="Reservas" />
-          <FeatureCard icon={TrendingUp} label="Rankings" />
+          <FeatureCard icon={Trophy} label={t.login.tournaments} />
+          <FeatureCard icon={Calendar} label={t.login.bookings} />
+          <FeatureCard icon={TrendingUp} label={t.login.rankings} />
         </div>
       </div>
     </div>
@@ -9786,111 +9816,111 @@ function ProfileEditScreen({
 // Definição das 12 perguntas do questionário (função que recebe traduções)
 const getQuizQuestions = (t: typeof translations.pt): { id: string; title: string; options: { value: number; label: string }[] }[] => [
   {
-    id: 'q1', title: '1. Com que frequência jogas por semana?',
+    id: 'q1', title: t.register.q1Title,
     options: [
-      { value: 0, label: 'Jogo muito pouco ou quase nada' },
-      { value: 1, label: 'Jogo 1 vez por semana' },
-      { value: 2, label: 'Jogo 2–3 vezes por semana' },
-      { value: 3, label: 'Jogo 4 ou mais vezes por semana' },
+      { value: 0, label: t.register.q1o0 },
+      { value: 1, label: t.register.q1o1 },
+      { value: 2, label: t.register.q1o2 },
+      { value: 3, label: t.register.q1o3 },
     ],
   },
   {
-    id: 'q2', title: '2. Já participaste em torneios ou ligas?',
+    id: 'q2', title: t.register.q2Title,
     options: [
-      { value: 0, label: 'Nunca joguei torneios' },
-      { value: 1, label: t.common.participatedOccasionally },
-      { value: 2, label: t.common.participateRegularly },
-      { value: 3, label: 'Compito a nível regional/nacional' },
+      { value: 0, label: t.register.q2o0 },
+      { value: 1, label: t.register.q2o1 },
+      { value: 2, label: t.register.q2o2 },
+      { value: 3, label: t.register.q2o3 },
     ],
   },
   {
-    id: 'q3', title: '3. Treinas técnica além de jogar partidas?',
+    id: 'q3', title: t.register.q3Title,
     options: [
-      { value: 0, label: 'Não treino' },
-      { value: 1, label: t.common.trainSporadically },
-      { value: 2, label: 'Treino 1 vez por semana' },
-      { value: 3, label: 'Treino 2 ou mais vezes por semana' },
+      { value: 0, label: t.register.q3o0 },
+      { value: 1, label: t.register.q3o1 },
+      { value: 2, label: t.register.q3o2 },
+      { value: 3, label: t.register.q3o3 },
     ],
   },
   {
-    id: 'q4', title: '4. Consistência em rallies de 10+ pancadas',
+    id: 'q4', title: t.register.q4Title,
     options: [
-      { value: 0, label: 'Evito trocas longas / erro muito' },
-      { value: 1, label: 'Às vezes mantenho rallies' },
-      { value: 2, label: 'Mantenho trocas longas com frequência' },
-      { value: 3, label: 'Muito consistente mesmo a ritmo elevado' },
+      { value: 0, label: t.register.q4o0 },
+      { value: 1, label: t.register.q4o1 },
+      { value: 2, label: t.register.q4o2 },
+      { value: 3, label: t.register.q4o3 },
     ],
   },
   {
-    id: 'q5', title: '5. Usas os vidros com intenção tática?',
+    id: 'q5', title: t.register.q5Title,
     options: [
-      { value: 0, label: 'Nunca / não sei usá-los' },
-      { value: 1, label: 'Às vezes' },
-      { value: 2, label: 'Regularmente' },
-      { value: 3, label: 'De forma estratégica e com controlo' },
+      { value: 0, label: t.register.q5o0 },
+      { value: 1, label: t.register.q5o1 },
+      { value: 2, label: t.register.q5o2 },
+      { value: 3, label: t.register.q5o3 },
     ],
   },
   {
-    id: 'q6', title: '6. Jogo na rede (voleias, bandeja, finalizações)',
+    id: 'q6', title: t.register.q6Title,
     options: [
-      { value: 0, label: 'Evito a rede / erro muito' },
-      { value: 1, label: 'Vou à rede mas sem segurança' },
-      { value: 2, label: 'Boa volea / bandeja básica' },
-      { value: 3, label: 'Domino volea, bandeja/víbora e finalizações' },
+      { value: 0, label: t.register.q6o0 },
+      { value: 1, label: t.register.q6o1 },
+      { value: 2, label: t.register.q6o2 },
+      { value: 3, label: t.register.q6o3 },
     ],
   },
   {
-    id: 'q7', title: '7. Serviço',
+    id: 'q7', title: t.register.q7Title,
     options: [
-      { value: 0, label: 'Inconsistente / muitos erros' },
-      { value: 1, label: 'Aceitável' },
-      { value: 2, label: 'Colocado e estável' },
-      { value: 3, label: 'Potente e preciso' },
+      { value: 0, label: t.register.q7o0 },
+      { value: 1, label: t.register.q7o1 },
+      { value: 2, label: t.register.q7o2 },
+      { value: 3, label: t.register.q7o3 },
     ],
   },
   {
-    id: 'q8', title: '8. Bandeja ou víbora',
+    id: 'q8', title: t.register.q8Title,
     options: [
-      { value: 0, label: 'Não sei executar bem' },
-      { value: 1, label: 'Básica' },
-      { value: 2, label: 'Consistente' },
-      { value: 3, label: 'Finalizadora' },
+      { value: 0, label: t.register.q8o0 },
+      { value: 1, label: t.register.q8o1 },
+      { value: 2, label: t.register.q8o2 },
+      { value: 3, label: t.register.q8o3 },
     ],
   },
   {
-    id: 'q9', title: '9. Smash / remate',
+    id: 'q9', title: t.register.q9Title,
     options: [
-      { value: 0, label: 'Fraco' },
-      { value: 1, label: 'Básico' },
-      { value: 2, label: 'Potente e direcionado' },
-      { value: 3, label: 'Muito potente e decisivo' },
+      { value: 0, label: t.register.q9o0 },
+      { value: 1, label: t.register.q9o1 },
+      { value: 2, label: t.register.q9o2 },
+      { value: 3, label: t.register.q9o3 },
     ],
   },
   {
-    id: 'q10', title: '10. Leitura de jogo e antecipação',
+    id: 'q10', title: t.register.q10Title,
     options: [
-      { value: 0, label: 'Tenho dificuldade em antecipar' },
-      { value: 1, label: 'Às vezes antecipo' },
-      { value: 2, label: t.common.goodReading },
-      { value: 3, label: 'Excelente antecipação' },
+      { value: 0, label: t.register.q10o0 },
+      { value: 1, label: t.register.q10o1 },
+      { value: 2, label: t.register.q10o2 },
+      { value: 3, label: t.register.q10o3 },
     ],
   },
   {
-    id: 'q11', title: '11. Comunicação com o parceiro',
+    id: 'q11', title: t.register.q11Title,
     options: [
-      { value: 0, label: 'Má' },
-      { value: 1, label: 'A melhorar' },
-      { value: 2, label: 'Boa' },
-      { value: 3, label: 'Excelente' },
+      { value: 0, label: t.register.q11o0 },
+      { value: 1, label: t.register.q11o1 },
+      { value: 2, label: t.register.q11o2 },
+      { value: 3, label: t.register.q11o3 },
     ],
   },
   {
-    id: 'q12', title: '12. Gestão da pressão',
+    id: 'q12', title: t.register.q12Title,
     options: [
-      { value: 0, label: 'Afeta-me bastante' },
-      { value: 1, label: 'Às vezes' },
-      { value: 2, label: 'Normalmente mantenho a calma' },
-      { value: 3, label: 'Excelente controlo sob pressão' },
+      { value: 0, label: t.register.q12o0 },
+      { value: 1, label: t.register.q12o1 },
+      { value: 2, label: t.register.q12o2 },
+      { value: 3, label: t.register.q12o3 },
     ],
   },
 ]
@@ -9899,10 +9929,10 @@ const getQuizQuestions = (t: typeof translations.pt): { id: string; title: strin
 const getQuizPages = (t: typeof translations.pt) => {
   const questions = getQuizQuestions(t)
   return [
-    { label: 'Experiência & Hábitos', questions: questions.slice(0, 3) },
-    { label: 'Técnica Base', questions: questions.slice(3, 6) },
-    { label: 'Pancadas', questions: questions.slice(6, 9) },
-    { label: 'Estratégia & Mental', questions: questions.slice(9, 12) },
+    { label: t.register.quizExperience, questions: questions.slice(0, 3) },
+    { label: t.register.quizTechnique, questions: questions.slice(3, 6) },
+    { label: t.register.quizShots, questions: questions.slice(6, 9) },
+    { label: t.register.quizStrategy, questions: questions.slice(9, 12) },
   ]
 }
 
@@ -9979,10 +10009,10 @@ function RegisterScreen({ onBack, onSuccess }: {
       }
 
       // Validações
-      if (!name.trim()) { setError(t.auth.nameRequired); setSaving(false); return }
+      if (!name.trim()) { setError(t.register.nameRequired); setSaving(false); return }
       if (!normalizedPhone || normalizedPhone.length < 9) { 
         if (regPhone.trim() === '+' || (regPhone.trim().startsWith('+') && regPhone.trim().length < 4)) {
-          setError('Por favor, adicione o indicativo do país (ex: +351)');
+          setError(t.register.addCountryCode);
         } else {
           setError(t.auth.invalidPhone);
         }
@@ -9990,8 +10020,8 @@ function RegisterScreen({ onBack, onSuccess }: {
         return 
       }
       if (!email.trim() || !email.includes('@')) { setError(t.auth.invalidEmail); setSaving(false); return }
-      if (regPassword.length < 6) { setError(t.auth.passwordMinLength); setSaving(false); return }
-      if (regPassword !== confirmPwd) { setError(t.auth.passwordsDontMatch); setSaving(false); return }
+      if (regPassword.length < 6) { setError(t.register.passwordMin); setSaving(false); return }
+      if (regPassword !== confirmPwd) { setError(t.register.passwordsMismatch); setSaving(false); return }
 
       // Verificar se telefone ou email já existem
       const { data: existingPhone } = await supabase
@@ -10000,7 +10030,7 @@ function RegisterScreen({ onBack, onSuccess }: {
         .eq('phone_number', normalizedPhone)
         .maybeSingle()
       
-      if (existingPhone) { setError('Este número de telemóvel já está registado. Faz login.'); setSaving(false); return }
+      if (existingPhone) { setError(t.register.phoneAlreadyRegistered); setSaving(false); return }
 
       // 1. Criar conta no Supabase Auth
       const { data: authData, error: authError } = await supabase.auth.signUp({
@@ -10010,16 +10040,16 @@ function RegisterScreen({ onBack, onSuccess }: {
 
       if (authError) {
         if (authError.message.includes('already registered')) {
-          setError('Este email já está registado. Faz login.')
+          setError(t.register.emailAlreadyRegistered)
         } else {
-          setError('Erro ao criar conta: ' + authError.message)
+          setError(t.register.errorCreatingAccount + ': ' + authError.message)
         }
         setSaving(false)
         return
       }
 
       const userId = authData?.user?.id
-      if (!userId) { setError('Erro ao criar conta'); setSaving(false); return }
+      if (!userId) { setError(t.register.errorCreatingAccount); setSaving(false); return }
 
       // 2. Calcular nível
       const level = calculateLevel()
@@ -10045,7 +10075,7 @@ function RegisterScreen({ onBack, onSuccess }: {
 
       if (paError) {
         console.error('[Register] Error creating player_account:', paError)
-        setError('Erro ao criar perfil: ' + paError.message)
+        setError(t.register.errorCreatingProfile + ': ' + paError.message)
         setSaving(false)
         return
       }
@@ -10057,24 +10087,24 @@ function RegisterScreen({ onBack, onSuccess }: {
       onSuccess(pa)
     } catch (err: any) {
       console.error('[Register] Error:', err)
-      setError('Erro inesperado: ' + err.message)
+      setError(t.register.unexpectedError + ': ' + err.message)
     } finally {
       setSaving(false)
     }
   }
 
   const levelDescriptions: { level: number; label: string; desc: string }[] = [
-    { level: 1.0, label: '1.0 - Principiante', desc: 'Nunca joguei ou estou a começar.' },
-    { level: 1.5, label: '1.5 - Iniciação', desc: 'Consigo manter a bola em jogo.' },
-    { level: 2.0, label: '2.0 - Iniciação+', desc: 'Consigo servir e devolver.' },
-    { level: 2.5, label: '2.5 - Intermédio baixo', desc: 'Batidas consistentes, vidro.' },
-    { level: 3.0, label: '3.0 - Intermédio', desc: 'Jogo consistente, posiciono-me bem.' },
-    { level: 3.5, label: '3.5 - Intermédio+', desc: 'Bom controlo, bandejas e vóleis.' },
-    { level: 4.0, label: '4.0 - Avançado', desc: 'Todas as pancadas, leitura de jogo.' },
-    { level: 4.5, label: '4.5 - Avançado+', desc: 'Domínio técnico, competitivo.' },
-    { level: 5.0, label: '5.0 - Expert', desc: 'Nível muito alto, torneios top.' },
-    { level: 5.5, label: '5.5 - Expert+', desc: 'Semi-profissional.' },
-    { level: 6.0, label: '6.0+ - Profissional', desc: 'Nível profissional.' },
+    { level: 1.0, label: t.register.lvl10, desc: t.register.lvl10Desc },
+    { level: 1.5, label: t.register.lvl15, desc: t.register.lvl15Desc },
+    { level: 2.0, label: t.register.lvl20, desc: t.register.lvl20Desc },
+    { level: 2.5, label: t.register.lvl25, desc: t.register.lvl25Desc },
+    { level: 3.0, label: t.register.lvl30, desc: t.register.lvl30Desc },
+    { level: 3.5, label: t.register.lvl35, desc: t.register.lvl35Desc },
+    { level: 4.0, label: t.register.lvl40, desc: t.register.lvl40Desc },
+    { level: 4.5, label: t.register.lvl45, desc: t.register.lvl45Desc },
+    { level: 5.0, label: t.register.lvl50, desc: t.register.lvl50Desc },
+    { level: 5.5, label: t.register.lvl55, desc: t.register.lvl55Desc },
+    { level: 6.0, label: t.register.lvl60, desc: t.register.lvl60Desc },
   ]
 
   // Progresso total: step 1 = 1/6, step 2 pages = 2-5/6, step 3 = 6/6
@@ -10100,7 +10130,7 @@ function RegisterScreen({ onBack, onSuccess }: {
             else if (step === 3) { setStep(2); setQuizPage(3); setError('') }
             else onBack()
           }} className="p-1 -ml-1"><ArrowLeft className="w-6 h-6 text-gray-700" /></button>
-          <h1 className="text-2xl font-bold text-gray-900">Criar Conta</h1>
+          <h1 className="text-2xl font-bold text-gray-900">{t.register.createAccount}</h1>
         </div>
 
         {/* Progress bar — 6 segmentos */}
@@ -10119,60 +10149,60 @@ function RegisterScreen({ onBack, onSuccess }: {
         {/* ========== STEP 1: DADOS PESSOAIS ========== */}
         {step === 1 && (
           <div className="space-y-4 animate-fade-in">
-            <h2 className="text-lg font-bold text-gray-900 mb-2">Dados Pessoais</h2>
+            <h2 className="text-lg font-bold text-gray-900 mb-2">{t.register.personalData}</h2>
             <div>
-              <label className="text-sm font-medium text-gray-700 mb-1 block">Nome completo</label>
+              <label className="text-sm font-medium text-gray-700 mb-1 block">{t.register.fullName}</label>
               <div className="relative">
                 <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                <input value={name} onChange={e => setName(e.target.value)} placeholder="O teu nome" className="w-full pl-11 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-red-500/20 focus:border-red-500" />
+                <input value={name} onChange={e => setName(e.target.value)} placeholder={t.register.yourName} className="w-full pl-11 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-red-500/20 focus:border-red-500" />
               </div>
             </div>
             <div>
-              <label className="text-sm font-medium text-gray-700 mb-1 block">Telemóvel</label>
+              <label className="text-sm font-medium text-gray-700 mb-1 block">{t.register.phone}</label>
               <div className="relative">
                 <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                <input value={regPhone} onChange={e => setRegPhone(e.target.value)} placeholder="912 345 678" type="tel" className="w-full pl-11 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-red-500/20 focus:border-red-500" />
+                <input value={regPhone} onChange={e => setRegPhone(e.target.value)} placeholder={t.register.phonePlaceholder} type="tel" className="w-full pl-11 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-red-500/20 focus:border-red-500" />
               </div>
               <p className="mt-1 text-xs text-gray-500">
-                O indicativo +351 será adicionado automaticamente se não fornecido
+                {t.register.phoneHint}
               </p>
             </div>
             <div>
-              <label className="text-sm font-medium text-gray-700 mb-1 block">Email</label>
+              <label className="text-sm font-medium text-gray-700 mb-1 block">{t.register.email}</label>
               <div className="relative">
                 <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                <input value={email} onChange={e => setEmail(e.target.value)} placeholder="email@exemplo.com" type="email" className="w-full pl-11 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-red-500/20 focus:border-red-500" />
+                <input value={email} onChange={e => setEmail(e.target.value)} placeholder={t.register.emailPlaceholder} type="email" className="w-full pl-11 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-red-500/20 focus:border-red-500" />
               </div>
             </div>
             <div>
-              <label className="text-sm font-medium text-gray-700 mb-1 block">Password</label>
+              <label className="text-sm font-medium text-gray-700 mb-1 block">{t.register.password}</label>
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                <input value={regPassword} onChange={e => setRegPassword(e.target.value)} placeholder="Mínimo 6 caracteres" type="password" className="w-full pl-11 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-red-500/20 focus:border-red-500" />
+                <input value={regPassword} onChange={e => setRegPassword(e.target.value)} placeholder={t.register.passwordPlaceholder} type="password" className="w-full pl-11 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-red-500/20 focus:border-red-500" />
               </div>
             </div>
             <div>
-              <label className="text-sm font-medium text-gray-700 mb-1 block">Confirmar password</label>
+              <label className="text-sm font-medium text-gray-700 mb-1 block">{t.register.confirmPassword}</label>
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                <input value={confirmPwd} onChange={e => setConfirmPwd(e.target.value)} placeholder={t.auth.repeatPassword} type="password" className="w-full pl-11 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-red-500/20 focus:border-red-500" />
+                <input value={confirmPwd} onChange={e => setConfirmPwd(e.target.value)} placeholder={t.register.confirmPassword} type="password" className="w-full pl-11 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-red-500/20 focus:border-red-500" />
               </div>
             </div>
 
             <button 
               onClick={() => {
                 setError('')
-                if (!name.trim()) { setError('Nome é obrigatório'); return }
-                if (!regPhone.trim()) { setError('Telefone é obrigatório'); return }
-                if (!email.trim()) { setError('Email é obrigatório'); return }
-                if (regPassword.length < 6) { setError('Password deve ter pelo menos 6 caracteres'); return }
-                if (regPassword !== confirmPwd) { setError('Passwords não coincidem'); return }
+                if (!name.trim()) { setError(t.register.nameRequired); return }
+                if (!regPhone.trim()) { setError(t.register.phoneRequired); return }
+                if (!email.trim()) { setError(t.register.emailRequired); return }
+                if (regPassword.length < 6) { setError(t.register.passwordMin); return }
+                if (regPassword !== confirmPwd) { setError(t.register.passwordsMismatch); return }
                 setStep(2)
                 setQuizPage(0)
               }}
               className="w-full py-3 bg-red-600 text-white rounded-xl font-semibold hover:bg-red-700 transition-colors"
             >
-              Seguinte
+              {t.register.next}
             </button>
           </div>
         )}
@@ -10183,19 +10213,19 @@ function RegisterScreen({ onBack, onSuccess }: {
             {/* Se quizPage === 0, mostrar opção directa */}
             {quizPage === 0 && (
               <>
-                <h2 className="text-lg font-bold text-gray-900">Avaliação de Nível</h2>
+                <h2 className="text-lg font-bold text-gray-900">{t.register.levelAssessment}</h2>
                 <p className="text-sm text-gray-500 -mt-3">
-                  Responde às 12 perguntas para calcularmos o teu nível, ou seleciona diretamente se já o conheces.
+                  {t.register.levelAssessmentDesc}
                 </p>
 
                 {/* Toggle: questionário vs directo */}
                 {selfLevel !== null && (
                   <div className="bg-green-50 border border-green-200 rounded-xl p-3 flex items-center justify-between">
                     <div>
-                      <p className="text-sm font-semibold text-green-800">Nível selecionado: {selfLevel.toFixed(2)}</p>
+                      <p className="text-sm font-semibold text-green-800">{t.register.levelSelected}: {selfLevel.toFixed(2)}</p>
                       <p className="text-xs text-green-600">{getCategoryFromLevel(selfLevel)}</p>
                     </div>
-                    <button onClick={() => setSelfLevel(null)} className="text-xs text-green-700 underline">Alterar</button>
+                    <button onClick={() => setSelfLevel(null)} className="text-xs text-green-700 underline">{t.register.change}</button>
                   </div>
                 )}
 
@@ -10203,7 +10233,7 @@ function RegisterScreen({ onBack, onSuccess }: {
                   <details className="group">
                     <summary className="cursor-pointer text-sm font-semibold text-red-600 hover:text-red-700 flex items-center gap-1">
                       <ChevronRight className="w-4 h-4 transition-transform group-open:rotate-90" />
-                      Já sei o meu nível — selecionar diretamente
+                      {t.register.iKnowMyLevel}
                     </summary>
                     <div className="mt-3 grid grid-cols-2 gap-2 max-h-[220px] overflow-y-auto pr-1">
                       {levelDescriptions.map(ld => (
@@ -10270,7 +10300,7 @@ function RegisterScreen({ onBack, onSuccess }: {
 
                 {/* Contador de respostas na página */}
                 <p className="text-xs text-gray-400 text-center">
-                  {currentPageAnswered}/{currentPageQuestions.length} respondidas nesta secção
+                  {currentPageAnswered}/{currentPageQuestions.length} {t.register.answeredInSection}
                 </p>
               </>
             )}
@@ -10285,7 +10315,7 @@ function RegisterScreen({ onBack, onSuccess }: {
                 }}
                 className="flex-1 py-3 border border-gray-200 rounded-xl font-medium text-gray-700 hover:bg-gray-50"
               >
-                Voltar
+                {t.register.back}
               </button>
               <button 
                 onClick={() => {
@@ -10296,7 +10326,7 @@ function RegisterScreen({ onBack, onSuccess }: {
                     return
                   }
                   if (!currentPageComplete) {
-                    setError('Responde a todas as perguntas desta secção')
+                    setError(t.register.answerAllQuestions)
                     return
                   }
                   if (quizPage < QUIZ_PAGES.length - 1) {
@@ -10307,7 +10337,7 @@ function RegisterScreen({ onBack, onSuccess }: {
                 }}
                 className="flex-1 py-3 bg-red-600 text-white rounded-xl font-semibold hover:bg-red-700 transition-colors"
               >
-                {(selfLevel !== null || quizPage === QUIZ_PAGES.length - 1) ? t.common.viewResult : t.common.nextButton}
+                {(selfLevel !== null || quizPage === QUIZ_PAGES.length - 1) ? t.common.viewResult : t.register.next}
               </button>
             </div>
           </div>
@@ -10316,7 +10346,7 @@ function RegisterScreen({ onBack, onSuccess }: {
         {/* ========== STEP 3: CONFIRMAÇÃO ========== */}
         {step === 3 && (
           <div className="space-y-6 animate-fade-in">
-            <h2 className="text-lg font-bold text-gray-900">Confirmar registo</h2>
+            <h2 className="text-lg font-bold text-gray-900">{t.register.confirmRegistration}</h2>
             
             <div className="card p-5 space-y-3">
               <div className="flex items-center gap-3">
@@ -10331,19 +10361,19 @@ function RegisterScreen({ onBack, onSuccess }: {
               
               <div className="border-t pt-3 grid grid-cols-2 gap-3 text-sm">
                 <div>
-                  <p className="text-gray-500">Telefone</p>
+                  <p className="text-gray-500">{t.register.phoneLabel}</p>
                   <p className="font-medium">{regPhone}</p>
                 </div>
                 <div>
-                  <p className="text-gray-500">Nível estimado</p>
+                  <p className="text-gray-500">{t.register.estimatedLevel}</p>
                   <p className="font-bold text-red-600 text-lg">{calculateLevel().toFixed(2)}</p>
                 </div>
                 <div>
-                  <p className="text-gray-500">Categoria</p>
+                  <p className="text-gray-500">{t.register.category}</p>
                   <p className="font-medium">{getCategoryFromLevel(calculateLevel())}</p>
                 </div>
                 <div>
-                  <p className="text-gray-500">Fiabilidade</p>
+                  <p className="text-gray-500">{t.register.reliability}</p>
                   <p className="font-medium text-amber-600">10%</p>
                 </div>
               </div>
@@ -10352,7 +10382,7 @@ function RegisterScreen({ onBack, onSuccess }: {
             {/* Resumo visual do questionário */}
             {selfLevel === null && Object.keys(answers).length > 0 && (
               <div className="card p-4">
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Resumo do questionário</p>
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">{t.register.quizSummary}</p>
                 <div className="grid grid-cols-4 gap-2">
                   {QUIZ_PAGES.map((page, pi) => {
                     const pageScore = page.questions.reduce((s, q) => s + (answers[q.id] ?? 0), 0)
@@ -10379,13 +10409,12 @@ function RegisterScreen({ onBack, onSuccess }: {
             )}
 
             <p className="text-xs text-gray-500 text-center">
-              O teu nível será ajustado automaticamente com base nos resultados dos teus jogos.
-              Os clubes também podem ajustar o teu nível.
+              {t.register.levelAutoAdjust}
             </p>
 
             <div className="flex gap-3">
               <button onClick={() => { setStep(2); setQuizPage(selfLevel !== null ? 0 : 3); setError('') }} className="flex-1 py-3 border border-gray-200 rounded-xl font-medium text-gray-700 hover:bg-gray-50">
-                Voltar
+                {t.register.back}
               </button>
               <button 
                 onClick={handleRegister}
@@ -10395,7 +10424,7 @@ function RegisterScreen({ onBack, onSuccess }: {
                 {saving ? (
                   <div className="flex items-center justify-center gap-2">
                     <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    A criar...
+                    {t.register.creating}
                   </div>
                 ) : t.common.createAccount}
               </button>
