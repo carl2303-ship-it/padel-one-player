@@ -3931,23 +3931,64 @@ function CompeteScreen({
     return () => { active = false }
   }, [favoriteClubId])
 
-  // Determinar género do jogador baseado no player_category
-  const getPlayerGender = (): 'M' | 'F' | null => {
+  // Extrair género e nível do player_category (ex: "M6" → { gender: 'M', level: 6 })
+  const getPlayerCategoryInfo = (): { gender: 'M' | 'F'; level: number } | null => {
     if (!player?.player_category) return null
-    const category = player.player_category.toUpperCase()
-    if (category.includes('MASC') || category.includes('M') || category.includes('MASCULINO')) return 'M'
-    if (category.includes('FEM') || category.includes('F') || category.includes('FEMININO')) return 'F'
+    const cat = player.player_category.toUpperCase().trim()
+    // Formato esperado: M1-M6, F1-F6
+    const match = cat.match(/^([MF])(\d+)$/)
+    if (match) {
+      return { gender: match[1] as 'M' | 'F', level: parseInt(match[2]) }
+    }
     return null
   }
 
-  // Buscar torneios disponíveis filtrados por género
+  // Verificar se uma categoria de torneio é compatível com a categoria do jogador
+  const isCategoryCompatible = (categoryName: string, playerGender: 'M' | 'F', playerLevel: number): boolean => {
+    const catUpper = categoryName.toUpperCase().trim()
+
+    // Extrair todos os números de nível da categoria (ex: "M4/M5" → [4,5], "F6" → [6], "Mx3/Mx4" → [3,4])
+    const levelMatches = catUpper.match(/\d+/g)
+    const levels = levelMatches ? levelMatches.map(Number).filter(n => n >= 1 && n <= 7) : []
+
+    // Determinar se é misto (Mx), masculino ou feminino
+    const isMixed = catUpper.startsWith('MX') || catUpper.includes('MIST') || catUpper.includes('MIX')
+    const hasMaleRef = !isMixed && (catUpper.match(/^M\d/) || catUpper.match(/\/M\d/) || catUpper.includes('MASC') || catUpper.includes('MASCULINO'))
+    const hasFemaleRef = catUpper.startsWith('F') || catUpper.includes('FEM') || catUpper.includes('FEMININO')
+
+    // Se não tem referência a género nem a nível → incluir para todos
+    if (!hasMaleRef && !hasFemaleRef && !isMixed && levels.length === 0) return true
+
+    // Verificar género
+    if (hasMaleRef && playerGender !== 'M') return false
+    if (hasFemaleRef && playerGender !== 'F') return false
+    // Se é misto (Mx), qualquer género pode participar
+
+    // Verificar nível
+    if (levels.length > 0) {
+      return levels.includes(playerLevel)
+    }
+
+    // Se tem género mas não tem nível explícito → incluir
+    return true
+  }
+
+  // Buscar torneios disponíveis filtrados por género e nível
   useEffect(() => {
     if (activeTab !== 'upcoming') return
-    const playerGender = getPlayerGender()
-    if (!playerGender) {
-      setAvailableTournaments([])
-      setLoadingAvailable(false)
-      return
+    const playerInfo = getPlayerCategoryInfo()
+    if (!playerInfo) {
+      // Se o jogador não tem categoria definida, mostrar todos
+      let active = true
+      const clubId = favoriteClubId || localStorage.getItem('padel_one_player_favorite_club_id')
+      setLoadingAvailable(true)
+      fetchUpcomingTournaments(clubId || undefined).then((list) => {
+        if (!active) return
+        const enrolledIds = new Set((d?.upcomingTournaments ?? []).map((t) => t.id))
+        setAvailableTournaments(list.filter((t) => t.status === 'active' && !enrolledIds.has(t.id)).slice(0, 10))
+        setLoadingAvailable(false)
+      }).catch(() => { if (active) setLoadingAvailable(false) })
+      return () => { active = false }
     }
 
     let active = true
@@ -3963,7 +4004,7 @@ function CompeteScreen({
         const enrolledIds = new Set((d?.upcomingTournaments ?? []).map((t) => t.id))
         const activeNotEnrolled = list.filter((t) => t.status === 'active' && !enrolledIds.has(t.id))
 
-        // Filtrar por género: buscar categorias de cada torneio e verificar se tem o género do jogador
+        // Filtrar por género E nível: buscar categorias de cada torneio
         const { supabase } = await import('./lib/supabase')
         const filtered: UpcomingTournamentFromTour[] = []
 
@@ -3974,32 +4015,15 @@ function CompeteScreen({
             .eq('tournament_id', tournament.id)
 
           if (categories && categories.length > 0) {
-            // Verificar se alguma categoria contém referência a género
-            const hasAnyGenderRef = categories.some(cat => {
-              const catName = cat.name.toUpperCase()
-              return catName.includes('MASC') || catName.includes('MASCULINO') ||
-                     catName.includes('FEM') || catName.includes('FEMININO')
-            })
-
-            if (!hasAnyGenderRef) {
-              // Nenhuma categoria tem referência a género (ex: +35, +40) → incluir para todos
+            // Verificar se ALGUMA categoria é compatível com o jogador (género + nível)
+            const hasCompatibleCategory = categories.some(cat =>
+              isCategoryCompatible(cat.name, playerInfo.gender, playerInfo.level)
+            )
+            if (hasCompatibleCategory) {
               filtered.push(tournament)
-            } else {
-              // Verificar se alguma categoria corresponde ao género do jogador
-              const hasMatchingGender = categories.some(cat => {
-                const catName = cat.name.toUpperCase()
-                if (playerGender === 'M') {
-                  return catName.includes('MASC') || catName.includes('MASCULINO')
-                } else {
-                  return catName.includes('FEM') || catName.includes('FEMININO')
-                }
-              })
-              if (hasMatchingGender) {
-                filtered.push(tournament)
-              }
             }
           } else {
-            // Se não tem categorias, incluir (torneio geral)
+            // Se não tem categorias definidas, incluir (torneio geral)
             filtered.push(tournament)
           }
         }
@@ -4488,8 +4512,7 @@ function CompeteScreen({
 
                 {/* Torneios Disponíveis */}
                 {(() => {
-                  const playerGender = getPlayerGender()
-                  if (!playerGender) return null
+                  const playerInfo = getPlayerCategoryInfo()
 
                   return (
                     <div>
@@ -4510,7 +4533,11 @@ function CompeteScreen({
                         ) : (
                           <div className="card p-6 text-center">
                             <span className="text-4xl mb-2 block">🎯</span>
-                            <p className="text-gray-700 font-medium">Nenhum torneio disponível para o teu género</p>
+                            <p className="text-gray-700 font-medium">
+                              {playerInfo
+                                ? `Nenhum torneio disponível para o teu nível (${player?.player_category})`
+                                : 'Nenhum torneio disponível'}
+                            </p>
                             <p className="text-sm text-gray-500 mt-1">{t.common.checkTourApp}</p>
                           </div>
                         )}

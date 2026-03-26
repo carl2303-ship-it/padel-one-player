@@ -3,7 +3,7 @@
  * Functions to fetch/create/join open games and get club availability.
  */
 import { supabase } from './supabase'
-import { notifyOpenGamePlayers, notifyGameCreator, sendPushToPlayer } from './pushNotifications'
+import { notifyOpenGamePlayers, notifyGameCreator, sendPushToPlayer, notifyMatchingPlayersForNewGame } from './pushNotifications'
 import { getTranslations } from './translations'
 
 // ============================
@@ -386,6 +386,9 @@ export async function fetchClubsWithAvailability(): Promise<ClubWithAvailability
     const courtSlotMap = new Map<string, Map<string, number[]>>()
 
     const clubSchedule = (club as any).active_schedule || 'summer'
+    // Operating hours - used for the club result object
+    const clubStartTime = settings?.booking_start_time || '08:00'
+    const clubEndTime = settings?.booking_end_time || '22:00'
 
     for (const court of courts) {
       // Extract schedule based on active_schedule (summer/winter)
@@ -550,7 +553,7 @@ export async function fetchClubsWithAvailability(): Promise<ClubWithAvailability
           hourly_rate: parseFloat(c.hourly_rate as any) || 0,
           peak_rate: parseFloat(c.peak_rate as any) || 0,
         })),
-        operating_hours: { start: startTime, end: endTime },
+        operating_hours: { start: clubStartTime, end: clubEndTime },
         availability,
         payment_method: (club as any).payment_method || 'at_club',
       })
@@ -795,6 +798,30 @@ export async function createOpenGame(params: {
       await checkAndAwardFirstGame(game.id)
     } catch (err) {
       console.error('[Rewards] Error awarding create_game points:', err)
+    }
+  }
+
+  // Notify matching players (level + gender + preferred time)
+  if (!params.isPrivate) {
+    try {
+      // Get club name for the notification
+      const { data: clubForNotif } = await supabase
+        .from('clubs')
+        .select('name')
+        .eq('id', params.clubId)
+        .maybeSingle()
+
+      notifyMatchingPlayersForNewGame({
+        gameId: game.id,
+        creatorPlayerAccountId: resolvedAccountId,
+        levelMin: levelMin,
+        levelMax: levelMax,
+        gender: params.gender,
+        scheduledAt: params.scheduledAt,
+        clubName: clubForNotif?.name || 'Clube',
+      }) // Fire and forget - don't await
+    } catch (err) {
+      console.error('[Push] Error triggering matching player notifications:', err)
     }
   }
 

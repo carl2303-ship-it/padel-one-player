@@ -235,3 +235,95 @@ export async function notifyGameCreator(
     console.error('[Push] NotifyCreator error:', err)
   }
 }
+
+// ============================
+// Notify matching players when a new game is created
+// Matches: level range, gender, and preferred play time
+// ============================
+
+function getTimeOfDay(isoDate: string): 'morning' | 'afternoon' | 'evening' {
+  const date = new Date(isoDate)
+  const hour = date.getHours()
+  if (hour < 12) return 'morning'
+  if (hour < 18) return 'afternoon'
+  return 'evening'
+}
+
+export async function notifyMatchingPlayersForNewGame(params: {
+  gameId: string
+  creatorPlayerAccountId: string | null
+  levelMin: number
+  levelMax: number
+  gender: 'all' | 'male' | 'female' | 'mixed'
+  scheduledAt: string
+  clubName: string
+}): Promise<void> {
+  try {
+    const timeOfDay = getTimeOfDay(params.scheduledAt)
+    const gameDate = new Date(params.scheduledAt)
+    const timeStr = `${gameDate.getHours().toString().padStart(2, '0')}:${gameDate.getMinutes().toString().padStart(2, '0')}`
+
+    // Query matching player_accounts:
+    // - Level within range
+    // - Has push subscription (we check later)
+    // - preferred_time matches or is all_day
+    let query = supabase
+      .from('player_accounts')
+      .select('id, name, level, gender, preferred_time')
+      .gte('level', params.levelMin)
+      .lte('level', params.levelMax)
+      .not('id', 'is', null)
+
+    const { data: matchingPlayers, error } = await query
+
+    if (error || !matchingPlayers || matchingPlayers.length === 0) {
+      console.log('[Push] No matching players found for new game notification')
+      return
+    }
+
+    // Filter by gender
+    let filtered = matchingPlayers.filter(p => {
+      // If game is for all or mixed, everyone can join
+      if (params.gender === 'all' || params.gender === 'mixed') return true
+      // If game is for male, only male players
+      if (params.gender === 'male') return p.gender === 'male'
+      // If game is for female, only female players
+      if (params.gender === 'female') return p.gender === 'female'
+      return true
+    })
+
+    // Filter by preferred time
+    filtered = filtered.filter(p => {
+      if (!p.preferred_time || p.preferred_time === 'all_day') return true
+      return p.preferred_time === timeOfDay
+    })
+
+    // Exclude the creator
+    if (params.creatorPlayerAccountId) {
+      filtered = filtered.filter(p => p.id !== params.creatorPlayerAccountId)
+    }
+
+    if (filtered.length === 0) {
+      console.log('[Push] No matching players after filtering')
+      return
+    }
+
+    console.log(`[Push] Notifying ${filtered.length} matching players for new game`)
+
+    const genderLabel = params.gender === 'male' ? '♂️' : params.gender === 'female' ? '♀️' : '🎾'
+    const payload: PushPayload = {
+      title: `Novo Jogo ${genderLabel} - Nível ${params.levelMin.toFixed(1)}-${params.levelMax.toFixed(1)}`,
+      body: `${params.clubName} às ${timeStr}. Junta-te!`,
+      url: '/?screen=findGame',
+      tag: `new-game-${params.gameId}`,
+    }
+
+    // Send to all matching (limit to 50 to avoid overload)
+    const targets = filtered.slice(0, 50)
+    await Promise.allSettled(targets.map(p => sendPushToPlayer(p.id, payload)))
+
+    console.log(`[Push] Sent new game notifications to ${targets.length} players`)
+  } catch (err) {
+    console.error('[Push] NotifyMatchingPlayers error:', err)
+  }
+}
