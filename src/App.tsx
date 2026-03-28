@@ -4341,7 +4341,7 @@ function CompeteScreen({
             {/* Botão de inscrição */}
             {!isEnrolled && td.status === 'active' && (
               <a
-                href={getTournamentRegistrationUrl(td.id)}
+                href={getTournamentRegistrationUrl(td.id, player?.phone_number || undefined)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center justify-center gap-2 w-full py-3.5 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-xl transition-colors"

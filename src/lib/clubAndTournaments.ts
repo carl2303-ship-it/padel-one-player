@@ -51,8 +51,10 @@ export interface UpcomingTournamentFromTour {
 const TOUR_APP_URL = import.meta.env.VITE_TOUR_APP_URL || 'https://padel-one-tour.netlify.app'
 
 /** Gera o link de inscrição para um torneio na Padel One Tour */
-export function getTournamentRegistrationUrl(tournamentId: string): string {
-  return `${TOUR_APP_URL}/?register=${tournamentId}`
+export function getTournamentRegistrationUrl(tournamentId: string, phone?: string): string {
+  let url = `${TOUR_APP_URL}/?register=${tournamentId}`
+  if (phone) url += `&phone=${encodeURIComponent(phone)}`
+  return url
 }
 
 /** Gera o link para ver inscritos ordenados por categorias na Padel One Tour */
