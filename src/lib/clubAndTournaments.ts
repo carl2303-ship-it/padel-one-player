@@ -45,6 +45,9 @@ export interface UpcomingTournamentFromTour {
   club_id?: string | null
   description?: string | null
   allow_public_registration?: boolean
+  format?: string | null
+  round_robin_type?: string | null
+  is_full?: boolean
 }
 
 /** URL base da app Padel One Tour (para link de inscrição). Configurar VITE_TOUR_APP_URL no .env */
@@ -179,9 +182,10 @@ export interface TournamentFullDetail {
   daily_end_time: string | null
   club_name: string | null
   club_logo: string | null
-  categories: { id: string; name: string }[]
+  categories: { id: string; name: string; max_teams?: number | null }[]
   enrolled: EnrolledByCategory[]
   total_enrolled: number
+  is_full: boolean
 }
 
 /** Busca todos os detalhes de um torneio, incluindo clube, categorias e inscritos. */
@@ -213,18 +217,20 @@ export async function fetchTournamentFullDetail(tournamentId: string): Promise<T
   // 3) Categorias
   const { data: categories } = await supabase
     .from('tournament_categories')
-    .select('id, name')
+    .select('id, name, max_teams')
     .eq('tournament_id', tournamentId)
     .order('name')
 
   // 4) Inscritos por categoria (reutiliza a função existente)
   const enrolled = await fetchEnrolledByCategory(tournamentId)
 
-  // Contar total de inscritos
+  // Contar total de inscritos e verificar se está cheio
   let total_enrolled = 0
   for (const cat of enrolled) {
     total_enrolled += cat.items.length
   }
+  const totalMax = (categories || []).reduce((sum, c) => c.max_teams ? sum + c.max_teams : sum, 0)
+  const is_full = totalMax > 0 && total_enrolled >= totalMax
 
   return {
     id: t.id,
@@ -244,6 +250,7 @@ export async function fetchTournamentFullDetail(tournamentId: string): Promise<T
     categories: (categories || []),
     enrolled,
     total_enrolled,
+    is_full,
   }
 }
 
@@ -252,7 +259,7 @@ export async function fetchUpcomingTournaments(clubId?: string | null): Promise<
   const today = new Date().toISOString().split('T')[0]
   let query = supabase
     .from('tournaments')
-    .select('id, name, start_date, end_date, status, image_url, club_id, description, allow_public_registration')
+    .select('id, name, start_date, end_date, status, image_url, club_id, description, allow_public_registration, format, round_robin_type')
     .gte('end_date', today)
     .in('status', ['draft', 'active'])
     .order('start_date', { ascending: true })

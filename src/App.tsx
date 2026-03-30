@@ -3982,11 +3982,32 @@ function CompeteScreen({
       let active = true
       const clubId = favoriteClubId || localStorage.getItem('padel_one_player_favorite_club_id')
       setLoadingAvailable(true)
-      fetchUpcomingTournaments(clubId || undefined).then((list) => {
+      fetchUpcomingTournaments(clubId || undefined).then(async (list) => {
         if (!active) return
         const enrolledIds = new Set((d?.upcomingTournaments ?? []).map((t) => t.id))
-        setAvailableTournaments(list.filter((t) => t.status === 'active' && !enrolledIds.has(t.id)).slice(0, 10))
-        setLoadingAvailable(false)
+        const available = list.filter((t) => t.status === 'active' && !enrolledIds.has(t.id)).slice(0, 10)
+        const { supabase } = await import('./lib/supabase')
+        const withFullStatus = await Promise.all(available.map(async (tour) => {
+          const { data: cats } = await supabase
+            .from('tournament_categories')
+            .select('id, max_teams')
+            .eq('tournament_id', tour.id)
+          const totalMax = (cats || []).reduce((sum, c) => c.max_teams ? sum + c.max_teams : sum, 0)
+          if (totalMax > 0) {
+            const isIndiv = tour.format === 'individual_groups_knockout' || tour.format === 'mixed_american' || tour.format === 'crossed_playoffs' || tour.format === 'mixed_gender' || (tour.format === 'round_robin' && tour.round_robin_type === 'individual')
+            const table = isIndiv ? 'players' : 'teams'
+            const { count } = await supabase
+              .from(table)
+              .select('id', { count: 'exact', head: true })
+              .eq('tournament_id', tour.id)
+            return { ...tour, is_full: (count ?? 0) >= totalMax }
+          }
+          return tour
+        }))
+        if (active) {
+          setAvailableTournaments(withFullStatus)
+          setLoadingAvailable(false)
+        }
       }).catch(() => { if (active) setLoadingAvailable(false) })
       return () => { active = false }
     }
@@ -4011,19 +4032,42 @@ function CompeteScreen({
         for (const tournament of activeNotEnrolled) {
           const { data: categories } = await supabase
             .from('tournament_categories')
-            .select('name')
+            .select('id, name, accepted_levels, min_level, max_level, max_teams')
             .eq('tournament_id', tournament.id)
 
           if (categories && categories.length > 0) {
-            // Verificar se ALGUMA categoria é compatível com o jogador (género + nível)
-            const hasCompatibleCategory = categories.some(cat =>
-              isCategoryCompatible(cat.name, playerInfo.gender, playerInfo.level)
-            )
+            const hasCompatibleCategory = categories.some(cat => {
+              const hasAcceptedLevels = cat.accepted_levels && cat.accepted_levels.length > 0
+              const hasLevelRange = cat.min_level != null || cat.max_level != null
+
+              if (hasAcceptedLevels || hasLevelRange) {
+                if (hasAcceptedLevels && !cat.accepted_levels!.includes(player?.player_category || '')) {
+                  return false
+                }
+                if (hasLevelRange && player?.level != null) {
+                  if (cat.min_level != null && player.level < cat.min_level) return false
+                  if (cat.max_level != null && player.level > cat.max_level) return false
+                }
+                return true
+              }
+
+              return isCategoryCompatible(cat.name, playerInfo.gender, playerInfo.level)
+            })
             if (hasCompatibleCategory) {
-              filtered.push(tournament)
+              const totalMax = categories.reduce((sum, c) => c.max_teams ? sum + c.max_teams : sum, 0)
+              let isFull = false
+              if (totalMax > 0) {
+                const isIndiv = tournament.format === 'individual_groups_knockout' || tournament.format === 'mixed_american' || tournament.format === 'crossed_playoffs' || tournament.format === 'mixed_gender' || (tournament.format === 'round_robin' && tournament.round_robin_type === 'individual')
+                const table = isIndiv ? 'players' : 'teams'
+                const { count } = await supabase
+                  .from(table)
+                  .select('id', { count: 'exact', head: true })
+                  .eq('tournament_id', tournament.id)
+                isFull = (count ?? 0) >= totalMax
+              }
+              filtered.push({ ...tournament, is_full: isFull })
             }
           } else {
-            // Se não tem categorias definidas, incluir (torneio geral)
             filtered.push(tournament)
           }
         }
@@ -4039,7 +4083,7 @@ function CompeteScreen({
     })()
 
     return () => { active = false }
-  }, [activeTab, favoriteClubId, d?.upcomingTournaments, player?.player_category])
+  }, [activeTab, favoriteClubId, d?.upcomingTournaments, player?.player_category, player?.level])
 
   // Buscar ligas quando abre o tab Ligas (via Edge Function - bypass RLS)
   useEffect(() => {
@@ -4240,11 +4284,11 @@ function CompeteScreen({
           <div className="space-y-4">
             {/* Header com imagem */}
             {td.image_url ? (
-              <div className="relative rounded-2xl overflow-hidden">
-                <img src={td.image_url} alt={td.name} className="w-full h-48 object-cover" />
+              <div className="relative rounded-2xl overflow-hidden" style={{ aspectRatio: '4/5' }}>
+                <img src={td.image_url} alt={td.name} className="w-full h-full object-cover" />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
                 <div className="absolute bottom-0 left-0 right-0 p-4">
-                  <h1 className="text-xl font-bold text-white">{td.name}</h1>
+                  <h1 className="text-xl font-bold text-white drop-shadow">{td.name}</h1>
                 </div>
               </div>
             ) : (
@@ -4255,8 +4299,8 @@ function CompeteScreen({
 
             {/* Badges */}
             <div className="flex flex-wrap gap-2">
-              <span className={`px-3 py-1 rounded-full text-xs font-semibold ${td.status === 'active' ? 'bg-green-100 text-green-700' : td.status === 'completed' ? 'bg-gray-100 text-gray-600' : 'bg-amber-100 text-amber-700'}`}>
-                {td.status === 'active' ? '🟢 Aberto' : td.status === 'completed' ? '✅ Concluído' : td.status === 'draft' ? '📝 Rascunho' : td.status}
+              <span className={`px-3 py-1 rounded-full text-xs font-semibold ${td.is_full ? 'bg-red-100 text-red-700' : td.status === 'active' ? 'bg-green-100 text-green-700' : td.status === 'completed' ? 'bg-gray-100 text-gray-600' : 'bg-amber-100 text-amber-700'}`}>
+                {td.is_full ? '🔴 Cheio' : td.status === 'active' ? '🟢 Aberto' : td.status === 'completed' ? '✅ Concluído' : td.status === 'draft' ? '📝 Rascunho' : td.status}
               </span>
               <span className="px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-700">
                 🏸 {formatFormatName(td.format)}
@@ -4459,39 +4503,29 @@ function CompeteScreen({
             const TournamentCard = ({ t, isEnrolled }: { t: UpcomingTournamentFromTour; isEnrolled: boolean }) => (
               <div
                 key={t.id}
-                className="card overflow-hidden p-0 flex cursor-pointer hover:shadow-lg transition-shadow"
+                className="card overflow-hidden p-0 cursor-pointer hover:shadow-lg transition-shadow"
                 onClick={() => openTournamentDetail(t.id)}
               >
-                <div className="w-24 sm:w-32 flex-shrink-0">
+                <div className="relative w-full" style={{ aspectRatio: '4/5' }}>
                   {t.image_url ? (
-                    <img src={t.image_url} alt={t.name} className="w-full h-full min-h-[140px] object-cover rounded-l-xl" />
+                    <img src={t.image_url} alt={t.name} className="w-full h-full object-cover" />
                   ) : (
-                    <div className="w-full h-full min-h-[140px] bg-gradient-to-br from-red-100 to-amber-100 flex items-center justify-center rounded-l-xl">
-                      <Trophy className="w-12 h-12 text-red-400/70" />
+                    <div className="w-full h-full bg-gradient-to-br from-red-100 to-amber-100 flex flex-col items-center justify-center gap-3">
+                      <Trophy className="w-16 h-16 text-red-400/70" />
+                      <h3 className="font-bold text-gray-700 text-lg text-center px-4 line-clamp-2">{t.name}</h3>
+                      <p className="text-sm text-gray-500 flex items-center gap-1">
+                        <Calendar className="w-4 h-4" />
+                        {formatDate(t.start_date)}
+                      </p>
                     </div>
                   )}
-                </div>
-                <div className="flex-1 p-4 sm:p-5 min-w-0 flex flex-col">
-                  <div className="flex items-start justify-between gap-2">
-                    <h3 className="font-bold text-gray-900 text-base sm:text-lg line-clamp-2">{t.name}</h3>
-                    <div className="flex items-center gap-1.5 flex-shrink-0">
-                      {isEnrolled && (
-                        <span className="px-2 py-1 rounded-lg text-xs font-medium bg-green-100 text-green-700">Inscrito</span>
-                      )}
-                      <span className={`px-2 py-1 rounded-lg text-xs font-medium ${t.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
-                        {t.status === 'active' ? 'Aberto' : t.status}
-                      </span>
-                    </div>
-                  </div>
-                  <p className="text-sm text-gray-500 mt-1 flex items-center gap-1">
-                    <Calendar className="w-4 h-4 flex-shrink-0" />
-                    {formatDate(t.start_date)}
-                  </p>
-                  {t.description && (
-                    <div className="text-sm text-gray-600 mt-2 line-clamp-2 flex-1 [&_p]:my-0 [&_p]:last:mb-0" dangerouslySetInnerHTML={{ __html: t.description }} />
-                  )}
-                  <div className="mt-3 text-sm font-medium text-red-600 flex items-center gap-1">
-                    Ver detalhes <ChevronRight className="w-4 h-4" />
+                  <div className="absolute top-3 right-3 flex items-center gap-1.5">
+                    {isEnrolled && (
+                      <span className="px-2 py-1 rounded-lg text-xs font-medium bg-green-500 text-white shadow">Inscrito</span>
+                    )}
+                    <span className={`px-2 py-1 rounded-lg text-xs font-medium shadow ${t.is_full ? 'bg-red-600 text-white' : t.status === 'active' ? 'bg-green-500 text-white' : 'bg-gray-200 text-gray-700'}`}>
+                      {t.is_full ? 'Cheio' : t.status === 'active' ? 'Aberto' : t.status}
+                    </span>
                   </div>
                 </div>
               </div>
