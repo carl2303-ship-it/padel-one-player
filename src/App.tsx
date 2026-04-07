@@ -271,7 +271,7 @@ function App() {
         ])
         setDashboardData(data)
         // Enrich with Edge Function in background (progressive loading)
-        enrichDashboardWithEdgeFunction(dash).then(enriched => {
+        enrichDashboardWithEdgeFunction(data).then(enriched => {
           if (enriched) {
             setEdgeEnrichedData(enriched)
             setDashboardData(prev => prev ? { ...prev, ...enriched } : prev)
@@ -10016,7 +10016,6 @@ function RegisterScreen({ onBack, onSuccess }: {
 
   // Step 2: Questionário de nível — 12 respostas (0-3) indexadas por question id
   const [answers, setAnswers] = useState<Record<string, number>>({})
-  const [selfLevel, setSelfLevel] = useState<number | null>(null) // Se o jogador já sabe o nível
 
   const setAnswer = (questionId: string, value: number) => {
     setAnswers(prev => ({ ...prev, [questionId]: value }))
@@ -10025,8 +10024,6 @@ function RegisterScreen({ onBack, onSuccess }: {
   // Calcular nível baseado nas 12 respostas
   // Score total: 0-36 → nível 1.0-7.0
   const calculateLevel = (): number => {
-    if (selfLevel) return selfLevel
-
     const totalScore = Object.values(answers).reduce((sum, v) => sum + v, 0)
     const answeredCount = Object.keys(answers).length
 
@@ -10044,14 +10041,14 @@ function RegisterScreen({ onBack, onSuccess }: {
     return Math.max(1.0, Math.min(7.0, Math.round(level * 2) / 2))
   }
 
-  // Determinar categoria pelo nível
+  // M1=7, M2=6, M3=5, M4=4, M5=3, M6=2 (abaixo de 2 → M6)
   const getCategoryFromLevel = (level: number): string => {
-    if (level <= 1.5) return 'Iniciação'
-    if (level <= 2.5) return '4ª Série'
-    if (level <= 3.5) return '3ª Série'
-    if (level <= 4.5) return '2ª Série'
-    if (level <= 5.5) return '1ª Série'
-    return 'Open'
+    if (level >= 6.5) return 'M1'
+    if (level >= 5.5) return 'M2'
+    if (level >= 4.5) return 'M3'
+    if (level >= 3.5) return 'M4'
+    if (level >= 2.5) return 'M5'
+    return 'M6'
   }
 
   const handleRegister = async () => {
@@ -10093,7 +10090,9 @@ function RegisterScreen({ onBack, onSuccess }: {
       
       if (existingPhone) { setError(t.register.phoneAlreadyRegistered); setSaving(false); return }
 
-      // 1. Criar conta no Supabase Auth
+      // 1. Criar conta no Supabase Auth (ou recuperar se já existir como órfão)
+      let userId: string | undefined
+
       const { data: authData, error: authError } = await supabase.auth.signUp({
         email: email.trim(),
         password: regPassword,
@@ -10101,15 +10100,36 @@ function RegisterScreen({ onBack, onSuccess }: {
 
       if (authError) {
         if (authError.message.includes('already registered')) {
-          setError(t.register.emailAlreadyRegistered)
+          // Auth user exists but player_account may not (orphan from failed registration)
+          const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+            email: email.trim(),
+            password: regPassword,
+          })
+          if (signInError) {
+            setError(t.register.emailAlreadyRegistered)
+            setSaving(false)
+            return
+          }
+          userId = signInData?.user?.id
+          // Check if player_account already exists for this user
+          const { data: existingPA } = await supabase
+            .from('player_accounts')
+            .select('*')
+            .eq('user_id', userId)
+            .maybeSingle()
+          if (existingPA) {
+            onSuccess(existingPA)
+            return
+          }
         } else {
           setError(t.register.errorCreatingAccount + ': ' + authError.message)
+          setSaving(false)
+          return
         }
-        setSaving(false)
-        return
+      } else {
+        userId = authData?.user?.id
       }
 
-      const userId = authData?.user?.id
       if (!userId) { setError(t.register.errorCreatingAccount); setSaving(false); return }
 
       // 2. Calcular nível
@@ -10125,7 +10145,7 @@ function RegisterScreen({ onBack, onSuccess }: {
           phone_number: normalizedPhone,
           email: email.trim(),
           level,
-          level_reliability_percent: 10, // Novo jogador = baixa fiabilidade
+          level_reliability_percent: 10,
           player_category: category,
           wins: 0,
           losses: 0,
@@ -10153,20 +10173,6 @@ function RegisterScreen({ onBack, onSuccess }: {
       setSaving(false)
     }
   }
-
-  const levelDescriptions: { level: number; label: string; desc: string }[] = [
-    { level: 1.0, label: t.register.lvl10, desc: t.register.lvl10Desc },
-    { level: 1.5, label: t.register.lvl15, desc: t.register.lvl15Desc },
-    { level: 2.0, label: t.register.lvl20, desc: t.register.lvl20Desc },
-    { level: 2.5, label: t.register.lvl25, desc: t.register.lvl25Desc },
-    { level: 3.0, label: t.register.lvl30, desc: t.register.lvl30Desc },
-    { level: 3.5, label: t.register.lvl35, desc: t.register.lvl35Desc },
-    { level: 4.0, label: t.register.lvl40, desc: t.register.lvl40Desc },
-    { level: 4.5, label: t.register.lvl45, desc: t.register.lvl45Desc },
-    { level: 5.0, label: t.register.lvl50, desc: t.register.lvl50Desc },
-    { level: 5.5, label: t.register.lvl55, desc: t.register.lvl55Desc },
-    { level: 6.0, label: t.register.lvl60, desc: t.register.lvl60Desc },
-  ]
 
   // Progresso total: step 1 = 1/6, step 2 pages = 2-5/6, step 3 = 6/6
   const totalSegments = 6
@@ -10271,100 +10277,62 @@ function RegisterScreen({ onBack, onSuccess }: {
         {/* ========== STEP 2: QUESTIONÁRIO DE NÍVEL (12 perguntas em 4 páginas) ========== */}
         {step === 2 && (
           <div className="space-y-5 animate-fade-in">
-            {/* Se quizPage === 0, mostrar opção directa */}
             {quizPage === 0 && (
               <>
                 <h2 className="text-lg font-bold text-gray-900">{t.register.levelAssessment}</h2>
                 <p className="text-sm text-gray-500 -mt-3">
                   {t.register.levelAssessmentDesc}
                 </p>
+              </>
+            )}
 
-                {/* Toggle: questionário vs directo */}
-                {selfLevel !== null && (
-                  <div className="bg-green-50 border border-green-200 rounded-xl p-3 flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-semibold text-green-800">{t.register.levelSelected}: {selfLevel.toFixed(2)}</p>
-                      <p className="text-xs text-green-600">{getCategoryFromLevel(selfLevel)}</p>
-                    </div>
-                    <button onClick={() => setSelfLevel(null)} className="text-xs text-green-700 underline">{t.register.change}</button>
-                  </div>
-                )}
+            {quizPage > 0 && (
+              <h2 className="text-lg font-bold text-gray-900">{QUIZ_PAGES[quizPage].label}</h2>
+            )}
+            {quizPage === 0 && (
+              <div className="border-t pt-4">
+                <h3 className="font-semibold text-gray-800 text-sm mb-1">{QUIZ_PAGES[0].label}</h3>
+              </div>
+            )}
 
-                {selfLevel === null && (
-                  <details className="group">
-                    <summary className="cursor-pointer text-sm font-semibold text-red-600 hover:text-red-700 flex items-center gap-1">
-                      <ChevronRight className="w-4 h-4 transition-transform group-open:rotate-90" />
-                      {t.register.iKnowMyLevel}
-                    </summary>
-                    <div className="mt-3 grid grid-cols-2 gap-2 max-h-[220px] overflow-y-auto pr-1">
-                      {levelDescriptions.map(ld => (
+            <div className="space-y-5">
+              {currentPageQuestions.map((q) => (
+                <div key={q.id}>
+                  <p className="text-sm font-semibold text-gray-800 mb-2">{q.title}</p>
+                  <div className="space-y-1.5">
+                    {q.options.map((opt, oi) => {
+                      const letter = String.fromCharCode(65 + oi)
+                      const isSelected = answers[q.id] === opt.value
+                      return (
                         <button
-                          key={ld.level}
-                          onClick={() => setSelfLevel(ld.level)}
-                          className="text-left p-2.5 rounded-xl border text-sm transition-colors border-gray-200 hover:border-red-300 hover:bg-red-50/50"
+                          key={opt.value}
+                          onClick={() => setAnswer(q.id, opt.value)}
+                          className={`w-full flex items-center gap-3 p-3 rounded-xl border text-left text-sm transition-all ${
+                            isSelected
+                              ? 'border-red-500 bg-red-50 ring-1 ring-red-200'
+                              : 'border-gray-200 hover:border-gray-300 bg-white'
+                          }`}
                         >
-                          <span className="font-bold text-gray-900 block">{ld.label.split(' - ')[0]}</span>
-                          <span className="text-[11px] text-gray-500 leading-tight">{ld.desc}</span>
+                          <span className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+                            isSelected ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-500'
+                          }`}>
+                            {letter}
+                          </span>
+                          <span className={`${isSelected ? 'text-red-800 font-medium' : 'text-gray-700'}`}>
+                            {opt.label}
+                          </span>
                         </button>
-                      ))}
-                    </div>
-                  </details>
-                )}
-              </>
-            )}
-
-            {/* Perguntas da página actual (se não selecionou nível directo) */}
-            {selfLevel === null && (
-              <>
-                {quizPage > 0 && (
-                  <h2 className="text-lg font-bold text-gray-900">{QUIZ_PAGES[quizPage].label}</h2>
-                )}
-                {quizPage === 0 && (
-                  <div className="border-t pt-4">
-                    <h3 className="font-semibold text-gray-800 text-sm mb-1">{QUIZ_PAGES[0].label}</h3>
+                      )
+                    })}
                   </div>
-                )}
-
-                <div className="space-y-5">
-                  {currentPageQuestions.map((q) => (
-                    <div key={q.id}>
-                      <p className="text-sm font-semibold text-gray-800 mb-2">{q.title}</p>
-                      <div className="space-y-1.5">
-                        {q.options.map((opt, oi) => {
-                          const letter = String.fromCharCode(65 + oi) // A, B, C, D
-                          const isSelected = answers[q.id] === opt.value
-                          return (
-                            <button
-                              key={opt.value}
-                              onClick={() => setAnswer(q.id, opt.value)}
-                              className={`w-full flex items-center gap-3 p-3 rounded-xl border text-left text-sm transition-all ${
-                                isSelected
-                                  ? 'border-red-500 bg-red-50 ring-1 ring-red-200'
-                                  : 'border-gray-200 hover:border-gray-300 bg-white'
-                              }`}
-                            >
-                              <span className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
-                                isSelected ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-500'
-                              }`}>
-                                {letter}
-                              </span>
-                              <span className={`${isSelected ? 'text-red-800 font-medium' : 'text-gray-700'}`}>
-                                {opt.label}
-                              </span>
-                            </button>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  ))}
                 </div>
+              ))}
+            </div>
 
-                {/* Contador de respostas na página */}
-                <p className="text-xs text-gray-400 text-center">
-                  {currentPageAnswered}/{currentPageQuestions.length} {t.register.answeredInSection}
-                </p>
-              </>
-            )}
+            {/* Contador de respostas na página */}
+            <p className="text-xs text-gray-400 text-center">
+              {currentPageAnswered}/{currentPageQuestions.length} {t.register.answeredInSection}
+            </p>
 
             {/* Botões navegação */}
             <div className="flex gap-3 pt-2">
@@ -10381,11 +10349,6 @@ function RegisterScreen({ onBack, onSuccess }: {
               <button 
                 onClick={() => {
                   setError('')
-                  if (selfLevel !== null) {
-                    // Nível directo — saltar questionário, ir para confirmação
-                    setStep(3)
-                    return
-                  }
                   if (!currentPageComplete) {
                     setError(t.register.answerAllQuestions)
                     return
@@ -10398,7 +10361,7 @@ function RegisterScreen({ onBack, onSuccess }: {
                 }}
                 className="flex-1 py-3 bg-red-600 text-white rounded-xl font-semibold hover:bg-red-700 transition-colors"
               >
-                {(selfLevel !== null || quizPage === QUIZ_PAGES.length - 1) ? t.common.viewResult : t.register.next}
+                {quizPage === QUIZ_PAGES.length - 1 ? t.common.viewResult : t.register.next}
               </button>
             </div>
           </div>
@@ -10441,7 +10404,7 @@ function RegisterScreen({ onBack, onSuccess }: {
             </div>
 
             {/* Resumo visual do questionário */}
-            {selfLevel === null && Object.keys(answers).length > 0 && (
+            {Object.keys(answers).length > 0 && (
               <div className="card p-4">
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">{t.register.quizSummary}</p>
                 <div className="grid grid-cols-4 gap-2">
@@ -10474,7 +10437,7 @@ function RegisterScreen({ onBack, onSuccess }: {
             </p>
 
             <div className="flex gap-3">
-              <button onClick={() => { setStep(2); setQuizPage(selfLevel !== null ? 0 : 3); setError('') }} className="flex-1 py-3 border border-gray-200 rounded-xl font-medium text-gray-700 hover:bg-gray-50">
+              <button onClick={() => { setStep(2); setQuizPage(3); setError('') }} className="flex-1 py-3 border border-gray-200 rounded-xl font-medium text-gray-700 hover:bg-gray-50">
                 {t.register.back}
               </button>
               <button 
