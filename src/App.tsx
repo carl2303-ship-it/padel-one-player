@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { supabase, PlayerAccount } from './lib/supabase'
 import { useI18n } from './lib/i18nContext'
 import {
@@ -2653,6 +2653,78 @@ function HomeScreen({
 
   const rewardPoints = rewardData?.totalPoints ?? player?.total_reward_points ?? 0
 
+  const [homePartnerInvites, setHomePartnerInvites] = useState<PartnerInvite[]>([])
+  const [homePartnerInvitesLoading, setHomePartnerInvitesLoading] = useState(false)
+
+  const loadHomePartnerInvites = useCallback(async () => {
+    if (!player?.id) {
+      setHomePartnerInvites([])
+      return
+    }
+    setHomePartnerInvitesLoading(true)
+    try {
+      const list = await fetchPendingPartnerInvites(player.id)
+      setHomePartnerInvites(list)
+    } catch {
+      setHomePartnerInvites([])
+    } finally {
+      setHomePartnerInvitesLoading(false)
+    }
+  }, [player?.id])
+
+  useEffect(() => {
+    if (!player?.id) return
+    void loadHomePartnerInvites()
+    const interval = window.setInterval(() => void loadHomePartnerInvites(), 25000)
+    const onVis = () => {
+      if (document.visibilityState === 'visible') void loadHomePartnerInvites()
+    }
+    document.addEventListener('visibilitychange', onVis)
+    const rtFilter = userId
+      ? `invitee_user_id=eq.${userId}`
+      : `invitee_player_account_id=eq.${player.id}`
+    const channel = supabase
+      .channel(`home-partner-invites-${userId ?? player.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'partner_match_invites',
+          filter: rtFilter,
+        },
+        () => void loadHomePartnerInvites(),
+      )
+      .subscribe()
+    return () => {
+      window.clearInterval(interval)
+      document.removeEventListener('visibilitychange', onVis)
+      void supabase.removeChannel(channel)
+    }
+  }, [player?.id, userId, loadHomePartnerInvites])
+
+  const handleHomeAcceptPartnerInvite = async (inv: PartnerInvite) => {
+    try {
+      const result = await acceptPartnerInvite(inv.id)
+      await loadHomePartnerInvites()
+      await onRefresh()
+      if (result?.checkoutUrl) window.open(result.checkoutUrl, '_blank', 'noopener,noreferrer')
+      alert(result?.checkoutUrl ? 'Dupla criada. Complete o pagamento para confirmar.' : 'Dupla criada e inscrita com sucesso.')
+    } catch (error: any) {
+      alert(error?.message || 'Não foi possível aceitar o convite.')
+    }
+  }
+
+  const handleHomeDeclinePartnerInvite = async (inv: PartnerInvite) => {
+    try {
+      await declinePartnerInvite(inv.id)
+      await loadHomePartnerInvites()
+      await onRefresh()
+    } catch (error: any) {
+      alert(error?.message || 'Não foi possível recusar o convite.')
+    }
+  }
+
   // Determinar nível de reward
   const getRewardTier = (pts: number) => {
     if (pts >= 1000) return { name: 'Diamond', emoji: '💎', bgColor: 'bg-gradient-to-br from-cyan-50 to-cyan-100', textColor: 'text-cyan-700' }
@@ -2834,6 +2906,70 @@ function HomeScreen({
             <p className="text-sm text-gray-500 mt-1">{t.home.enrollTournament}</p>
           </div>
         )}
+      </div>
+
+      {/* Convites de parceiro (torneios) — visível na home para resposta rápida */}
+      <div
+        className={`card p-4 ${homePartnerInvites.length > 0 ? 'border-2 border-blue-200 bg-blue-50/40' : 'border border-gray-100'}`}
+      >
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+            <UserPlus className="w-5 h-5 text-blue-600" />
+            Convites de parceiro
+          </h2>
+          {homePartnerInvites.length > 0 && (
+            <span className="shrink-0 bg-blue-600 text-white text-xs font-bold px-2 py-0.5 rounded-full">
+              {homePartnerInvites.length}
+            </span>
+          )}
+        </div>
+        {homePartnerInvitesLoading ? (
+          <p className="text-sm text-gray-500">A carregar convites…</p>
+        ) : homePartnerInvites.length === 0 ? (
+          <p className="text-sm text-gray-600">Sem convites por responder. Quando alguém te convidar para uma dupla, aparece aqui.</p>
+        ) : (
+          <div className="space-y-3">
+            <p className="text-xs text-gray-600">Tens convites em espera — responde abaixo ou em Competir.</p>
+            {homePartnerInvites.slice(0, 5).map((inv) => (
+              <div key={inv.id} className="rounded-xl border border-blue-100 bg-white/80 p-3">
+                <p className="text-sm text-gray-800">
+                  <span className="font-semibold">{inv.requester_name || 'Jogador'}</span>
+                  {' '}convida-te para{' '}
+                  <span className="font-semibold">{inv.tournament_name || 'Torneio'}</span>
+                  {inv.category_name ? (
+                    <span className="text-gray-600"> · {inv.category_name}</span>
+                  ) : null}
+                </p>
+                <div className="flex gap-2 mt-3">
+                  <button
+                    type="button"
+                    onClick={() => handleHomeAcceptPartnerInvite(inv)}
+                    className="flex-1 py-2 rounded-lg bg-green-600 text-white text-xs font-semibold hover:bg-green-700"
+                  >
+                    Aceitar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleHomeDeclinePartnerInvite(inv)}
+                    className="flex-1 py-2 rounded-lg bg-gray-200 text-gray-800 text-xs font-semibold hover:bg-gray-300"
+                  >
+                    Recusar
+                  </button>
+                </div>
+              </div>
+            ))}
+            {homePartnerInvites.length > 5 && (
+              <p className="text-xs text-gray-500 text-center">+{homePartnerInvites.length - 5} mais em Competir</p>
+            )}
+          </div>
+        )}
+        <button
+          type="button"
+          onClick={onOpenCompete}
+          className="mt-3 w-full py-2.5 rounded-xl border border-blue-200 text-blue-700 text-sm font-semibold hover:bg-blue-50 transition-colors"
+        >
+          Abrir Competir
+        </button>
       </div>
 
       {/* Os Meus Torneios */}
@@ -4269,7 +4405,7 @@ function CompeteScreen({
     setSelectedTournamentLoading(false)
   }
 
-  const fetchPartnerInvites = async () => {
+  const fetchPartnerInvites = useCallback(async () => {
     if (!player?.id) return
     setPartnerInvitesLoading(true)
     try {
@@ -4278,11 +4414,38 @@ function CompeteScreen({
     } finally {
       setPartnerInvitesLoading(false)
     }
-  }
+  }, [player?.id])
 
   useEffect(() => {
-    fetchPartnerInvites()
-  }, [player?.id])
+    if (!player?.id) return
+    void fetchPartnerInvites()
+    const interval = window.setInterval(() => void fetchPartnerInvites(), 25000)
+    const onVis = () => {
+      if (document.visibilityState === 'visible') void fetchPartnerInvites()
+    }
+    document.addEventListener('visibilitychange', onVis)
+    const rtFilter = userId
+      ? `invitee_user_id=eq.${userId}`
+      : `invitee_player_account_id=eq.${player.id}`
+    const channel = supabase
+      .channel(`compete-partner-invites-${userId ?? player.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'partner_match_invites',
+          filter: rtFilter,
+        },
+        () => void fetchPartnerInvites(),
+      )
+      .subscribe()
+    return () => {
+      window.clearInterval(interval)
+      document.removeEventListener('visibilitychange', onVis)
+      void supabase.removeChannel(channel)
+    }
+  }, [player?.id, userId, fetchPartnerInvites])
 
   const loadPartnerRequestSummary = async (tournamentId: string) => {
     if (!player?.id) {

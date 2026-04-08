@@ -1,4 +1,5 @@
 import { supabase } from "./supabase";
+import { isPlayerEligibleForCategory } from "./categoryEligibility";
 
 const SUPABASE_URL = "https://rqiwnxcexsccguruiteq.supabase.co";
 const SUPABASE_ANON_KEY =
@@ -66,9 +67,19 @@ export async function declinePartnerInvite(inviteId: string): Promise<void> {
 }
 
 export async function fetchPendingPartnerInvites(playerAccountId: string): Promise<PartnerInvite[]> {
-  const { data: userData } = await supabase.auth.getUser();
-  const userId = userData.user?.id;
-  if (!userId) return [];
+  const { data: sessionData } = await supabase.auth.getSession();
+  const userId = sessionData.session?.user?.id;
+  if (!playerAccountId) return [];
+
+  // Várias linhas em player_accounts podem ter o mesmo auth user_id (ou login por telefone vs convite a outro id).
+  // Incluir todos os ids de conta deste utilizador para não "perder" convites.
+  let inviteeAccountIds = [playerAccountId];
+  if (userId) {
+    const { data: accRows } = await supabase.from("player_accounts").select("id").eq("user_id", userId);
+    const ids = (accRows ?? []).map((r: { id: string }) => r.id).filter(Boolean);
+    inviteeAccountIds = [...new Set([...ids, playerAccountId])];
+  }
+
   const nowIso = new Date().toISOString();
   const { data, error } = await supabase
     .from("partner_match_invites")
@@ -79,17 +90,43 @@ export async function fetchPendingPartnerInvites(playerAccountId: string): Promi
       created_at,
       expires_at,
       requester_player_account_id,
+      invitee_player_account_id,
       requester:player_accounts!partner_match_invites_requester_player_account_id_fkey(name),
       tournament:tournaments(name),
-      category:tournament_categories(name)
+      category:tournament_categories(name, accepted_levels, min_level, max_level)
     `)
-    .eq("invitee_user_id", userId)
+    .in("invitee_player_account_id", inviteeAccountIds)
     .eq("status", "pending")
     .gt("expires_at", nowIso)
     .order("created_at", { ascending: false });
 
   if (error || !data) return [];
-  return data.map((row: any) => ({
+
+  const inviteeIds = [...new Set((data as any[]).map((r) => r.invitee_player_account_id).filter(Boolean))];
+  const { data: inviteeProfiles } = inviteeIds.length
+    ? await supabase.from("player_accounts").select("id, player_category, level").in("id", inviteeIds)
+    : { data: [] as { id: string; player_category: string | null; level: number | null }[] };
+  const profileByAccountId = new Map((inviteeProfiles ?? []).map((p) => [p.id, p]));
+
+  const eligibleRows = (data as any[]).filter((row) => {
+    const cat = row.category;
+    if (!cat?.name) return true;
+    const profile = profileByAccountId.get(row.invitee_player_account_id);
+    return isPlayerEligibleForCategory(
+      {
+        name: cat.name,
+        accepted_levels: cat.accepted_levels ?? null,
+        min_level: cat.min_level ?? null,
+        max_level: cat.max_level ?? null,
+      },
+      {
+        player_category: profile?.player_category ?? null,
+        level: profile?.level ?? null,
+      },
+    );
+  });
+
+  return eligibleRows.map((row: any) => ({
     id: row.id,
     tournament_id: row.tournament_id,
     category_id: row.category_id,
