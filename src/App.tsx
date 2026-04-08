@@ -49,6 +49,7 @@ import {
   Image,
   Video,
   UserPlus,
+  RefreshCw,
   Send,
   Trash2,
   ChevronLeft,
@@ -85,6 +86,15 @@ import { fetchAllClubs, fetchClubById, fetchUpcomingTournaments, fetchEnrolledBy
 import { fetchAvailableClasses, fetchMyClasses, enrollInClass, type Class as ClassData } from './lib/classes'
 import { preloadAllPlayerData, getCachedPlayerData } from './lib/playerDataCache'
 import { isPushSupported, checkIsSubscribed, subscribeToPush, unsubscribeFromPush } from './lib/pushNotifications'
+import {
+  requestPartnerMatch,
+  fetchPendingPartnerInvites,
+  fetchPartnerMatchRequesterSummary,
+  acceptPartnerInvite,
+  declinePartnerInvite,
+  type PartnerInvite,
+  type PartnerMatchRequesterSummary,
+} from './lib/partnerMatch'
 
 type Screen = 'home' | 'games' | 'profile-view' | 'profile-edit' | 'club' | 'club-detail' | 'compete' | 'community' | 'player-profile' | 'follows-list' | 'learn' | 'find-game' | 'rewards' | 'booking' | 'payments'
 
@@ -3905,6 +3915,15 @@ function CompeteScreen({
   const [openGameHistoryFetched, setOpenGameHistoryFetched] = useState(false)
   const [selectedTournamentDetail, setSelectedTournamentDetail] = useState<TournamentFullDetail | null>(null)
   const [selectedTournamentLoading, setSelectedTournamentLoading] = useState(false)
+  const [showFindPartnerModal, setShowFindPartnerModal] = useState(false)
+  const [partnerSide, setPartnerSide] = useState<'right' | 'left'>('right')
+  const [partnerTargetMode, setPartnerTargetMode] = useState<'any' | 'following'>('any')
+  const [partnerCategoryId, setPartnerCategoryId] = useState<string | null>(null)
+  const [partnerLoading, setPartnerLoading] = useState(false)
+  const [pendingPartnerInvites, setPendingPartnerInvites] = useState<PartnerInvite[]>([])
+  const [partnerInvitesLoading, setPartnerInvitesLoading] = useState(false)
+  const [partnerRequestSummary, setPartnerRequestSummary] = useState<PartnerMatchRequesterSummary | null>(null)
+  const [partnerSummaryRefreshing, setPartnerSummaryRefreshing] = useState(false)
 
   const d = dashboardData
   const name = d?.playerName ?? ''
@@ -4250,6 +4269,54 @@ function CompeteScreen({
     setSelectedTournamentLoading(false)
   }
 
+  const fetchPartnerInvites = async () => {
+    if (!player?.id) return
+    setPartnerInvitesLoading(true)
+    try {
+      const invites = await fetchPendingPartnerInvites(player.id)
+      setPendingPartnerInvites(invites)
+    } finally {
+      setPartnerInvitesLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    fetchPartnerInvites()
+  }, [player?.id])
+
+  const loadPartnerRequestSummary = async (tournamentId: string) => {
+    if (!player?.id) {
+      setPartnerRequestSummary(null)
+      return
+    }
+    const s = await fetchPartnerMatchRequesterSummary(tournamentId)
+    setPartnerRequestSummary(s)
+  }
+
+  useEffect(() => {
+    setPartnerRequestSummary(null)
+    if (!selectedTournamentDetail?.id || !player?.id) return
+    let cancelled = false
+    ;(async () => {
+      const s = await fetchPartnerMatchRequesterSummary(selectedTournamentDetail.id)
+      if (!cancelled) setPartnerRequestSummary(s)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [selectedTournamentDetail?.id, player?.id])
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const deepTournamentId = params.get('tournament')
+    const deepInviteId = params.get('partner_invite')
+    if (deepTournamentId) openTournamentDetail(deepTournamentId)
+    if (deepInviteId) {
+      setActiveTab('upcoming')
+      fetchPartnerInvites()
+    }
+  }, [])
+
   const formatFormatName = (format: string) => {
     const formatMap: Record<string, string> = {
       'round_robin': t.common.tournamentFormatRoundRobin,
@@ -4259,6 +4326,58 @@ function CompeteScreen({
       'super_teams': 'Super Equipas', // TODO: traduzir
     }
     return formatMap[format] || format
+  }
+
+  const isPartnerMatchingEligible = (format?: string, roundRobinType?: string | null) => {
+    if (!format) return false
+    if (format === 'round_robin') return roundRobinType !== 'individual'
+    return !['individual_groups_knockout', 'mixed_american'].includes(format)
+  }
+
+  const handleRequestPartner = async (tournament: TournamentFullDetail) => {
+    setPartnerLoading(true)
+    try {
+      const result = await requestPartnerMatch({
+        tournamentId: tournament.id,
+        categoryId: partnerCategoryId,
+        sidePreference: partnerSide,
+        targetMode: partnerTargetMode,
+      })
+      if (result?.invitesSent > 0) {
+        const delivered = Number(result?.pushDelivered || 0)
+        alert(
+          `Convites registados para ${result.invitesSent} jogador(es). Cada um pode ver o convite em Compete → Convites de Parceiro (não precisa de notificação push).\n\nNotificações push entregues: ${delivered} (só para quem tem alertas ativos neste dispositivo).`,
+        )
+      } else {
+        alert('Pedido criado, sem candidatos disponíveis de momento.')
+      }
+      setShowFindPartnerModal(false)
+      await loadPartnerRequestSummary(tournament.id)
+    } catch (error: any) {
+      alert(error?.message || 'Não foi possível enviar o pedido.')
+    } finally {
+      setPartnerLoading(false)
+    }
+  }
+
+  const handleAcceptInvite = async (invite: PartnerInvite) => {
+    try {
+      const result = await acceptPartnerInvite(invite.id)
+      await fetchPartnerInvites()
+      if (result?.checkoutUrl) window.open(result.checkoutUrl, '_blank', 'noopener,noreferrer')
+      alert(result?.checkoutUrl ? 'Dupla criada. Complete o pagamento para confirmar.' : 'Dupla criada e inscrita com sucesso.')
+    } catch (error: any) {
+      alert(error?.message || 'Não foi possível aceitar o convite.')
+    }
+  }
+
+  const handleDeclineInvite = async (invite: PartnerInvite) => {
+    try {
+      await declinePartnerInvite(invite.id)
+      await fetchPartnerInvites()
+    } catch (error: any) {
+      alert(error?.message || 'Não foi possível recusar o convite.')
+    }
   }
 
   // Se o detalhe do torneio está aberto, mostra a página de detalhe
@@ -4382,17 +4501,90 @@ function CompeteScreen({
               </div>
             )}
 
+            {partnerRequestSummary && (
+              <div className="card p-4 border border-blue-100 bg-blue-50/60">
+                <div className="flex items-start justify-between gap-2">
+                  <h3 className="text-sm font-semibold text-gray-900">Convites que enviaste</h3>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (!td) return
+                      setPartnerSummaryRefreshing(true)
+                      try {
+                        await loadPartnerRequestSummary(td.id)
+                      } finally {
+                        setPartnerSummaryRefreshing(false)
+                      }
+                    }}
+                    disabled={partnerSummaryRefreshing}
+                    className="p-1.5 rounded-lg text-blue-700 hover:bg-blue-100 disabled:opacity-50"
+                    aria-label="Atualizar estado dos convites"
+                  >
+                    <RefreshCw className={`w-4 h-4 ${partnerSummaryRefreshing ? 'animate-spin' : ''}`} />
+                  </button>
+                </div>
+                <p className="text-xs text-gray-600 mt-1 mb-3">
+                  Todos os jogadores convidados podem ver o convite em Compete → Convites de Parceiro, mesmo sem alertas no telemóvel.
+                </p>
+                <dl className="grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <dt className="text-gray-500">Convidados</dt>
+                    <dd className="font-semibold text-gray-900">{partnerRequestSummary.invitationsTotal}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-gray-500">Em espera</dt>
+                    <dd className="font-semibold text-amber-800">{partnerRequestSummary.pending}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-gray-500">Recusaram</dt>
+                    <dd className="font-semibold text-gray-800">{partnerRequestSummary.declined}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-gray-500">Aceitaram</dt>
+                    <dd className="font-semibold text-green-700">{partnerRequestSummary.accepted}</dd>
+                  </div>
+                </dl>
+                {(partnerRequestSummary.expired > 0 || partnerRequestSummary.cancelled > 0) && (
+                  <p className="text-xs text-gray-500 mt-2">
+                    {partnerRequestSummary.expired > 0 && <span>Expirados: {partnerRequestSummary.expired}. </span>}
+                    {partnerRequestSummary.cancelled > 0 && <span>Cancelados: {partnerRequestSummary.cancelled}.</span>}
+                  </p>
+                )}
+                <p className="text-xs text-gray-700 mt-3 leading-relaxed">
+                  {partnerRequestSummary.pending > 0
+                    ? `Ainda há ${partnerRequestSummary.pending} convite(s) por responder — podes conseguir parceiro se alguém aceitar.`
+                    : partnerRequestSummary.accepted > 0
+                      ? 'Alguém aceitou o convite. Verifica a inscrição da dupla e o pagamento se o torneio for pago.'
+                      : 'Ninguém aceitou ainda e não há convites em espera. Podes usar «Encontrar parceiro» de novo para convidar outros jogadores.'}
+                </p>
+              </div>
+            )}
+
             {/* Botão de inscrição */}
             {!isEnrolled && td.status === 'active' && (
-              <a
-                href={getTournamentRegistrationUrl(td.id, player?.phone_number || undefined)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center justify-center gap-2 w-full py-3.5 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-xl transition-colors"
-              >
-                Inscrever-me
-                <ExternalLink className="w-4 h-4" />
-              </a>
+              <div className="space-y-2">
+                <a
+                  href={getTournamentRegistrationUrl(td.id, player?.phone_number || undefined)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-center gap-2 w-full py-3.5 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-xl transition-colors"
+                >
+                  Inscrever-me
+                  <ExternalLink className="w-4 h-4" />
+                </a>
+                {isPartnerMatchingEligible(td.format, (td as any).round_robin_type || null) && (
+                  <button
+                    onClick={() => {
+                      const preferredCat = td.categories.find((c) => (player?.player_category ? c.name.toUpperCase().includes(player.player_category) : false))
+                      setPartnerCategoryId(preferredCat?.id || td.categories[0]?.id || null)
+                      setShowFindPartnerModal(true)
+                    }}
+                    className="flex items-center justify-center gap-2 w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl transition-colors"
+                  >
+                    Encontrar Parceiro
+                  </button>
+                )}
+              </div>
             )}
 
             {/* Inscritos por categoria */}
@@ -4443,6 +4635,52 @@ function CompeteScreen({
         ) : (
           <div className="card p-8 text-center text-gray-500">Torneio não encontrado.</div>
         )}
+        {showFindPartnerModal && td && (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/50">
+            <div className="bg-white rounded-2xl p-4 w-full max-w-md space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-bold text-gray-900">Encontrar Parceiro</h3>
+                <button onClick={() => setShowFindPartnerModal(false)} className="p-1 rounded hover:bg-gray-100">
+                  <X className="w-4 h-4 text-gray-500" />
+                </button>
+              </div>
+              <div>
+                <p className="text-sm font-medium text-gray-700 mb-2">Jogador de direita ou esquerda?</p>
+                <div className="flex gap-2">
+                  <button onClick={() => setPartnerSide('right')} className={`flex-1 py-2 rounded-lg text-sm font-medium ${partnerSide === 'right' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-700'}`}>Direita</button>
+                  <button onClick={() => setPartnerSide('left')} className={`flex-1 py-2 rounded-lg text-sm font-medium ${partnerSide === 'left' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-700'}`}>Esquerda</button>
+                </div>
+              </div>
+              <div>
+                <p className="text-sm font-medium text-gray-700 mb-2">Qualquer um ou jogadores que sigo?</p>
+                <div className="flex gap-2">
+                  <button onClick={() => setPartnerTargetMode('any')} className={`flex-1 py-2 rounded-lg text-sm font-medium ${partnerTargetMode === 'any' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-700'}`}>Qualquer um</button>
+                  <button onClick={() => setPartnerTargetMode('following')} className={`flex-1 py-2 rounded-lg text-sm font-medium ${partnerTargetMode === 'following' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-700'}`}>Jogadores que sigo</button>
+                </div>
+              </div>
+              <div>
+                <p className="text-sm font-medium text-gray-700 mb-2">Categoria</p>
+                <select
+                  value={partnerCategoryId || ''}
+                  onChange={(e) => setPartnerCategoryId(e.target.value || null)}
+                  className="w-full p-2.5 border border-gray-200 rounded-lg text-sm"
+                >
+                  <option value="">Selecionar categoria</option>
+                  {td.categories.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
+              <button
+                onClick={() => handleRequestPartner(td)}
+                disabled={partnerLoading || !partnerCategoryId}
+                className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white font-semibold"
+              >
+                {partnerLoading ? 'A procurar...' : 'Encontrar'}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     )
   }
@@ -4476,6 +4714,30 @@ function CompeteScreen({
 
       {activeTab === 'upcoming' && (
         <div className="space-y-4">
+          <div className="card p-4">
+            <h3 className="text-sm font-semibold text-gray-900 mb-1">Convites de Parceiro</h3>
+            <p className="text-xs text-gray-500 mb-3">Aparecem aqui mesmo sem notificações push ativadas — abre a app para veres e responderes.</p>
+            {partnerInvitesLoading ? (
+              <p className="text-sm text-gray-500">A carregar...</p>
+            ) : pendingPartnerInvites.length === 0 ? (
+              <p className="text-sm text-gray-500">Sem convites pendentes.</p>
+            ) : (
+              <div className="space-y-2">
+                {pendingPartnerInvites.map((inv) => (
+                  <div key={inv.id} className="border border-gray-200 rounded-lg p-3">
+                    <p className="text-sm text-gray-800">
+                      <span className="font-semibold">{inv.requester_name || 'Jogador'}</span> convidou-o para o torneio <span className="font-semibold">{inv.tournament_name || 'Torneio'}</span>.
+                    </p>
+                    <div className="flex gap-2 mt-3">
+                      <button onClick={() => handleAcceptInvite(inv)} className="px-3 py-1.5 rounded-lg bg-green-600 text-white text-xs font-semibold">Aceitar</button>
+                      <button onClick={() => handleDeclineInvite(inv)} className="px-3 py-1.5 rounded-lg bg-gray-200 text-gray-700 text-xs font-semibold">Recusar</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           {loadingUpcoming ? (
             <div className="flex justify-center py-8">
               <div className="w-8 h-8 border-2 border-red-600 border-t-transparent rounded-full animate-spin" />
