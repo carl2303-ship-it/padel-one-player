@@ -166,7 +166,7 @@ export async function sendPushToPlayer(playerAccountId: string, payload: PushPay
         'Authorization': `Bearer ${session.access_token}`,
         'apikey': supabaseAnonKey,
       },
-      body: JSON.stringify({ playerAccountId, payload }),
+      body: JSON.stringify({ playerAccountId, payload, appSource: 'player' }),
     })
   } catch (err) {
     console.error('[Push] Send error:', err)

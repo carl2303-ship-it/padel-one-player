@@ -14,13 +14,14 @@ export interface ClubDetail {
   phone: string | null
   email: string | null
   website: string | null
+  is_managed?: boolean
 }
 
 /** Lista todos os clubes geridos pela Padel One (para o jogador escolher no perfil). */
 export async function fetchAllClubs(): Promise<ClubDetail[]> {
   const { data } = await supabase
     .from('clubs')
-    .select('id, name, description, logo_url, address, city, country, phone, email, website')
+    .select('id, name, description, logo_url, address, city, country, phone, email, website, is_managed')
     .order('name', { ascending: true })
   return (data || []) as ClubDetail[]
 }

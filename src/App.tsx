@@ -10284,7 +10284,12 @@ function ProfileEditScreen({
                       <Building2 className="w-5 h-5 text-gray-400" />
                     </div>
                   )}
-                  <span className="font-medium text-gray-900 flex-1 truncate">{club.name}</span>
+                  <div className="flex-1 min-w-0">
+                    <span className="font-medium text-gray-900 truncate block">{club.name}</span>
+                    {club.is_managed === false && (
+                      <span className="inline-block mt-0.5 px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-200 text-gray-500">Ainda não na plataforma</span>
+                    )}
+                  </div>
                   {favoriteClubId === club.id && <span className="text-xs text-red-600 font-medium">✓</span>}
                 </button>
               ))}

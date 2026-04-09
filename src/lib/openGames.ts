@@ -313,10 +313,10 @@ export async function fetchOpenGames(filters?: {
 // ============================
 
 export async function fetchClubsWithAvailability(): Promise<ClubWithAvailability[]> {
-  // 1. Fetch all active clubs
+  // 1. Fetch all active managed clubs (only clubs with an owner can have bookings)
   const { data: clubs, error: clubsError } = await supabase
     .from('clubs')
-    .select('id, owner_id, name, logo_url, photo_url_1, photo_url_2, city, address, payment_method, active_schedule')
+    .select('id, owner_id, name, logo_url, photo_url_1, photo_url_2, city, address, payment_method, active_schedule, is_managed')
     .eq('is_active', true)
     .order('name')
 
@@ -327,11 +327,13 @@ export async function fetchClubsWithAvailability(): Promise<ClubWithAvailability
 
   const result: ClubWithAvailability[] = []
   
-  for (const club of clubs) {
+  const managedClubs = clubs.filter(c => c.is_managed !== false && c.owner_id)
+
+  for (const club of managedClubs) {
     // 2. Fetch courts for this club (including per-court slot config)
     const { data: courts } = await supabase
       .from('club_courts')
-      .select('id, name, type, hourly_rate, peak_rate, court_slots')
+      .select('id, name, type, hourly_rate, peak_rate, price_90min, price_120min, peak_price_90min, peak_price_120min, court_slots')
       .eq('user_id', club.owner_id)
       .eq('is_active', true)
       .order('name')
@@ -502,10 +504,17 @@ export async function fetchClubsWithAvailability(): Promise<ClubWithAvailability
           }
 
           if (availableDurations.length > 0) {
-            const hourlyRate = parseFloat(court.hourly_rate as any) || 0
-            const price60 = Math.round((hourlyRate * 1) / 4 * 100) / 100
-            const price90 = Math.round((hourlyRate * 1.5) / 4 * 100) / 100
-            const price120 = Math.round((hourlyRate * 2) / 4 * 100) / 100
+            const hourlyRate = parseFloat((court as any).hourly_rate as any) || 0
+            const explicit90 = (court as any).price_90min != null ? Number((court as any).price_90min) : null
+            const explicit120 = (court as any).price_120min != null ? Number((court as any).price_120min) : null
+
+            const total60 = hourlyRate
+            const total90 = explicit90 != null ? explicit90 : hourlyRate * 1.5
+            const total120 = explicit120 != null ? explicit120 : hourlyRate * 2
+
+            const price60 = Math.round((total60 / 4) * 100) / 100
+            const price90 = Math.round((total90 / 4) * 100) / 100
+            const price120 = Math.round((total120 / 4) * 100) / 100
 
             courtSlots.push({
               court_id: court.id,
