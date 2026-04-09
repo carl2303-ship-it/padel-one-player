@@ -736,7 +736,7 @@ export async function createOpenGame(params: {
       const bookingName = resolvedName || (typeof window !== 'undefined' ? getTranslations().common.player : 'Jogador')
 
       const { data: bookingData } = await supabase.from('court_bookings').insert({
-        user_id: club.owner_id,
+        user_id: realUserId,
         court_id: params.courtId,
         start_time: params.scheduledAt,
         end_time: endTime.toISOString(),
@@ -1253,6 +1253,68 @@ export async function removePlayerFromOpenGame(params: {
 // ============================
 
 export async function cancelOpenGame(gameId: string): Promise<boolean> {
+  const { data: { session } } = await supabase.auth.getSession()
+  const accessToken = session?.access_token || null
+
+  // Gather booking/club context to notify Manager (email + push) on cancellation.
+  let notifyPayload: {
+    userId: string
+    bookingId?: string
+    courtName?: string
+    playerName?: string
+    playerNames?: string[]
+    scheduledAt?: string
+    endAt?: string
+  } | null = null
+  try {
+    const { data: game } = await supabase
+      .from('open_games')
+      .select('id, club_id, court_id, scheduled_at, duration_minutes')
+      .eq('id', gameId)
+      .maybeSingle()
+
+    if (game?.club_id) {
+      const [{ data: club }, { data: court }, { data: booking }] = await Promise.all([
+        supabase.from('clubs').select('owner_id').eq('id', game.club_id).maybeSingle(),
+        game.court_id
+          ? supabase.from('club_courts').select('name').eq('id', game.court_id).maybeSingle()
+          : Promise.resolve({ data: null } as any),
+        supabase
+          .from('court_bookings')
+          .select('id, start_time, end_time, player1_name, player2_name, player3_name, player4_name, booked_by_name')
+          .eq('event_type', 'open_game')
+          .like('notes', `%ID: ${gameId}%`)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+      ])
+
+      const fallbackEndAt = game.scheduled_at && game.duration_minutes
+        ? new Date(new Date(game.scheduled_at).getTime() + Number(game.duration_minutes) * 60000).toISOString()
+        : undefined
+
+      if (club?.owner_id) {
+        const names = [
+          booking?.player1_name,
+          booking?.player2_name,
+          booking?.player3_name,
+          booking?.player4_name,
+        ].filter(Boolean) as string[]
+        notifyPayload = {
+          userId: club.owner_id,
+          bookingId: booking?.id || gameId,
+          courtName: court?.name || 'Campo',
+          playerName: booking?.player1_name || booking?.booked_by_name || 'Cliente',
+          playerNames: names.length ? names : undefined,
+          scheduledAt: booking?.start_time || game.scheduled_at,
+          endAt: booking?.end_time || fallbackEndAt,
+        }
+      }
+    }
+  } catch (ctxErr) {
+    console.warn('[OpenGames] Failed to prepare manager cancellation payload:', ctxErr)
+  }
+
   const { error } = await supabase
     .from('open_games')
     .update({ status: 'cancelled' })
@@ -1265,13 +1327,53 @@ export async function cancelOpenGame(gameId: string): Promise<boolean> {
 
   // Also cancel the corresponding court_booking
   try {
-    await supabase
+    const { error: bookingCancelError } = await supabase
       .from('court_bookings')
       .update({ status: 'cancelled' })
       .like('notes', `%ID: ${gameId}%`)
       .eq('event_type', 'open_game')
+    if (bookingCancelError) throw bookingCancelError
   } catch (e) {
-    // Don't fail if sync fails
+    // Fallback with service-role edge function for bookings created with another owner user_id.
+    if (accessToken) {
+      try {
+        const resp = await fetch(`https://rqiwnxcexsccguruiteq.supabase.co/functions/v1/cancel-open-game-booking`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${accessToken}`,
+            'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhc2UiLCJyZWYiOiJycWl3bnhjZXhzY2NndXJ1aXRlcSIsInJvbGUiOiJhbm9uIiwiaWF0IjoxNzU5NzY3OTM3LCJleHAiOjIwNzUzNDM5Mzd9.Dl05zPQDtPVpmvn_Y-JokT3wDq0Oh9uF3op5xcHZpkY',
+          },
+          body: JSON.stringify({ gameId }),
+        })
+        const json = await resp.json().catch(() => ({}))
+        if (!resp.ok || json?.success === false) {
+          console.warn('[OpenGames] cancel-open-game-booking fallback failed:', json?.error || resp.status)
+        }
+      } catch (fallbackError) {
+        console.warn('[OpenGames] cancel-open-game-booking fallback error:', fallbackError)
+      }
+    }
+  }
+
+  // Notify Manager about cancellation (triggers email to booking managers in Manager app).
+  if (notifyPayload) {
+    try {
+      await fetch(`https://rqiwnxcexsccguruiteq.supabase.co/functions/v1/notify-manager`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken || 'anon'}`,
+          'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhc2UiLCJyZWYiOiJycWl3bnhjZXhzY2NndXJ1aXRlcSIsInJvbGUiOiJhbm9uIiwiaWF0IjoxNzU5NzY3OTM3LCJleHAiOjIwNzUzNDM5Mzd9.Dl05zPQDtPVpmvn_Y-JokT3wDq0Oh9uF3op5xcHZpkY',
+        },
+        body: JSON.stringify({
+          ...notifyPayload,
+          type: 'booking_cancelled',
+        }),
+      })
+    } catch (notifyErr) {
+      console.warn('[OpenGames] Error notifying manager about cancelled booking:', notifyErr)
+    }
   }
 
   return true
