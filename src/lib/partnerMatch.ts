@@ -29,20 +29,40 @@ export type PartnerMatchRequesterSummary = {
 };
 
 async function callFn<T = any>(name: string, payload: any): Promise<T> {
-  const { data: sessionData } = await supabase.auth.getSession();
-  const token = sessionData.session?.access_token;
-  if (!token) throw new Error("Sessão inválida");
+  async function getAccessToken(): Promise<string | null> {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const current = sessionData.session?.access_token ?? null;
+    if (current) return current;
 
-  const resp = await fetch(`${SUPABASE_URL}/functions/v1/${name}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-      apikey: SUPABASE_ANON_KEY,
-    },
-    body: JSON.stringify(payload),
-  });
-  const json = await resp.json().catch(() => ({}));
+    const { data: refreshed } = await supabase.auth.refreshSession();
+    return refreshed.session?.access_token ?? null;
+  }
+
+  async function doFetch(token: string) {
+    const resp = await fetch(`${SUPABASE_URL}/functions/v1/${name}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+        apikey: SUPABASE_ANON_KEY,
+      },
+      body: JSON.stringify(payload),
+    });
+    const json = await resp.json().catch(() => ({}));
+    return { resp, json };
+  }
+
+  const firstToken = await getAccessToken();
+  if (!firstToken) throw new Error("Sessão inválida. Volta a entrar na conta.");
+
+  let { resp, json } = await doFetch(firstToken);
+  if (resp.status === 401 || resp.status === 403) {
+    const { data: refreshed } = await supabase.auth.refreshSession();
+    const retryToken = refreshed.session?.access_token ?? null;
+    if (!retryToken) throw new Error("Sessão inválida. Volta a entrar na conta.");
+    ({ resp, json } = await doFetch(retryToken));
+  }
+
   if (!resp.ok || json?.success === false) {
     throw new Error(json?.error || "Falha no pedido");
   }
