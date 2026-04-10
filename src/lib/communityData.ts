@@ -270,21 +270,16 @@ export async function getFollowersList(userId: string): Promise<CommunityPlayer[
 // ============================================
 
 export async function getSuggestedPlayers(userId: string): Promise<CommunityPlayer[]> {
-  // Get who I already follow
-  const followingIds = await getFollowingIds(userId)
-  const excludeIds = new Set([...followingIds, userId])
+  const { data, error } = await supabase.rpc('get_suggested_players', { p_user_id: userId })
 
-  // player_accounts is the single source of truth for player data + category
-  const { data: allPlayers } = await supabase
-    .from('player_accounts')
-    .select('id, user_id, name, avatar_url, level, player_category, location')
-    .not('user_id', 'is', null)
-    .limit(50)
+  if (error) {
+    console.error('[Community] getSuggestedPlayers RPC error:', error)
+    return []
+  }
+  if (!data) return []
 
-  if (!allPlayers) return []
-
-  return allPlayers
-    .filter((p: any) => p.user_id && !excludeIds.has(p.user_id) && !isTestPlayer(p.name))
+  return (data as any[])
+    .filter((p: any) => !isTestPlayer(p.name))
     .map((p: any) => ({
       id: p.id,
       user_id: p.user_id,
@@ -295,7 +290,6 @@ export async function getSuggestedPlayers(userId: string): Promise<CommunityPlay
       location: p.location,
       is_following: false,
     }))
-    .slice(0, 20)
 }
 
 // ============================================
