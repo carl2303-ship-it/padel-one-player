@@ -1131,24 +1131,20 @@ export async function searchPlayers(query: string, excludeIds: string[] = []): P
   if (!query || query.trim().length < 2) return []
 
   const { data, error } = await supabase
-    .from('player_accounts')
-    .select('id, user_id, name, avatar_url, level, player_category, location')
-    .ilike('name', `%${query.trim()}%`)
-    .limit(30)
+    .rpc('search_players_unaccent', { search_query: query.trim() })
 
   if (error) console.error('[Community] searchPlayers error:', error)
   if (!data) return []
 
-  // Deduplicate by user_id (some players may have multiple player_accounts)
   const seen = new Set<string>()
   const results: CommunityPlayer[] = []
   for (const p of data) {
-    const key = p.user_id || p.id
-    if (excludeIds.includes(key) || seen.has(key) || isTestPlayer(p.name)) continue
-    seen.add(key)
+    if (!p.user_id) continue
+    if (excludeIds.includes(p.user_id) || seen.has(p.user_id) || isTestPlayer(p.name)) continue
+    seen.add(p.user_id)
     results.push({
       id: p.id,
-      user_id: p.user_id || p.id,
+      user_id: p.user_id,
       name: p.name,
       avatar_url: p.avatar_url,
       level: p.level ?? categoryToLevel(p.player_category) ?? undefined,
