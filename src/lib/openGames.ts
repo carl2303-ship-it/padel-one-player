@@ -1657,14 +1657,11 @@ export async function searchPlayerAccounts(query: string): Promise<{
   if (!query || query.length < 2) return []
 
   const { data, error } = await supabase
-    .from('player_accounts')
-    .select('id, name, avatar_url, level, player_category, phone_number')
-    .ilike('name', `%${query}%`)
-    .order('name')
-    .limit(10)
+    .rpc('search_player_accounts_unaccent', { search_query: query.trim() })
 
+  if (error) console.error('[OpenGames] searchPlayerAccounts error:', error)
   if (error || !data) return []
-  return data
+  return data as any[]
 }
 
 // ============================
