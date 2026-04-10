@@ -6,6 +6,14 @@ import { supabase } from './supabase'
 import { notifyOpenGamePlayers, notifyGameCreator, sendPushToPlayer, notifyMatchingPlayersForNewGame } from './pushNotifications'
 import { getTranslations } from './translations'
 
+/** YYYY-MM-DD using local timezone (avoids UTC date shift near midnight) */
+function localDateStr(d: Date): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
 // ============================
 // Types
 // ============================
@@ -327,7 +335,7 @@ export async function fetchClubsWithAvailability(): Promise<ClubWithAvailability
 
   const result: ClubWithAvailability[] = []
   
-  const managedClubs = clubs.filter(c => c.is_managed !== false && c.owner_id)
+  const managedClubs = clubs.filter(c => c.owner_id)
 
   for (const club of managedClubs) {
     // 2. Fetch courts for this club (including per-court slot config)
@@ -355,12 +363,14 @@ export async function fetchClubsWithAvailability(): Promise<ClubWithAvailability
     for (let i = 0; i < daysAhead; i++) {
       const d = new Date(now)
       d.setDate(d.getDate() + i)
-      dates.push(d.toISOString().split('T')[0])
+      dates.push(localDateStr(d))
     }
 
-    // 5. Fetch existing bookings for these days
-    const dateFrom = dates[0] + 'T00:00:00'
-    const dateTo = dates[dates.length - 1] + 'T23:59:59'
+    // 5. Fetch existing bookings for these days (use local dates → ISO for consistent tz)
+    const dayStart = new Date(dates[0] + 'T00:00:00')
+    const dayEnd = new Date(dates[dates.length - 1] + 'T23:59:59')
+    const dateFrom = dayStart.toISOString()
+    const dateTo = dayEnd.toISOString()
     
     const { data: bookings } = await supabase
       .from('court_bookings')
@@ -630,6 +640,9 @@ export async function createOpenGame(params: {
   const levelMin = Math.max(1.0, params.playerLevel - 0.5)
   const levelMax = Math.min(7.0, params.playerLevel + 0.5)
 
+  // Normalize scheduledAt to ISO string for consistent timezone handling
+  const scheduledAtISO = new Date(params.scheduledAt).toISOString()
+
   // Create the game
   const { data: game, error: gameError } = await supabase
     .from('open_games')
@@ -637,7 +650,7 @@ export async function createOpenGame(params: {
       creator_user_id: realUserId,
       club_id: params.clubId,
       court_id: params.courtId,
-      scheduled_at: params.scheduledAt,
+      scheduled_at: scheduledAtISO,
       duration_minutes: params.durationMinutes,
       game_type: params.gameType,
       gender: params.gender,
@@ -740,14 +753,15 @@ export async function createOpenGame(params: {
     const courtName = courtData?.name || 'Campo'
 
     if (club) {
-      const endTime = new Date(new Date(params.scheduledAt).getTime() + params.durationMinutes * 60000)
+      const startDate = new Date(params.scheduledAt)
+      const endTime = new Date(startDate.getTime() + params.durationMinutes * 60000)
       const gameTypeLabel = params.gameType === 'competitive' ? 'Competitivo' : 'Amigável'
       const bookingName = resolvedName || (typeof window !== 'undefined' ? getTranslations().common.player : 'Jogador')
 
       const { data: bookingData } = await supabase.from('court_bookings').insert({
         user_id: realUserId,
         court_id: params.courtId,
-        start_time: params.scheduledAt,
+        start_time: startDate.toISOString(),
         end_time: endTime.toISOString(),
         booked_by_name: bookingName,
         booked_by_phone: resolvedPhone || null,
@@ -787,7 +801,7 @@ export async function createOpenGame(params: {
             bookingId: bookingData?.id || game.id,
             courtName,
             playerName: bookingName,
-            scheduledAt: params.scheduledAt
+            scheduledAt: scheduledAtISO
           })
         })
       } catch (notifyErr) {
@@ -826,7 +840,7 @@ export async function createOpenGame(params: {
         levelMin: levelMin,
         levelMax: levelMax,
         gender: params.gender,
-        scheduledAt: params.scheduledAt,
+        scheduledAt: scheduledAtISO,
         clubName: clubForNotif?.name || 'Clube',
       }) // Fire and forget - don't await
     } catch (err) {

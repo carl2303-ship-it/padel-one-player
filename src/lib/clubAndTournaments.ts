@@ -14,6 +14,7 @@ export interface ClubDetail {
   phone: string | null
   email: string | null
   website: string | null
+  owner_id?: string | null
   is_managed?: boolean
 }
 
@@ -21,7 +22,7 @@ export interface ClubDetail {
 export async function fetchAllClubs(): Promise<ClubDetail[]> {
   const { data } = await supabase
     .from('clubs')
-    .select('id, name, description, logo_url, address, city, country, phone, email, website, is_managed')
+    .select('id, name, description, logo_url, address, city, country, phone, email, website, owner_id, is_managed')
     .order('name', { ascending: true })
   return (data || []) as ClubDetail[]
 }

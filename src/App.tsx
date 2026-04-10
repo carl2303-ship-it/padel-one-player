@@ -10286,7 +10286,7 @@ function ProfileEditScreen({
                   )}
                   <div className="flex-1 min-w-0">
                     <span className="font-medium text-gray-900 truncate block">{club.name}</span>
-                    {club.is_managed === false && (
+                    {club.is_managed === false && !club.owner_id && (
                       <span className="inline-block mt-0.5 px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-200 text-gray-500">Ainda não na plataforma</span>
                     )}
                   </div>
