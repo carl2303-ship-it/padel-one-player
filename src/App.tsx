@@ -4052,7 +4052,7 @@ function CompeteScreen({
   const [selectedTournamentDetail, setSelectedTournamentDetail] = useState<TournamentFullDetail | null>(null)
   const [selectedTournamentLoading, setSelectedTournamentLoading] = useState(false)
   const [showFindPartnerModal, setShowFindPartnerModal] = useState(false)
-  const [partnerSide, setPartnerSide] = useState<'right' | 'left'>('right')
+  const [partnerSide, setPartnerSide] = useState<'right' | 'left' | 'both'>('both')
   const [partnerTargetMode, setPartnerTargetMode] = useState<'any' | 'following'>('any')
   const [partnerCategoryId, setPartnerCategoryId] = useState<string | null>(null)
   const [partnerLoading, setPartnerLoading] = useState(false)
@@ -4808,10 +4808,11 @@ function CompeteScreen({
                 </button>
               </div>
               <div>
-                <p className="text-sm font-medium text-gray-700 mb-2">Jogador de direita ou esquerda?</p>
+                <p className="text-sm font-medium text-gray-700 mb-2">Que posição procuras no parceiro?</p>
                 <div className="flex gap-2">
                   <button onClick={() => setPartnerSide('right')} className={`flex-1 py-2 rounded-lg text-sm font-medium ${partnerSide === 'right' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-700'}`}>Direita</button>
                   <button onClick={() => setPartnerSide('left')} className={`flex-1 py-2 rounded-lg text-sm font-medium ${partnerSide === 'left' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-700'}`}>Esquerda</button>
+                  <button onClick={() => setPartnerSide('both')} className={`flex-1 py-2 rounded-lg text-sm font-medium ${partnerSide === 'both' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-700'}`}>Ambos</button>
                 </div>
               </div>
               <div>

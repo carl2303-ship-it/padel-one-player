@@ -72,7 +72,7 @@ async function callFn<T = any>(name: string, payload: any): Promise<T> {
 export async function requestPartnerMatch(params: {
   tournamentId: string;
   categoryId?: string | null;
-  sidePreference: "right" | "left";
+  sidePreference: "right" | "left" | "both";
   targetMode: "any" | "following";
 }) {
   return callFn("request-partner-match", params);
