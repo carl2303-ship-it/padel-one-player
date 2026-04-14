@@ -45,13 +45,13 @@ export function categoryColors(category?: string | null): { bg: string; text: st
   }
 }
 
-/** Deriva o nível (1-6) a partir da player_category (M1-M6 / F1-F6) */
+/** Deriva o nível ELO aproximado a partir da player_category (M1-M6 / F1-F6) */
 export function categoryToLevel(category?: string | null): number | undefined {
   if (!category) return undefined
   const num = parseInt(category.charAt(category.length - 1))
   if (isNaN(num) || num < 1 || num > 6) return undefined
-  // M1/F1 = nível 6, M2/F2 = 5, ..., M6/F6 = 1
-  return 7 - num
+  const map: Record<number, number> = { 1: 6.5, 2: 5.5, 3: 4.5, 4: 3.5, 5: 2.5, 6: 1.0 }
+  return map[num]
 }
 
 // ============================================
