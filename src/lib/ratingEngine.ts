@@ -2,7 +2,7 @@
  * Padel One Rating Engine v3
  * Sistema ELO adaptado para Padel em Duplas
  * 
- * Escala: 0.5 (iniciante) a 7.0 (profissional)
+ * Escala: 0.5 (iniciante), sem limite superior (M1/F1 aberto)
  * Fiabilidade: 0% (0 jogos) a 100% (75+ jogos rated)
  * 
  * v3 Fixes:
@@ -150,8 +150,8 @@ export function calculateNewRatings(
   const delta3 = calculateDelta(p3, 1 - actual1, 1 - expected1, intensity)
   const delta4 = calculateDelta(p4, 1 - actual1, 1 - expected1, intensity)
 
-  // 8. Clamp para manter dentro da escala 0.5 - 7.0
-  const clamp = (val: number) => Math.max(0.5, Math.min(7.0, parseFloat(val.toFixed(2))))
+  // 8. Clamp — mínimo 0.5, sem limite superior (M1/F1 aberto)
+  const clamp = (val: number) => Math.max(0.5, parseFloat(val.toFixed(2)))
 
   // 9. Determinar quem ganhou/perdeu
   const team1Won = actual1 >= 0.6 ? true : actual1 <= 0.4 ? false : null
