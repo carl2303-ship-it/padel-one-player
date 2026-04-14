@@ -47,9 +47,11 @@ export interface UpcomingTournamentFromTour {
   club_id?: string | null
   description?: string | null
   allow_public_registration?: boolean
+  visibility?: 'public' | 'invite_only'
   format?: string | null
   round_robin_type?: string | null
   is_full?: boolean
+  is_invited?: boolean
 }
 
 /** URL base da app Padel One Tour (para link de inscrição). Configurar VITE_TOUR_APP_URL no .env */
@@ -261,7 +263,7 @@ export async function fetchUpcomingTournaments(clubId?: string | null): Promise<
   const today = new Date().toISOString().split('T')[0]
   let query = supabase
     .from('tournaments')
-    .select('id, name, start_date, end_date, status, image_url, club_id, description, allow_public_registration, format, round_robin_type')
+    .select('id, name, start_date, end_date, status, image_url, club_id, description, allow_public_registration, visibility, format, round_robin_type')
     .gte('end_date', today)
     .in('status', ['draft', 'active'])
     .order('start_date', { ascending: true })
@@ -273,4 +275,52 @@ export async function fetchUpcomingTournaments(clubId?: string | null): Promise<
 
   const { data } = await query
   return (data || []) as UpcomingTournamentFromTour[]
+}
+
+/** Busca convites de torneio para o jogador actual. */
+export async function fetchMyTournamentInvites(playerAccountId: string): Promise<{
+  tournament_id: string
+  status: string
+  tournament_name?: string
+  tournament_start_date?: string
+  tournament_image_url?: string | null
+}[]> {
+  const { data, error } = await supabase
+    .from('tournament_invites')
+    .select('tournament_id, status')
+    .eq('player_account_id', playerAccountId)
+    .in('status', ['pending', 'accepted'])
+
+  if (error || !data || data.length === 0) return []
+
+  const tournamentIds = data.map(d => d.tournament_id)
+  const { data: tournaments } = await supabase
+    .from('tournaments')
+    .select('id, name, start_date, image_url')
+    .in('id', tournamentIds)
+
+  const tMap: Record<string, any> = {}
+  ;(tournaments || []).forEach(t => { tMap[t.id] = t })
+
+  return data.map(inv => ({
+    tournament_id: inv.tournament_id,
+    status: inv.status,
+    tournament_name: tMap[inv.tournament_id]?.name,
+    tournament_start_date: tMap[inv.tournament_id]?.start_date,
+    tournament_image_url: tMap[inv.tournament_id]?.image_url,
+  }))
+}
+
+/** Actualizar status de um convite de torneio. */
+export async function updateTournamentInviteStatus(
+  playerAccountId: string,
+  tournamentId: string,
+  status: 'accepted' | 'declined'
+): Promise<boolean> {
+  const { error } = await supabase
+    .from('tournament_invites')
+    .update({ status })
+    .eq('player_account_id', playerAccountId)
+    .eq('tournament_id', tournamentId)
+  return !error
 }

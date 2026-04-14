@@ -82,7 +82,7 @@ import {
   type FeedMatchItem,
   getUnifiedFeed,
 } from './lib/communityData'
-import { fetchAllClubs, fetchClubById, fetchUpcomingTournaments, fetchEnrolledByCategory, fetchTournamentFullDetail, getTournamentRegistrationUrl, type ClubDetail, type UpcomingTournamentFromTour, type EnrolledByCategory, type TournamentFullDetail } from './lib/clubAndTournaments'
+import { fetchAllClubs, fetchClubById, fetchUpcomingTournaments, fetchEnrolledByCategory, fetchTournamentFullDetail, getTournamentRegistrationUrl, fetchMyTournamentInvites, updateTournamentInviteStatus, type ClubDetail, type UpcomingTournamentFromTour, type EnrolledByCategory, type TournamentFullDetail } from './lib/clubAndTournaments'
 import { fetchAvailableClasses, fetchMyClasses, enrollInClass, type Class as ClassData } from './lib/classes'
 import { preloadAllPlayerData, getCachedPlayerData } from './lib/playerDataCache'
 import { isPushSupported, checkIsSubscribed, subscribeToPush, unsubscribeFromPush } from './lib/pushNotifications'
@@ -2725,6 +2725,37 @@ function HomeScreen({
     }
   }
 
+  const [homeTournamentInvites, setHomeTournamentInvites] = useState<{ tournament_id: string; status: string; tournament_name?: string; tournament_start_date?: string; tournament_image_url?: string | null }[]>([])
+  const [homeTournamentInvitesLoading, setHomeTournamentInvitesLoading] = useState(false)
+
+  useEffect(() => {
+    if (!player?.id) return
+    let active = true
+    setHomeTournamentInvitesLoading(true)
+    fetchMyTournamentInvites(player.id).then(list => {
+      if (active) {
+        setHomeTournamentInvites(list.filter(i => i.status === 'pending'))
+        setHomeTournamentInvitesLoading(false)
+      }
+    }).catch(() => {
+      if (active) setHomeTournamentInvitesLoading(false)
+    })
+    return () => { active = false }
+  }, [player?.id])
+
+  const handleTournamentInviteAccept = async (tournamentId: string) => {
+    if (!player?.id) return
+    await updateTournamentInviteStatus(player.id, tournamentId, 'accepted')
+    setHomeTournamentInvites(prev => prev.filter(i => i.tournament_id !== tournamentId))
+    onOpenCompete()
+  }
+
+  const handleTournamentInviteDecline = async (tournamentId: string) => {
+    if (!player?.id) return
+    await updateTournamentInviteStatus(player.id, tournamentId, 'declined')
+    setHomeTournamentInvites(prev => prev.filter(i => i.tournament_id !== tournamentId))
+  }
+
   // Determinar nível de reward
   const getRewardTier = (pts: number) => {
     if (pts >= 1000) return { name: 'Diamond', emoji: '💎', bgColor: 'bg-gradient-to-br from-cyan-50 to-cyan-100', textColor: 'text-cyan-700' }
@@ -2971,6 +3002,54 @@ function HomeScreen({
           Abrir Competir
         </button>
       </div>
+
+      {/* Convites de torneio */}
+      {homeTournamentInvites.length > 0 && (
+        <div className="card p-4 border-2 border-amber-200 bg-amber-50/40">
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+              🔒 Convites de Torneio
+            </h2>
+            <span className="shrink-0 bg-amber-600 text-white text-xs font-bold px-2 py-0.5 rounded-full">
+              {homeTournamentInvites.length}
+            </span>
+          </div>
+          <div className="space-y-3">
+            <p className="text-xs text-gray-600">Foste convidado para torneios exclusivos!</p>
+            {homeTournamentInvites.slice(0, 5).map(inv => (
+              <div key={inv.tournament_id} className="flex items-center gap-3 p-3 bg-white rounded-xl border border-amber-100">
+                {inv.tournament_image_url ? (
+                  <img src={inv.tournament_image_url} className="w-12 h-12 rounded-lg object-cover flex-shrink-0" alt="" />
+                ) : (
+                  <div className="w-12 h-12 rounded-lg bg-amber-100 flex items-center justify-center flex-shrink-0">
+                    <Trophy className="w-6 h-6 text-amber-600" />
+                  </div>
+                )}
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-gray-900 truncate">{inv.tournament_name || 'Torneio'}</p>
+                  {inv.tournament_start_date && (
+                    <p className="text-xs text-gray-500">{new Date(inv.tournament_start_date).toLocaleDateString('pt-PT')}</p>
+                  )}
+                </div>
+                <div className="flex gap-1.5">
+                  <button
+                    onClick={() => handleTournamentInviteAccept(inv.tournament_id)}
+                    className="px-3 py-1.5 bg-amber-600 text-white rounded-lg text-xs font-medium hover:bg-amber-700"
+                  >
+                    Ver
+                  </button>
+                  <button
+                    onClick={() => handleTournamentInviteDecline(inv.tournament_id)}
+                    className="px-3 py-1.5 bg-gray-200 text-gray-700 rounded-lg text-xs font-medium hover:bg-gray-300"
+                  >
+                    Recusar
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Os Meus Torneios */}
       <div>
@@ -4078,13 +4157,28 @@ function CompeteScreen({
   useEffect(() => {
     let active = true
     const clubId = favoriteClubId || localStorage.getItem('padel_one_player_favorite_club_id')
-    fetchUpcomingTournaments(clubId || undefined).then((list) => {
-      if (active) { setUpcomingFromTour(list); setLoadingUpcoming(false) }
-    }).catch(() => {
-      if (active) setLoadingUpcoming(false)
-    })
+    ;(async () => {
+      try {
+        const list = await fetchUpcomingTournaments(clubId || undefined)
+        if (!active) return
+
+        let invitedIds = new Set<string>()
+        if (player?.id) {
+          const invites = await fetchMyTournamentInvites(player.id)
+          invitedIds = new Set(invites.map(i => i.tournament_id))
+        }
+
+        const filtered = list
+          .filter(t => t.visibility !== 'invite_only' || invitedIds.has(t.id))
+          .map(t => ({ ...t, is_invited: invitedIds.has(t.id) }))
+
+        if (active) { setUpcomingFromTour(filtered); setLoadingUpcoming(false) }
+      } catch {
+        if (active) setLoadingUpcoming(false)
+      }
+    })()
     return () => { active = false }
-  }, [favoriteClubId])
+  }, [favoriteClubId, player?.id])
 
   // Extrair género e nível do player_category (ex: "M6" → { gender: 'M', level: 6 })
   const getPlayerCategoryInfo = (): { gender: 'M' | 'F'; level: number } | null => {
@@ -4133,14 +4227,21 @@ function CompeteScreen({
     if (activeTab !== 'upcoming') return
     const playerInfo = getPlayerCategoryInfo()
     if (!playerInfo) {
-      // Se o jogador não tem categoria definida, mostrar todos
       let active = true
       const clubId = favoriteClubId || localStorage.getItem('padel_one_player_favorite_club_id')
       setLoadingAvailable(true)
       fetchUpcomingTournaments(clubId || undefined).then(async (list) => {
         if (!active) return
+        let invitedIds = new Set<string>()
+        if (player?.id) {
+          const invites = await fetchMyTournamentInvites(player.id)
+          invitedIds = new Set(invites.map(i => i.tournament_id))
+        }
         const enrolledIds = new Set((d?.upcomingTournaments ?? []).map((t) => t.id))
-        const available = list.filter((t) => t.status === 'active' && !enrolledIds.has(t.id)).slice(0, 10)
+        const available = list
+          .filter((t) => t.status === 'active' && !enrolledIds.has(t.id) && (t.visibility !== 'invite_only' || invitedIds.has(t.id)))
+          .map(t => ({ ...t, is_invited: invitedIds.has(t.id) }))
+          .slice(0, 10)
         const { supabase } = await import('./lib/supabase')
         const withFullStatus = await Promise.all(available.map(async (tour) => {
           const { data: cats } = await supabase
@@ -4176,9 +4277,16 @@ function CompeteScreen({
         const list = await fetchUpcomingTournaments(clubId || undefined)
         if (!active) return
 
-        // Filtrar apenas ativos e onde jogador NÃO está inscrito
+        let invitedIds = new Set<string>()
+        if (player?.id) {
+          const invites = await fetchMyTournamentInvites(player.id)
+          invitedIds = new Set(invites.map(i => i.tournament_id))
+        }
+
         const enrolledIds = new Set((d?.upcomingTournaments ?? []).map((t) => t.id))
-        const activeNotEnrolled = list.filter((t) => t.status === 'active' && !enrolledIds.has(t.id))
+        const activeNotEnrolled = list
+          .filter((t) => t.status === 'active' && !enrolledIds.has(t.id) && (t.visibility !== 'invite_only' || invitedIds.has(t.id)))
+          .map(t => ({ ...t, is_invited: invitedIds.has(t.id) }))
 
         // Filtrar por género E nível: buscar categorias de cada torneio
         const { supabase } = await import('./lib/supabase')
@@ -4946,6 +5054,9 @@ function CompeteScreen({
                     </div>
                   )}
                   <div className="absolute top-3 right-3 flex items-center gap-1.5">
+                    {t.is_invited && (
+                      <span className="px-2 py-1 rounded-lg text-xs font-medium bg-amber-500 text-white shadow">🔒 Convite</span>
+                    )}
                     {isEnrolled && (
                       <span className="px-2 py-1 rounded-lg text-xs font-medium bg-green-500 text-white shadow">Inscrito</span>
                     )}
