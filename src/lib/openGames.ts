@@ -3,7 +3,7 @@
  * Functions to fetch/create/join open games and get club availability.
  */
 import { supabase } from './supabase'
-import { notifyOpenGamePlayers, notifyGameCreator, sendPushToPlayer, notifyMatchingPlayersForNewGame } from './pushNotifications'
+import { notifyOpenGamePlayers, notifyGameCreator, sendPushToPlayer } from './pushNotifications'
 import { getTranslations } from './translations'
 
 /** YYYY-MM-DD using local timezone (avoids UTC date shift near midnight) */
@@ -637,8 +637,8 @@ export async function createOpenGame(params: {
   // Creating game with realUserId (auth.uid)
 
   // Calculate level range (±0.5 from player level)
-  const levelMin = Math.max(1.0, params.playerLevel - 0.5)
-  const levelMax = Math.min(7.0, params.playerLevel + 0.5)
+  const levelMin = Math.max(0.5, params.playerLevel - 0.5)
+  const levelMax = params.playerLevel + 0.5
 
   // Normalize scheduledAt to ISO string for consistent timezone handling
   const scheduledAtISO = new Date(params.scheduledAt).toISOString()
@@ -824,25 +824,38 @@ export async function createOpenGame(params: {
     }
   }
 
-  // Notify matching players (level + gender + preferred time)
+  // Notify matching players via server-side Edge Function (reliable)
   if (!params.isPrivate) {
     try {
-      // Get club name for the notification
       const { data: clubForNotif } = await supabase
         .from('clubs')
         .select('name')
         .eq('id', params.clubId)
         .maybeSingle()
 
-      notifyMatchingPlayersForNewGame({
-        gameId: game.id,
-        creatorPlayerAccountId: resolvedAccountId,
-        levelMin: levelMin,
-        levelMax: levelMax,
-        gender: params.gender,
-        scheduledAt: scheduledAtISO,
-        clubName: clubForNotif?.name || 'Clube',
-      }) // Fire and forget - don't await
+      const supabaseUrl = 'https://rqiwnxcexsccguruiteq.supabase.co'
+      const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJxaXdueGNleHNjY2d1cnVpdGVxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk3Njc5MzcsImV4cCI6MjA3NTM0MzkzN30.Dl05zPQDtPVpmvn_Y-JokT3wDq0Oh9uF3op5xcHZpkY'
+      const { data: { session } } = await supabase.auth.getSession()
+
+      fetch(`${supabaseUrl}/functions/v1/notify-new-open-game`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session?.access_token || supabaseAnonKey}`,
+          'apikey': supabaseAnonKey,
+        },
+        body: JSON.stringify({
+          gameId: game.id,
+          creatorUserId: realUserId,
+          creatorPlayerAccountId: resolvedAccountId,
+          levelMin,
+          levelMax,
+          gender: params.gender,
+          scheduledAt: scheduledAtISO,
+          clubName: clubForNotif?.name || 'Clube',
+          gameType: params.gameType,
+        }),
+      }).catch(err => console.error('[Push] notify-new-open-game fetch error:', err))
     } catch (err) {
       console.error('[Push] Error triggering matching player notifications:', err)
     }
