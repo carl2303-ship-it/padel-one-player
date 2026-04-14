@@ -848,6 +848,7 @@ export async function createOpenGame(params: {
           gameId: game.id,
           creatorUserId: realUserId,
           creatorPlayerAccountId: resolvedAccountId,
+          creatorName: resolvedName,
           levelMin,
           levelMax,
           gender: params.gender,

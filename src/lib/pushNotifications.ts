@@ -19,11 +19,37 @@ export function getPermission(): NotificationPermission {
   return 'denied'
 }
 
+/** Get an active SW registration with timeout + re-register fallback (fixes Samsung/mobile hangs). */
+async function getSwRegistration(timeoutMs = 8000): Promise<ServiceWorkerRegistration> {
+  const withTimeout = <T>(promise: Promise<T>, ms: number): Promise<T> =>
+    Promise.race([
+      promise,
+      new Promise<T>((_, reject) => setTimeout(() => reject(new Error('SW ready timeout')), ms)),
+    ])
+
+  try {
+    return await withTimeout(navigator.serviceWorker.ready, timeoutMs)
+  } catch {
+    console.warn('[Push] SW ready timed out, re-registering...')
+    const reg = await navigator.serviceWorker.register('/sw.js')
+    if (reg.active) return reg
+    await new Promise<void>((resolve) => {
+      const sw = reg.installing || reg.waiting
+      if (!sw) { resolve(); return }
+      sw.addEventListener('statechange', () => {
+        if (sw.state === 'activated') resolve()
+      })
+      setTimeout(resolve, 5000)
+    })
+    return reg
+  }
+}
+
 export async function checkIsSubscribed(playerAccountId: string): Promise<boolean> {
   if (!isPushSupported()) return false
 
   try {
-    const registration = await navigator.serviceWorker.ready
+    const registration = await getSwRegistration()
     const subscription = await registration.pushManager.getSubscription()
     if (!subscription) return false
 
@@ -53,7 +79,7 @@ export async function subscribeToPush(playerAccountId: string): Promise<boolean>
       return false
     }
 
-    const registration = await navigator.serviceWorker.ready
+    const registration = await getSwRegistration()
     let subscription = await registration.pushManager.getSubscription()
 
     if (!subscription) {
@@ -119,7 +145,7 @@ export async function subscribeToPush(playerAccountId: string): Promise<boolean>
 
 export async function unsubscribeFromPush(playerAccountId: string): Promise<boolean> {
   try {
-    const registration = await navigator.serviceWorker.ready
+    const registration = await getSwRegistration()
     const subscription = await registration.pushManager.getSubscription()
 
     if (subscription) {
