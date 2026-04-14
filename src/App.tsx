@@ -2709,9 +2709,9 @@ function HomeScreen({
       await loadHomePartnerInvites()
       await onRefresh()
       if (result?.checkoutUrl) window.open(result.checkoutUrl, '_blank', 'noopener,noreferrer')
-      alert(result?.checkoutUrl ? 'Dupla criada. Complete o pagamento para confirmar.' : 'Dupla criada e inscrita com sucesso.')
+      alert(result?.checkoutUrl ? (t as any).partner?.pairCreatedPayment || 'Dupla criada. Complete o pagamento para confirmar.' : (t as any).partner?.pairCreatedSuccess || 'Dupla criada e inscrita com sucesso.')
     } catch (error: any) {
-      alert(error?.message || 'Não foi possível aceitar o convite.')
+      alert(error?.message || (t as any).partner?.acceptError || 'Não foi possível aceitar o convite.')
     }
   }
 
@@ -2721,7 +2721,7 @@ function HomeScreen({
       await loadHomePartnerInvites()
       await onRefresh()
     } catch (error: any) {
-      alert(error?.message || 'Não foi possível recusar o convite.')
+      alert(error?.message || (t as any).partner?.declineError || 'Não foi possível recusar o convite.')
     }
   }
 
@@ -2946,7 +2946,7 @@ function HomeScreen({
         <div className="flex items-center justify-between gap-2 mb-2">
           <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
             <UserPlus className="w-5 h-5 text-blue-600" />
-            Convites de parceiro
+            {t.home.partnerInvites}
           </h2>
           {homePartnerInvites.length > 0 && (
             <span className="shrink-0 bg-blue-600 text-white text-xs font-bold px-2 py-0.5 rounded-full">
@@ -2955,17 +2955,17 @@ function HomeScreen({
           )}
         </div>
         {homePartnerInvitesLoading ? (
-          <p className="text-sm text-gray-500">A carregar convites…</p>
+          <p className="text-sm text-gray-500">{t.home.loadingInvites}</p>
         ) : homePartnerInvites.length === 0 ? (
-          <p className="text-sm text-gray-600">Sem convites por responder. Quando alguém te convidar para uma dupla, aparece aqui.</p>
+          <p className="text-sm text-gray-600">{t.home.noPartnerInvites}</p>
         ) : (
           <div className="space-y-3">
-            <p className="text-xs text-gray-600">Tens convites em espera — responde abaixo ou em Competir.</p>
+            <p className="text-xs text-gray-600">{t.home.pendingInvitesHint}</p>
             {homePartnerInvites.slice(0, 5).map((inv) => (
               <div key={inv.id} className="rounded-xl border border-blue-100 bg-white/80 p-3">
                 <p className="text-sm text-gray-800">
                   <span className="font-semibold">{inv.requester_name || 'Jogador'}</span>
-                  {' '}convida-te para{' '}
+                  {' '}{(t as any).partner?.invitedYouTo || 'convidou-o para o torneio'}{' '}
                   <span className="font-semibold">{inv.tournament_name || 'Torneio'}</span>
                   {inv.category_name ? (
                     <span className="text-gray-600"> · {inv.category_name}</span>
@@ -2977,14 +2977,14 @@ function HomeScreen({
                     onClick={() => handleHomeAcceptPartnerInvite(inv)}
                     className="flex-1 py-2 rounded-lg bg-green-600 text-white text-xs font-semibold hover:bg-green-700"
                   >
-                    Aceitar
+                    {t.home.accept}
                   </button>
                   <button
                     type="button"
                     onClick={() => handleHomeDeclinePartnerInvite(inv)}
                     className="flex-1 py-2 rounded-lg bg-gray-200 text-gray-800 text-xs font-semibold hover:bg-gray-300"
                   >
-                    Recusar
+                    {t.home.decline}
                   </button>
                 </div>
               </div>
@@ -2999,7 +2999,7 @@ function HomeScreen({
           onClick={onOpenCompete}
           className="mt-3 w-full py-2.5 rounded-xl border border-blue-200 text-blue-700 text-sm font-semibold hover:bg-blue-50 transition-colors"
         >
-          Abrir Competir
+          {t.home.openCompete}
         </button>
       </div>
 
@@ -3008,14 +3008,14 @@ function HomeScreen({
         <div className="card p-4 border-2 border-amber-200 bg-amber-50/40">
           <div className="flex items-center justify-between gap-2 mb-2">
             <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-              🔒 Convites de Torneio
+              🔒 {t.home.tournamentInvites}
             </h2>
             <span className="shrink-0 bg-amber-600 text-white text-xs font-bold px-2 py-0.5 rounded-full">
               {homeTournamentInvites.length}
             </span>
           </div>
           <div className="space-y-3">
-            <p className="text-xs text-gray-600">Foste convidado para torneios exclusivos!</p>
+            <p className="text-xs text-gray-600">{t.home.tournamentInvitesHint}</p>
             {homeTournamentInvites.slice(0, 5).map(inv => (
               <div key={inv.tournament_id} className="flex items-center gap-3 p-3 bg-white rounded-xl border border-amber-100">
                 {inv.tournament_image_url ? (
@@ -3036,13 +3036,13 @@ function HomeScreen({
                     onClick={() => handleTournamentInviteAccept(inv.tournament_id)}
                     className="px-3 py-1.5 bg-amber-600 text-white rounded-lg text-xs font-medium hover:bg-amber-700"
                   >
-                    Ver
+                    {t.home.view}
                   </button>
                   <button
                     onClick={() => handleTournamentInviteDecline(inv.tournament_id)}
                     className="px-3 py-1.5 bg-gray-200 text-gray-700 rounded-lg text-xs font-medium hover:bg-gray-300"
                   >
-                    Recusar
+                    {t.home.decline}
                   </button>
                 </div>
               </div>
@@ -4636,9 +4636,9 @@ function CompeteScreen({
       const result = await acceptPartnerInvite(invite.id)
       await fetchPartnerInvites()
       if (result?.checkoutUrl) window.open(result.checkoutUrl, '_blank', 'noopener,noreferrer')
-      alert(result?.checkoutUrl ? 'Dupla criada. Complete o pagamento para confirmar.' : 'Dupla criada e inscrita com sucesso.')
+      alert(result?.checkoutUrl ? (t as any).partner?.pairCreatedPayment || 'Dupla criada. Complete o pagamento para confirmar.' : (t as any).partner?.pairCreatedSuccess || 'Dupla criada e inscrita com sucesso.')
     } catch (error: any) {
-      alert(error?.message || 'Não foi possível aceitar o convite.')
+      alert(error?.message || (t as any).partner?.acceptError || 'Não foi possível aceitar o convite.')
     }
   }
 
@@ -4647,7 +4647,7 @@ function CompeteScreen({
       await declinePartnerInvite(invite.id)
       await fetchPartnerInvites()
     } catch (error: any) {
-      alert(error?.message || 'Não foi possível recusar o convite.')
+      alert(error?.message || (t as any).partner?.declineError || 'Não foi possível recusar o convite.')
     }
   }
 
@@ -4767,7 +4767,7 @@ function CompeteScreen({
             {/* Descrição */}
             {td.description && (
               <div className="card p-4">
-                <h3 className="text-sm font-semibold text-gray-700 mb-2">Descrição</h3>
+                <h3 className="text-sm font-semibold text-gray-700 mb-2">{(t as any).partner?.description || 'Descrição'}</h3>
                 <div className="text-sm text-gray-600 [&_p]:my-1 [&_ul]:pl-4 [&_li]:list-disc" dangerouslySetInnerHTML={{ __html: td.description }} />
               </div>
             )}
@@ -4775,7 +4775,7 @@ function CompeteScreen({
             {partnerRequestSummary && (
               <div className="card p-4 border border-blue-100 bg-blue-50/60">
                 <div className="flex items-start justify-between gap-2">
-                  <h3 className="text-sm font-semibold text-gray-900">Convites que enviaste</h3>
+                  <h3 className="text-sm font-semibold text-gray-900">{(t as any).partner?.invitesSent || 'Convites que enviaste'}</h3>
                   <button
                     type="button"
                     onClick={async () => {
@@ -4795,23 +4795,23 @@ function CompeteScreen({
                   </button>
                 </div>
                 <p className="text-xs text-gray-600 mt-1 mb-3">
-                  Todos os jogadores convidados podem ver o convite em Compete → Convites de Parceiro, mesmo sem alertas no telemóvel.
+                  {(t as any).partner?.invitesSentHint || 'Todos os jogadores convidados podem ver o convite em Compete → Convites de Parceiro, mesmo sem alertas no telemóvel.'}
                 </p>
                 <dl className="grid grid-cols-2 gap-3 text-sm">
                   <div>
-                    <dt className="text-gray-500">Convidados</dt>
+                    <dt className="text-gray-500">{(t as any).partner?.invited || 'Convidados'}</dt>
                     <dd className="font-semibold text-gray-900">{partnerRequestSummary.invitationsTotal}</dd>
                   </div>
                   <div>
-                    <dt className="text-gray-500">Em espera</dt>
+                    <dt className="text-gray-500">{(t as any).partner?.pending || 'Em espera'}</dt>
                     <dd className="font-semibold text-amber-800">{partnerRequestSummary.pending}</dd>
                   </div>
                   <div>
-                    <dt className="text-gray-500">Recusaram</dt>
+                    <dt className="text-gray-500">{(t as any).partner?.declined || 'Recusaram'}</dt>
                     <dd className="font-semibold text-gray-800">{partnerRequestSummary.declined}</dd>
                   </div>
                   <div>
-                    <dt className="text-gray-500">Aceitaram</dt>
+                    <dt className="text-gray-500">{(t as any).partner?.accepted || 'Aceitaram'}</dt>
                     <dd className="font-semibold text-green-700">{partnerRequestSummary.accepted}</dd>
                   </div>
                 </dl>
@@ -4840,7 +4840,7 @@ function CompeteScreen({
                   rel="noopener noreferrer"
                   className="flex items-center justify-center gap-2 w-full py-3.5 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-xl transition-colors"
                 >
-                  Inscrever-me
+                  {(t as any).partner?.registerMe || 'Inscrever-me'}
                   <ExternalLink className="w-4 h-4" />
                 </a>
                 {isPartnerMatchingEligible(td.format, (td as any).round_robin_type || null) && (
@@ -4852,7 +4852,7 @@ function CompeteScreen({
                     }}
                     className="flex items-center justify-center gap-2 w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl transition-colors"
                   >
-                    Encontrar Parceiro
+                    {(t as any).partner?.findPartner || 'Encontrar Parceiro'}
                   </button>
                 )}
               </div>
@@ -4862,10 +4862,10 @@ function CompeteScreen({
             <div className="card p-4">
               <h3 className="text-base font-bold text-gray-900 mb-4 flex items-center gap-2">
                 <Users className="w-5 h-5 text-red-600" />
-                Inscritos ({td.total_enrolled})
+                {(t as any).partner?.enrolledList || 'Inscritos'} ({td.total_enrolled})
               </h3>
               {td.enrolled.length === 0 ? (
-                <p className="text-gray-500 text-center py-4">Ainda sem inscritos.</p>
+                <p className="text-gray-500 text-center py-4">{(t as any).partner?.noEnrolled || 'Ainda sem inscritos.'}</p>
               ) : (
                 <div className="space-y-5">
                   {td.enrolled.map((cat) => (
@@ -4904,40 +4904,40 @@ function CompeteScreen({
             </div>
           </div>
         ) : (
-          <div className="card p-8 text-center text-gray-500">Torneio não encontrado.</div>
+          <div className="card p-8 text-center text-gray-500">{(t as any).partner?.tournamentNotFound || 'Torneio não encontrado.'}</div>
         )}
         {showFindPartnerModal && td && (
           <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/50">
             <div className="bg-white rounded-2xl p-4 w-full max-w-md space-y-4">
               <div className="flex items-center justify-between">
-                <h3 className="text-lg font-bold text-gray-900">Encontrar Parceiro</h3>
+                <h3 className="text-lg font-bold text-gray-900">{(t as any).partner?.findPartner || 'Encontrar Parceiro'}</h3>
                 <button onClick={() => setShowFindPartnerModal(false)} className="p-1 rounded hover:bg-gray-100">
                   <X className="w-4 h-4 text-gray-500" />
                 </button>
               </div>
               <div>
-                <p className="text-sm font-medium text-gray-700 mb-2">Que posição procuras no parceiro?</p>
+                <p className="text-sm font-medium text-gray-700 mb-2">{(t as any).partner?.positionQuestion || 'Que posição procuras no parceiro?'}</p>
                 <div className="flex gap-2">
-                  <button onClick={() => setPartnerSide('right')} className={`flex-1 py-2 rounded-lg text-sm font-medium ${partnerSide === 'right' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-700'}`}>Direita</button>
-                  <button onClick={() => setPartnerSide('left')} className={`flex-1 py-2 rounded-lg text-sm font-medium ${partnerSide === 'left' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-700'}`}>Esquerda</button>
-                  <button onClick={() => setPartnerSide('both')} className={`flex-1 py-2 rounded-lg text-sm font-medium ${partnerSide === 'both' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-700'}`}>Ambos</button>
+                  <button onClick={() => setPartnerSide('right')} className={`flex-1 py-2 rounded-lg text-sm font-medium ${partnerSide === 'right' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-700'}`}>{(t as any).partner?.right || 'Direita'}</button>
+                  <button onClick={() => setPartnerSide('left')} className={`flex-1 py-2 rounded-lg text-sm font-medium ${partnerSide === 'left' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-700'}`}>{(t as any).partner?.left || 'Esquerda'}</button>
+                  <button onClick={() => setPartnerSide('both')} className={`flex-1 py-2 rounded-lg text-sm font-medium ${partnerSide === 'both' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-700'}`}>{(t as any).partner?.both || 'Ambos'}</button>
                 </div>
               </div>
               <div>
-                <p className="text-sm font-medium text-gray-700 mb-2">Qualquer um ou jogadores que sigo?</p>
+                <p className="text-sm font-medium text-gray-700 mb-2">{(t as any).partner?.targetQuestion || 'Qualquer um ou jogadores que sigo?'}</p>
                 <div className="flex gap-2">
-                  <button onClick={() => setPartnerTargetMode('any')} className={`flex-1 py-2 rounded-lg text-sm font-medium ${partnerTargetMode === 'any' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-700'}`}>Qualquer um</button>
-                  <button onClick={() => setPartnerTargetMode('following')} className={`flex-1 py-2 rounded-lg text-sm font-medium ${partnerTargetMode === 'following' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-700'}`}>Jogadores que sigo</button>
+                  <button onClick={() => setPartnerTargetMode('any')} className={`flex-1 py-2 rounded-lg text-sm font-medium ${partnerTargetMode === 'any' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-700'}`}>{(t as any).partner?.anyone || 'Qualquer um'}</button>
+                  <button onClick={() => setPartnerTargetMode('following')} className={`flex-1 py-2 rounded-lg text-sm font-medium ${partnerTargetMode === 'following' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-700'}`}>{(t as any).partner?.followingOnly || 'Jogadores que sigo'}</button>
                 </div>
               </div>
               <div>
-                <p className="text-sm font-medium text-gray-700 mb-2">Categoria</p>
+                <p className="text-sm font-medium text-gray-700 mb-2">{(t as any).partner?.category || 'Categoria'}</p>
                 <select
                   value={partnerCategoryId || ''}
                   onChange={(e) => setPartnerCategoryId(e.target.value || null)}
                   className="w-full p-2.5 border border-gray-200 rounded-lg text-sm"
                 >
-                  <option value="">Selecionar categoria</option>
+                  <option value="">{(t as any).partner?.selectCategory || 'Selecionar categoria'}</option>
                   {td.categories.map((c) => (
                     <option key={c.id} value={c.id}>{c.name}</option>
                   ))}
@@ -4948,7 +4948,7 @@ function CompeteScreen({
                 disabled={partnerLoading || !partnerCategoryId}
                 className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white font-semibold"
               >
-                {partnerLoading ? 'A procurar...' : 'Encontrar'}
+                {partnerLoading ? ((t as any).partner?.searching || 'A procurar...') : ((t as any).partner?.find || 'Encontrar')}
               </button>
             </div>
           </div>
@@ -4987,22 +4987,22 @@ function CompeteScreen({
       {activeTab === 'upcoming' && (
         <div className="space-y-4">
           <div className="card p-4">
-            <h3 className="text-sm font-semibold text-gray-900 mb-1">Convites de Parceiro</h3>
-            <p className="text-xs text-gray-500 mb-3">Aparecem aqui mesmo sem notificações push ativadas — abre a app para veres e responderes.</p>
+            <h3 className="text-sm font-semibold text-gray-900 mb-1">{(t as any).partner?.partnerInvites || 'Convites de Parceiro'}</h3>
+            <p className="text-xs text-gray-500 mb-3">{(t as any).partner?.partnerInvitesHint || 'Aparecem aqui mesmo sem notificações push ativadas — abre a app para veres e responderes.'}</p>
             {partnerInvitesLoading ? (
-              <p className="text-sm text-gray-500">A carregar...</p>
+              <p className="text-sm text-gray-500">{(t as any).partner?.loading || 'A carregar...'}</p>
             ) : pendingPartnerInvites.length === 0 ? (
-              <p className="text-sm text-gray-500">Sem convites pendentes.</p>
+              <p className="text-sm text-gray-500">{(t as any).partner?.noPending || 'Sem convites pendentes.'}</p>
             ) : (
               <div className="space-y-2">
                 {pendingPartnerInvites.map((inv) => (
                   <div key={inv.id} className="border border-gray-200 rounded-lg p-3">
                     <p className="text-sm text-gray-800">
-                      <span className="font-semibold">{inv.requester_name || 'Jogador'}</span> convidou-o para o torneio <span className="font-semibold">{inv.tournament_name || 'Torneio'}</span>.
+                      <span className="font-semibold">{inv.requester_name || 'Jogador'}</span> {(t as any).partner?.invitedYouTo || 'convidou-o para o torneio'} <span className="font-semibold">{inv.tournament_name || 'Torneio'}</span>.
                     </p>
                     <div className="flex gap-2 mt-3">
-                      <button onClick={() => handleAcceptInvite(inv)} className="px-3 py-1.5 rounded-lg bg-green-600 text-white text-xs font-semibold">Aceitar</button>
-                      <button onClick={() => handleDeclineInvite(inv)} className="px-3 py-1.5 rounded-lg bg-gray-200 text-gray-700 text-xs font-semibold">Recusar</button>
+                      <button onClick={() => handleAcceptInvite(inv)} className="px-3 py-1.5 rounded-lg bg-green-600 text-white text-xs font-semibold">{t.home.accept}</button>
+                      <button onClick={() => handleDeclineInvite(inv)} className="px-3 py-1.5 rounded-lg bg-gray-200 text-gray-700 text-xs font-semibold">{t.home.decline}</button>
                     </div>
                   </div>
                 ))}
