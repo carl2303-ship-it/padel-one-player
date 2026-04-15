@@ -82,7 +82,7 @@ import {
   type FeedMatchItem,
   getUnifiedFeed,
 } from './lib/communityData'
-import { fetchAllClubs, fetchClubById, fetchUpcomingTournaments, fetchEnrolledByCategory, fetchTournamentFullDetail, getTournamentRegistrationUrl, fetchMyTournamentInvites, updateTournamentInviteStatus, type ClubDetail, type UpcomingTournamentFromTour, type EnrolledByCategory, type TournamentFullDetail } from './lib/clubAndTournaments'
+import { fetchAllClubs, fetchClubById, fetchUpcomingTournaments, fetchTournamentsByIds, fetchTournamentEnrolledCounts, fetchEnrolledByCategory, fetchTournamentFullDetail, getTournamentRegistrationUrl, fetchMyTournamentInvites, updateTournamentInviteStatus, type ClubDetail, type UpcomingTournamentFromTour, type EnrolledByCategory, type TournamentFullDetail } from './lib/clubAndTournaments'
 import { fetchAvailableClasses, fetchMyClasses, enrollInClass, type Class as ClassData } from './lib/classes'
 import { preloadAllPlayerData, getCachedPlayerData } from './lib/playerDataCache'
 import { isPushSupported, checkIsSubscribed, subscribeToPush, unsubscribeFromPush } from './lib/pushNotifications'
@@ -141,8 +141,13 @@ function App() {
   useEffect(() => {
     const handleVisibilityChange = async () => {
       if (document.visibilityState === 'visible') {
+        // Reconnect Supabase Realtime (iOS kills websockets in background)
+        try {
+          supabase.realtime.disconnect()
+          supabase.realtime.connect()
+        } catch {}
+
         const elapsed = Date.now() - lastForegroundRefresh.current
-        // Only refresh if more than 30 seconds have passed since last refresh
         if (elapsed > 30_000 && isAuthenticated && player?.user_id) {
           lastForegroundRefresh.current = Date.now()
           console.log('[App] Foreground refresh triggered')
@@ -635,6 +640,11 @@ function App() {
                 </div>
               </button>
               <div className="border-t my-2" />
+              <a href="https://padel1.app/help" target="_blank" rel="noopener noreferrer" onClick={() => setMenuOpen(false)} className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 text-left">
+                <HelpCircle className="w-5 h-5 text-red-500" />
+                <span className="font-medium text-gray-900">{t.help.helpCenter}</span>
+                <ExternalLink className="w-3.5 h-3.5 text-gray-400 ml-auto" />
+              </a>
               <button onClick={() => { setShowInfoModal('help'); setMenuOpen(false) }} className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 text-left">
                 <HelpCircle className="w-5 h-5 text-gray-500" />
                 <span className="font-medium text-gray-900">{t.common.help}</span>
@@ -759,6 +769,7 @@ function App() {
             player={player}
             onSaveFavoriteClub={handleSaveFavoriteClub}
             onSaveProfile={handleSaveProfile}
+            onOpenInfo={(type) => setShowInfoModal(type)}
           />
         )}
         {currentScreen === 'rewards' && player && (
@@ -1430,6 +1441,11 @@ function OpenGameCard({
     }
 
     fetchGame()
+    const onVis = () => {
+      if (document.visibilityState === 'visible') fetchGame()
+    }
+    document.addEventListener('visibilitychange', onVis)
+    return () => document.removeEventListener('visibilitychange', onVis)
   }, [gameId])
 
   if (loading || !game) {
@@ -2578,7 +2594,7 @@ function HomeScreen({
   useEffect(() => {
     if (!userId) return
     let active = true
-    ;(async () => {
+    const loadPending = async () => {
       setPendingLoading(true)
       try {
         const { fetchPendingResultGames } = await import('./lib/openGames')
@@ -2589,8 +2605,13 @@ function HomeScreen({
         console.error('[Home] Error fetching pending results:', err)
       }
       if (active) setPendingLoading(false)
-    })()
-    return () => { active = false }
+    }
+    loadPending()
+    const onVis = () => {
+      if (document.visibilityState === 'visible') loadPending()
+    }
+    document.addEventListener('visibilitychange', onVis)
+    return () => { active = false; document.removeEventListener('visibilitychange', onVis) }
   }, [userId, player?.id])
 
   const refreshPendingResults = async () => {
@@ -4105,6 +4126,7 @@ function CompeteScreen({
   const { t } = useI18n()
   const [activeTab, setActiveTab] = useState<'upcoming' | 'leagues' | 'history'>('upcoming')
   const [upcomingFromTour, setUpcomingFromTour] = useState<UpcomingTournamentFromTour[]>([])
+  const [tourEnrolledCounts, setTourEnrolledCounts] = useState<Map<string, number>>(new Map())
   const [loadingUpcoming, setLoadingUpcoming] = useState(true)
   const [viewingLeague, setViewingLeague] = useState<{ id: string; name: string } | null>(null)
   const [leagueFull, setLeagueFull] = useState<any[]>([])
@@ -4172,13 +4194,31 @@ function CompeteScreen({
           .filter(t => t.visibility !== 'invite_only' || invitedIds.has(t.id))
           .map(t => ({ ...t, is_invited: invitedIds.has(t.id) }))
 
-        if (active) { setUpcomingFromTour(filtered); setLoadingUpcoming(false) }
+        const tourIds = new Set(filtered.map(t => t.id))
+        const enrolledIds = (d?.upcomingTournaments ?? []).map(t => t.id).filter(id => !tourIds.has(id))
+        if (enrolledIds.length > 0) {
+          const extra = await fetchTournamentsByIds(enrolledIds)
+          extra.forEach(t => {
+            if (!tourIds.has(t.id)) {
+              filtered.push({ ...t, is_invited: invitedIds.has(t.id) })
+            }
+          })
+        }
+
+        const allIds = filtered.map(t => t.id)
+        const counts = await fetchTournamentEnrolledCounts(allIds)
+
+        if (active) {
+          setUpcomingFromTour(filtered)
+          setTourEnrolledCounts(counts)
+          setLoadingUpcoming(false)
+        }
       } catch {
         if (active) setLoadingUpcoming(false)
       }
     })()
     return () => { active = false }
-  }, [favoriteClubId, player?.id])
+  }, [favoriteClubId, player?.id, d?.upcomingTournaments])
 
   // Extrair género e nível do player_category (ex: "M6" → { gender: 'M', level: 6 })
   const getPlayerCategoryInfo = (): { gender: 'M' | 'F'; level: number } | null => {
@@ -5034,7 +5074,9 @@ function CompeteScreen({
               ...enrolledFromTour,
             ]
             const openList = othersFromTour
-            const TournamentCard = ({ t, isEnrolled }: { t: UpcomingTournamentFromTour; isEnrolled: boolean }) => (
+            const TournamentCard = ({ t, isEnrolled }: { t: UpcomingTournamentFromTour; isEnrolled: boolean }) => {
+              const count = tourEnrolledCounts.get(t.id) ?? 0
+              return (
               <div
                 key={t.id}
                 className="card overflow-hidden p-0 cursor-pointer hover:shadow-lg transition-shadow"
@@ -5051,22 +5093,50 @@ function CompeteScreen({
                         <Calendar className="w-4 h-4" />
                         {formatDate(t.start_date)}
                       </p>
+                      {count > 0 && (
+                        <p className="text-sm text-gray-500 flex items-center gap-1">
+                          <Users className="w-4 h-4" />
+                          {count} inscritos
+                        </p>
+                      )}
                     </div>
                   )}
                   <div className="absolute top-3 right-3 flex items-center gap-1.5">
+                    {count > 0 && (
+                      <span className="px-2 py-1 rounded-lg text-xs font-medium bg-blue-600 text-white shadow flex items-center gap-1">
+                        <Users className="w-3 h-3" />{count}
+                      </span>
+                    )}
                     {t.is_invited && (
                       <span className="px-2 py-1 rounded-lg text-xs font-medium bg-amber-500 text-white shadow">🔒 Convite</span>
                     )}
                     {isEnrolled && (
                       <span className="px-2 py-1 rounded-lg text-xs font-medium bg-green-500 text-white shadow">Inscrito</span>
                     )}
-                    <span className={`px-2 py-1 rounded-lg text-xs font-medium shadow ${t.is_full ? 'bg-red-600 text-white' : t.status === 'active' ? 'bg-green-500 text-white' : 'bg-gray-200 text-gray-700'}`}>
-                      {t.is_full ? 'Cheio' : t.status === 'active' ? 'Aberto' : t.status}
+                    <span className={`px-2 py-1 rounded-lg text-xs font-medium shadow ${t.is_full ? 'bg-red-600 text-white' : t.status === 'active' || t.status === 'in_progress' ? 'bg-green-500 text-white' : 'bg-gray-200 text-gray-700'}`}>
+                      {t.is_full ? 'Cheio' : t.status === 'active' || t.status === 'in_progress' ? 'Aberto' : t.status}
                     </span>
                   </div>
+                  {t.image_url && (
+                    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-3 pt-8">
+                      <h3 className="font-bold text-white text-sm line-clamp-1 drop-shadow">{t.name}</h3>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <p className="text-xs text-white/80 flex items-center gap-1">
+                          <Calendar className="w-3 h-3" />
+                          {formatDate(t.start_date)}
+                        </p>
+                        {count > 0 && (
+                          <p className="text-xs text-white/80 flex items-center gap-1">
+                            <Users className="w-3 h-3" />
+                            {count} inscritos
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
-            )
+            )}
             return (
               <div className="space-y-6">
                 {enrolledList.length > 0 ? (
@@ -5738,6 +5808,11 @@ function FindGameScreen({
       setLoading(false)
     }
     loadGames()
+    const onVis = () => {
+      if (document.visibilityState === 'visible') loadGames()
+    }
+    document.addEventListener('visibilitychange', onVis)
+    return () => document.removeEventListener('visibilitychange', onVis)
   }, [selectedClubId, selectedDay, selectedPeriod])
 
   // Load clubs list for filter
@@ -9961,11 +10036,13 @@ function ProfileEditScreen({
   onLogout,
   onSaveFavoriteClub,
   onSaveProfile,
+  onOpenInfo,
 }: {
   player: PlayerAccount | null
   onLogout: () => void
   onSaveFavoriteClub: (clubId: string | null) => Promise<void>
   onSaveProfile: (updates: Partial<PlayerAccount>) => Promise<void>
+  onOpenInfo: (type: 'help' | 'howItWorks' | 'privacy') => void
 }) {
   const { t } = useI18n()
   const [clubs, setClubs] = useState<ClubDetail[]>([])
@@ -10408,6 +10485,44 @@ function ProfileEditScreen({
             </>
           )}
         </div>
+      </div>
+
+      {/* Centro de Ajuda, Ajuda rápida, Como funciona, Privacidade */}
+      <div className="card overflow-hidden">
+        <a href="https://padel1.app/help" target="_blank" rel="noopener noreferrer" className="w-full p-4 flex items-center justify-between hover:bg-red-50 transition-colors bg-red-50/30">
+          <div className="flex items-center gap-3">
+            <HelpCircle className="w-5 h-5 text-red-600" />
+            <div>
+              <span className="font-semibold text-gray-900 block">{t.help.helpCenter}</span>
+              <span className="text-xs text-gray-500">{t.help.helpCenterDesc}</span>
+            </div>
+          </div>
+          <ExternalLink className="w-4 h-4 text-red-600" />
+        </a>
+        <div className="border-t border-gray-100" />
+        <button onClick={() => onOpenInfo('help')} className="w-full p-4 flex items-center justify-between hover:bg-gray-50 transition-colors">
+          <div className="flex items-center gap-3">
+            <HelpCircle className="w-5 h-5 text-gray-400" />
+            <span className="font-medium text-gray-900">{t.common.help}</span>
+          </div>
+          <ChevronRight className="w-5 h-5 text-gray-400" />
+        </button>
+        <div className="border-t border-gray-100" />
+        <button onClick={() => onOpenInfo('howItWorks')} className="w-full p-4 flex items-center justify-between hover:bg-gray-50 transition-colors">
+          <div className="flex items-center gap-3">
+            <GraduationCap className="w-5 h-5 text-gray-400" />
+            <span className="font-medium text-gray-900">{t.howItWorks.title}</span>
+          </div>
+          <ChevronRight className="w-5 h-5 text-gray-400" />
+        </button>
+        <div className="border-t border-gray-100" />
+        <button onClick={() => onOpenInfo('privacy')} className="w-full p-4 flex items-center justify-between hover:bg-gray-50 transition-colors">
+          <div className="flex items-center gap-3">
+            <Shield className="w-5 h-5 text-gray-400" />
+            <span className="font-medium text-gray-900">{t.privacy.title}</span>
+          </div>
+          <ChevronRight className="w-5 h-5 text-gray-400" />
+        </button>
       </div>
 
     </div>
@@ -11085,6 +11200,7 @@ function InfoModal({ type, onClose }: { type: 'help' | 'howItWorks' | 'privacy';
       title: t.help.title,
       icon: HelpCircle,
       sections: [
+        { title: t.help.installApp, text: t.help.installAppText },
         { title: t.help.contact, text: t.help.contactText },
         { title: t.help.accountProblems, text: t.help.accountProblemsText },
         { title: t.common.incorrectResults, text: t.common.incorrectResultsText },
@@ -11133,7 +11249,7 @@ function InfoModal({ type, onClose }: { type: 'help' | 'howItWorks' | 'privacy';
           {sections.map((s, i) => (
             <div key={i}>
               <h4 className="font-semibold text-gray-900 mb-1">{s.title}</h4>
-              <p className="text-sm text-gray-600 leading-relaxed">{s.text}</p>
+              <p className="text-sm text-gray-600 leading-relaxed whitespace-pre-line">{s.text}</p>
             </div>
           ))}
         </div>

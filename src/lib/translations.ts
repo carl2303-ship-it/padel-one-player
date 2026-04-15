@@ -32,6 +32,10 @@ export const translations = {
     },
     help: {
       title: 'Ajuda',
+      helpCenter: 'Centro de Ajuda',
+      helpCenterDesc: 'Guia completo de todas as funcionalidades',
+      installApp: 'Instalar a App',
+      installAppText: '📱 Android:\n1. Abra a app no Chrome\n2. Toque no menu (⋮) no canto superior direito\n3. Selecione "Adicionar ao ecrã inicial"\n4. Confirme tocando em "Adicionar"\n\n🍎 iPhone / iPad:\n1. Abra a app no Safari\n2. Toque no ícone de partilha (⬆️) na barra inferior\n3. Deslize para baixo e selecione "Adicionar ao ecrã principal"\n4. Confirme tocando em "Adicionar"\n\nA app ficará disponível no seu ecrã inicial como qualquer outra aplicação.',
       contact: 'Contacto',
       contactText: 'Para qualquer questão, envie um email para info@boostpadel.store ou contacte-nos via WhatsApp: +351 969 365 059.',
       accountProblems: 'Problemas com a conta',
@@ -802,6 +806,10 @@ export const translations = {
     },
     help: {
       title: 'Help',
+      helpCenter: 'Help Center',
+      helpCenterDesc: 'Complete guide to all features',
+      installApp: 'Install the App',
+      installAppText: '📱 Android:\n1. Open the app in Chrome\n2. Tap the menu (⋮) in the top right corner\n3. Select "Add to Home screen"\n4. Confirm by tapping "Add"\n\n🍎 iPhone / iPad:\n1. Open the app in Safari\n2. Tap the share icon (⬆️) in the bottom bar\n3. Scroll down and select "Add to Home Screen"\n4. Confirm by tapping "Add"\n\nThe app will be available on your home screen like any other application.',
       contact: 'Contact',
       contactText: 'For any questions, send an email to info@boostpadel.store or contact us via WhatsApp: +351 969 365 059.',
       accountProblems: 'Account problems',
@@ -1523,6 +1531,10 @@ export const translations = {
     },
     help: {
       title: 'Ayuda',
+      helpCenter: 'Centro de Ayuda',
+      helpCenterDesc: 'Guía completa de todas las funcionalidades',
+      installApp: 'Instalar la App',
+      installAppText: '📱 Android:\n1. Abra la app en Chrome\n2. Toque el menú (⋮) en la esquina superior derecha\n3. Seleccione "Añadir a la pantalla de inicio"\n4. Confirme tocando "Añadir"\n\n🍎 iPhone / iPad:\n1. Abra la app en Safari\n2. Toque el ícono de compartir (⬆️) en la barra inferior\n3. Desplácese hacia abajo y seleccione "Añadir a la pantalla de inicio"\n4. Confirme tocando "Añadir"\n\nLa app estará disponible en su pantalla de inicio como cualquier otra aplicación.',
       contact: 'Contacto',
       contactText: 'Para cualquier pregunta, envíe un correo electrónico a info@boostpadel.store o contáctenos vía WhatsApp: +351 969 365 059.',
       accountProblems: 'Problemas con la cuenta',
@@ -2270,6 +2282,10 @@ export const translations = {
     },
     help: {
       title: 'Aide',
+      helpCenter: 'Centre d\'Aide',
+      helpCenterDesc: 'Guide complet de toutes les fonctionnalités',
+      installApp: 'Installer l\'App',
+      installAppText: '📱 Android :\n1. Ouvrez l\'app dans Chrome\n2. Appuyez sur le menu (⋮) en haut à droite\n3. Sélectionnez "Ajouter à l\'écran d\'accueil"\n4. Confirmez en appuyant sur "Ajouter"\n\n🍎 iPhone / iPad :\n1. Ouvrez l\'app dans Safari\n2. Appuyez sur l\'icône de partage (⬆️) dans la barre inférieure\n3. Faites défiler vers le bas et sélectionnez "Sur l\'écran d\'accueil"\n4. Confirmez en appuyant sur "Ajouter"\n\nL\'app sera disponible sur votre écran d\'accueil comme toute autre application.',
       contact: 'Contact',
       contactText: 'Pour toute question, envoyez un email à info@boostpadel.store ou contactez-nous via WhatsApp: +351 969 365 059.',
       accountProblems: 'Problèmes de compte',

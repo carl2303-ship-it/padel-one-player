@@ -89,12 +89,59 @@ export async function fetchEnrolledByCategory(tournamentId: string): Promise<Enr
     .eq('tournament_id', tournamentId)
     .order('name')
 
-  if (!categories || categories.length === 0) return []
-
   const isIndividual =
     (tournament?.format === 'round_robin' && (tournament as any)?.round_robin_type === 'individual') ||
     tournament?.format === 'individual_groups_knockout'
   const isSuperTeams = tournament?.format === 'super_teams'
+
+  if (!categories || categories.length === 0) {
+    const items: EnrolledByCategory['items'] = []
+    if (isSuperTeams) {
+      const { data: superTeams } = await supabase
+        .from('super_teams')
+        .select('id, name, super_team_players:super_team_players(name)')
+        .eq('tournament_id', tournamentId)
+        .order('name')
+      if (superTeams) {
+        for (const st of superTeams as any[]) {
+          const playerNames = (st.super_team_players || []).map((p: any) => p.name).filter(Boolean)
+          items.push({ id: st.id, name: st.name, player_names: playerNames })
+        }
+      }
+    } else if (isIndividual) {
+      const { data: players } = await supabase
+        .from('players')
+        .select('id, name')
+        .eq('tournament_id', tournamentId)
+        .order('name')
+      if (players) {
+        for (const p of players as any[]) items.push({ id: p.id, name: p.name })
+      }
+    } else {
+      const { data: teams } = await supabase
+        .from('teams')
+        .select('id, name, player1:players!teams_player1_id_fkey(name), player2:players!teams_player2_id_fkey(name)')
+        .eq('tournament_id', tournamentId)
+        .order('name')
+      if (teams) {
+        for (const tm of teams as any[]) {
+          items.push({ id: tm.id, name: tm.name, player1_name: tm.player1?.name, player2_name: tm.player2?.name })
+        }
+      }
+    }
+    if (items.length === 0) {
+      const { data: allPlayers } = await supabase
+        .from('players')
+        .select('id, name')
+        .eq('tournament_id', tournamentId)
+        .order('name')
+      if (allPlayers) {
+        for (const p of allPlayers as any[]) items.push({ id: p.id, name: p.name })
+      }
+    }
+    if (items.length === 0) return []
+    return [{ category_id: 'all', category_name: 'Jogadores', items }]
+  }
 
   const result: EnrolledByCategory[] = []
 
@@ -265,7 +312,7 @@ export async function fetchUpcomingTournaments(clubId?: string | null): Promise<
     .from('tournaments')
     .select('id, name, start_date, end_date, status, image_url, club_id, description, allow_public_registration, visibility, format, round_robin_type')
     .gte('end_date', today)
-    .in('status', ['draft', 'active'])
+    .in('status', ['draft', 'active', 'in_progress'])
     .order('start_date', { ascending: true })
     .limit(20)
 
@@ -274,6 +321,43 @@ export async function fetchUpcomingTournaments(clubId?: string | null): Promise<
   }
 
   const { data } = await query
+  return (data || []) as UpcomingTournamentFromTour[]
+}
+
+/** Busca contagem de inscritos para uma lista de torneios (teams + players). */
+export async function fetchTournamentEnrolledCounts(tournamentIds: string[]): Promise<Map<string, number>> {
+  const result = new Map<string, number>()
+  if (tournamentIds.length === 0) return result
+  const [teamsRes, playersRes, superTeamsRes, invitesRes] = await Promise.all([
+    supabase.from('teams').select('tournament_id').in('tournament_id', tournamentIds),
+    supabase.from('players').select('tournament_id').in('tournament_id', tournamentIds),
+    supabase.from('super_teams').select('tournament_id').in('tournament_id', tournamentIds),
+    supabase.from('tournament_invites').select('tournament_id').in('tournament_id', tournamentIds).eq('status', 'accepted'),
+  ])
+  const teamsMap = new Map<string, number>()
+  const playersMap = new Map<string, number>()
+  const superTeamsMap = new Map<string, number>()
+  const invitesMap = new Map<string, number>()
+  ;(teamsRes.data || []).forEach((t: any) => teamsMap.set(t.tournament_id, (teamsMap.get(t.tournament_id) || 0) + 1))
+  ;(playersRes.data || []).forEach((p: any) => playersMap.set(p.tournament_id, (playersMap.get(p.tournament_id) || 0) + 1))
+  ;(superTeamsRes.data || []).forEach((s: any) => superTeamsMap.set(s.tournament_id, (superTeamsMap.get(s.tournament_id) || 0) + 1))
+  ;(invitesRes.data || []).forEach((i: any) => invitesMap.set(i.tournament_id, (invitesMap.get(i.tournament_id) || 0) + 1))
+  tournamentIds.forEach(id => {
+    const fromTables = teamsMap.get(id) || playersMap.get(id) || superTeamsMap.get(id) || 0
+    const fromInvites = invitesMap.get(id) || 0
+    const count = Math.max(fromTables, fromInvites)
+    if (count > 0) result.set(id, count)
+  })
+  return result
+}
+
+/** Busca torneios por IDs específicos (para enriquecer dados de torneios de outros clubes). */
+export async function fetchTournamentsByIds(ids: string[]): Promise<UpcomingTournamentFromTour[]> {
+  if (ids.length === 0) return []
+  const { data } = await supabase
+    .from('tournaments')
+    .select('id, name, start_date, end_date, status, image_url, club_id, description, allow_public_registration, visibility, format, round_robin_type')
+    .in('id', ids)
   return (data || []) as UpcomingTournamentFromTour[]
 }
 
@@ -311,7 +395,7 @@ export async function fetchMyTournamentInvites(playerAccountId: string): Promise
   }))
 }
 
-/** Actualizar status de um convite de torneio. */
+/** Actualizar status de um convite de torneio. Se aceite, inscreve o jogador automaticamente. */
 export async function updateTournamentInviteStatus(
   playerAccountId: string,
   tournamentId: string,
@@ -322,5 +406,38 @@ export async function updateTournamentInviteStatus(
     .update({ status })
     .eq('player_account_id', playerAccountId)
     .eq('tournament_id', tournamentId)
-  return !error
+  if (error) return false
+
+  if (status === 'accepted') {
+    try {
+      const { data: existing } = await supabase
+        .from('players')
+        .select('id')
+        .eq('tournament_id', tournamentId)
+        .eq('player_account_id', playerAccountId)
+        .maybeSingle()
+      if (existing) return true
+
+      const [accountRes, categoryRes] = await Promise.all([
+        supabase.from('player_accounts').select('name, phone_number, player_category').eq('id', playerAccountId).maybeSingle(),
+        supabase.from('tournament_categories').select('id').eq('tournament_id', tournamentId).order('name').limit(1),
+      ])
+
+      const account = accountRes.data
+      const categoryId = categoryRes.data?.[0]?.id
+      if (!account || !categoryId) return true
+
+      await supabase.from('players').insert({
+        tournament_id: tournamentId,
+        category_id: categoryId,
+        name: account.name,
+        phone_number: account.phone_number,
+        player_account_id: playerAccountId,
+      })
+    } catch (e) {
+      console.error('[updateTournamentInviteStatus] Auto-enroll failed:', e)
+    }
+  }
+
+  return true
 }
