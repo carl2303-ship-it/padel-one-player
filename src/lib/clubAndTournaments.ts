@@ -418,14 +418,15 @@ export async function updateTournamentInviteStatus(
         .maybeSingle()
       if (existing) return true
 
-      const [accountRes, categoryRes] = await Promise.all([
+      const [accountRes, categoryRes, existingPlayersRes] = await Promise.all([
         supabase.from('player_accounts').select('name, phone_number, player_category').eq('id', playerAccountId).maybeSingle(),
         supabase.from('tournament_categories').select('id').eq('tournament_id', tournamentId).order('name').limit(1),
+        supabase.from('players').select('category_id').eq('tournament_id', tournamentId).limit(1),
       ])
 
       const account = accountRes.data
-      const categoryId = categoryRes.data?.[0]?.id
-      if (!account || !categoryId) return true
+      if (!account) return true
+      const categoryId = categoryRes.data?.[0]?.id || existingPlayersRes.data?.[0]?.category_id || null
 
       await supabase.from('players').insert({
         tournament_id: tournamentId,
