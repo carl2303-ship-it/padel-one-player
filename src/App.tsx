@@ -2589,6 +2589,43 @@ function HomeScreen({
   const [pendingConfirmModal, setPendingConfirmModal] = useState<{ game: any; result: any } | null>(null)
   const [pendingResultScores, setPendingResultScores] = useState({ t1s1: '', t2s1: '', t1s2: '', t2s2: '', t1s3: '', t2s3: '' })
   const [pendingSubmitting, setPendingSubmitting] = useState(false)
+  const [homeSwapSelected, setHomeSwapSelected] = useState<{ playerId: string; team: number; gameId: string } | null>(null)
+  const [homeSwapping, setHomeSwapping] = useState(false)
+
+  const handleHomePlayerSwap = async (clickedPlayer: any, clickedTeam: number, gameId: string, gamePlayersRef: any[]) => {
+    if (homeSwapping) return
+    if (!homeSwapSelected || homeSwapSelected.gameId !== gameId) {
+      setHomeSwapSelected({ playerId: clickedPlayer.id, team: clickedTeam, gameId })
+      return
+    }
+    if (homeSwapSelected.playerId === clickedPlayer.id) {
+      setHomeSwapSelected(null)
+      return
+    }
+    if (homeSwapSelected.team === clickedTeam) {
+      setHomeSwapSelected({ playerId: clickedPlayer.id, team: clickedTeam, gameId })
+      return
+    }
+    setHomeSwapping(true)
+    try {
+      const { swapPlayerTeam } = await import('./lib/openGames')
+      const res = await swapPlayerTeam(homeSwapSelected.playerId, clickedPlayer.id)
+      if (res.success) {
+        const pA = gamePlayersRef.find((p: any) => p.id === homeSwapSelected.playerId)
+        const pB = gamePlayersRef.find((p: any) => p.id === clickedPlayer.id)
+        if (pA && pB) {
+          const tmpPos = pA.position
+          pA.position = pB.position
+          pB.position = tmpPos
+        }
+        setPendingResultGames([...pendingResultGames])
+      }
+    } catch (err) {
+      console.error('[Swap] Error:', err)
+    }
+    setHomeSwapSelected(null)
+    setHomeSwapping(false)
+  }
 
   // Fetch pending results
   useEffect(() => {
@@ -3136,42 +3173,55 @@ function HomeScreen({
                       )}
                     </div>
                     
-                    {/* Teams compact display */}
+                    {/* Teams compact display - tap to swap */}
                     <div className="flex items-center gap-3 mb-3">
                       <div className="flex-1 text-center">
-                        <div className="flex justify-center gap-1.5">
-                          {team1.map(p => (
-                            <div key={p.id} className="flex flex-col items-center">
-                              <div className="w-8 h-8 rounded-full overflow-hidden bg-gray-200 flex items-center justify-center">
+                        <div className="flex justify-center gap-2">
+                          {team1.map(p => {
+                            const isSelected = homeSwapSelected?.playerId === p.id && homeSwapSelected?.gameId === game.id
+                            return (
+                            <div key={p.id} className="flex flex-col items-center cursor-pointer" onClick={() => handleHomePlayerSwap(p, 1, game.id, confirmedPlayers)}>
+                              <div className={`w-10 h-10 rounded-full overflow-hidden flex items-center justify-center transition-all ${isSelected ? 'ring-3 ring-blue-500 ring-offset-1 scale-110' : 'bg-gray-200'}`}>
                                 {p.avatar_url ? (
                                   <img src={p.avatar_url} className="w-full h-full object-cover" />
                                 ) : (
-                                  <span className="text-xs font-bold text-gray-600">{(p.name || '?').charAt(0).toUpperCase()}</span>
+                                  <div className="w-full h-full bg-gray-200 flex items-center justify-center">
+                                    <span className="text-xs font-bold text-gray-600">{(p.name || '?').charAt(0).toUpperCase()}</span>
+                                  </div>
                                 )}
                               </div>
-                              <span className="text-[9px] text-gray-600 mt-0.5 truncate max-w-[50px]">{(p.name || '').split(' ')[0]}</span>
+                              <span className="text-[10px] text-gray-600 mt-0.5 truncate max-w-[55px]">{(p.name || '').split(' ')[0]}</span>
                             </div>
-                          ))}
+                            )
+                          })}
                         </div>
                       </div>
                       <span className="text-gray-300 text-sm font-bold">VS</span>
                       <div className="flex-1 text-center">
-                        <div className="flex justify-center gap-1.5">
-                          {team2.map(p => (
-                            <div key={p.id} className="flex flex-col items-center">
-                              <div className="w-8 h-8 rounded-full overflow-hidden bg-gray-200 flex items-center justify-center">
+                        <div className="flex justify-center gap-2">
+                          {team2.map(p => {
+                            const isSelected = homeSwapSelected?.playerId === p.id && homeSwapSelected?.gameId === game.id
+                            return (
+                            <div key={p.id} className="flex flex-col items-center cursor-pointer" onClick={() => handleHomePlayerSwap(p, 2, game.id, confirmedPlayers)}>
+                              <div className={`w-10 h-10 rounded-full overflow-hidden flex items-center justify-center transition-all ${isSelected ? 'ring-3 ring-blue-500 ring-offset-1 scale-110' : 'bg-gray-200'}`}>
                                 {p.avatar_url ? (
                                   <img src={p.avatar_url} className="w-full h-full object-cover" />
                                 ) : (
-                                  <span className="text-xs font-bold text-gray-600">{(p.name || '?').charAt(0).toUpperCase()}</span>
+                                  <div className="w-full h-full bg-gray-200 flex items-center justify-center">
+                                    <span className="text-xs font-bold text-gray-600">{(p.name || '?').charAt(0).toUpperCase()}</span>
+                                  </div>
                                 )}
                               </div>
-                              <span className="text-[9px] text-gray-600 mt-0.5 truncate max-w-[50px]">{(p.name || '').split(' ')[0]}</span>
+                              <span className="text-[10px] text-gray-600 mt-0.5 truncate max-w-[55px]">{(p.name || '').split(' ')[0]}</span>
                             </div>
-                          ))}
+                            )
+                          })}
                         </div>
                       </div>
                     </div>
+                    {homeSwapSelected?.gameId === game.id && (
+                      <p className="text-[10px] text-blue-500 text-center mb-2 animate-pulse">Toca num jogador da outra equipa para trocar</p>
+                    )}
 
                     {/* Club info */}
                     <div className="flex items-center gap-2 mb-3">
@@ -4139,7 +4189,7 @@ function CompeteScreen({
   const [viewingEnrolled, setViewingEnrolled] = useState<{ id: string; name: string } | null>(null)
   const [enrolledData, setEnrolledData] = useState<EnrolledByCategory[]>([])
   const [enrolledLoading, setEnrolledLoading] = useState(false)
-  const [pastTournamentDetails, setPastTournamentDetails] = useState<Record<string, { standings: any[]; myMatches: any[]; playerPosition?: number; tournamentName: string }>>({})
+  const [pastTournamentDetails, setPastTournamentDetails] = useState<Record<string, { standings: any[]; myMatches: any[]; playerPosition?: number; tournamentName: string; categoryStandings?: Record<string, { categoryName: string; standings: any[]; myMatches: any[]; allMatches: any[]; playerPosition?: number }> }>>({})
   const [pastTournamentLoading, setPastTournamentLoading] = useState(false)
   const [leaguesDirect, setLeaguesDirect] = useState<PlayerDashboardData['leagueStandings']>([])
   const [leaguesLoading, setLeaguesLoading] = useState(false)
@@ -4165,10 +4215,19 @@ function CompeteScreen({
   const d = dashboardData
   const name = d?.playerName ?? ''
 
-  // DADOS EFETIVOS: dashboardData (que é effectiveDashboard do App) já inclui edge function data
-  // Merge: client-side pastTournamentDetails + dashboardData.pastTournamentDetails (edge function)
   const effectivePastDetails = useMemo(() => {
-    return { ...pastTournamentDetails, ...(d?.pastTournamentDetails || {}) }
+    const edge = d?.pastTournamentDetails || {}
+    const client = pastTournamentDetails
+    const merged: Record<string, any> = {}
+    const allIds = new Set([...Object.keys(edge), ...Object.keys(client)])
+    for (const id of allIds) {
+      if (client[id] && edge[id]) {
+        merged[id] = { ...edge[id], ...client[id] }
+      } else {
+        merged[id] = client[id] || edge[id]
+      }
+    }
+    return merged
   }, [pastTournamentDetails, d?.pastTournamentDetails])
 
   // Use ligas do dashboardData se existirem, senão usa as buscadas diretamente
@@ -4453,28 +4512,51 @@ function CompeteScreen({
     return () => { active = false }
   }, [activeTab, userId, playerAccountId, openGameHistoryFetched])
 
-  // Carregar detalhes dos torneios passados via client-side quando abre o tab history
-  // NOTA: O render usa effectivePastDetails que SEMPRE prioriza edge function data,
-  // portanto mesmo que este fetch corra, os nomes da edge function nunca são sobrescritos
+  const [historyVisibleCount, setHistoryVisibleCount] = useState(5)
+  const [historyLoadedCount, setHistoryLoadedCount] = useState(0)
+  const [expandedCategories, setExpandedCategories] = useState<Record<string, Set<string>>>({})
+
+  const toggleCategoryExpanded = (tournamentId: string, catId: string) => {
+    setExpandedCategories(prev => {
+      const copy = { ...prev }
+      const set = new Set(copy[tournamentId] || [])
+      if (set.has(catId)) set.delete(catId); else set.add(catId)
+      copy[tournamentId] = set
+      return copy
+    })
+  }
+
   useEffect(() => {
     if (activeTab !== 'history') return
     if (!d?.pastTournaments?.length) return
     if (!userId) return
-    const hasDetails = Object.keys(pastTournamentDetails).length > 0
-    if (historyFetched && hasDetails) return
+    const completedTournaments = d.pastTournaments.filter((t: any) => {
+      const isCompleted = t.status === 'completed' || t.status === 'finished'
+      const isCanceled = t.status === 'canceled' || t.status === 'cancelled'
+      return isCompleted && !isCanceled
+    })
+    const toLoad = completedTournaments.slice(0, historyVisibleCount)
+    const alreadyLoaded = toLoad.filter(t => pastTournamentDetails[t.id])
+    if (alreadyLoaded.length === toLoad.length) {
+      setPastTournamentLoading(false)
+      return
+    }
     let active = true
     setPastTournamentLoading(true)
-    setHistoryFetched(false)
     ;(async () => {
       try {
         const { fetchTournamentStandingsAndMatches } = await import('./lib/playerDashboardData')
-        const results: Record<string, { standings: any[]; myMatches: any[]; playerPosition?: number; tournamentName: string }> = {}
-        for (const t of (d.pastTournaments ?? [])) {
+        const results: Record<string, any> = { ...pastTournamentDetails }
+        for (const t of toLoad) {
           if (!active) break
+          if (results[t.id]) continue
           try {
             const data = await fetchTournamentStandingsAndMatches(t.id, userId!)
-            results[t.id] = { standings: data.standings, myMatches: data.myMatches, playerPosition: data.playerPosition, tournamentName: data.tournamentName }
-            if (active) setPastTournamentDetails({ ...results })
+            results[t.id] = { standings: data.standings, myMatches: data.myMatches, playerPosition: data.playerPosition, tournamentName: data.tournamentName, categoryStandings: data.categoryStandings }
+            if (active) {
+              setPastTournamentDetails({ ...results })
+              setHistoryLoadedCount(Object.keys(results).length)
+            }
           } catch (err) {
             console.error(`[History] Error ${t.name}:`, err)
             results[t.id] = { standings: [], myMatches: [], tournamentName: t.name }
@@ -4486,7 +4568,7 @@ function CompeteScreen({
       if (active) { setPastTournamentLoading(false); setHistoryFetched(true) }
     })()
     return () => { active = false }
-  }, [activeTab, d?.pastTournaments?.length, historyFetched, userId])
+  }, [activeTab, d?.pastTournaments?.length, historyVisibleCount, userId])
 
   const viewLeague = async (id: string, leagueName: string) => {
     setViewingLeague({ id, name: leagueName })
@@ -5226,35 +5308,179 @@ function CompeteScreen({
         </div>
       )}
 
-      {activeTab === 'history' && (
+      {activeTab === 'history' && (() => {
+        const knockoutRounds = ['quarter', 'semi', 'final', '3rd', 'round_of_16']
+        const isKnockoutRound = (round: string) => knockoutRounds.some(k => round.toLowerCase().includes(k))
+        const knockoutOrder: Record<string, number> = { 'round_of_16': 0, 'quarter': 1, 'semi': 2, '3rd': 3, 'final': 4 }
+        const getKnockoutOrder = (round: string) => {
+          const r = round.toLowerCase()
+          for (const [key, val] of Object.entries(knockoutOrder)) { if (r.includes(key)) return val }
+          return 99
+        }
+        const knockoutLabel = (round: string) => {
+          const r = round.toLowerCase()
+          if (r.includes('final') && !r.includes('semi') && !r.includes('quarter')) return 'Final'
+          if (r.includes('3rd')) return '3º/4º Lugar'
+          if (r.includes('semi')) return 'Meia-final'
+          if (r.includes('quarter')) return 'Quartos-de-final'
+          if (r.includes('round_of_16')) return 'Oitavos-de-final'
+          return round
+        }
+
+        const renderCategoryContent = (catDetail: any, myTeamNames: Set<string>) => {
+          const groupMap = new Map<string, any[]>()
+          catDetail.standings.forEach((row: any) => {
+            const gn = row.group_name || 'Geral'
+            if (!groupMap.has(gn)) groupMap.set(gn, [])
+            groupMap.get(gn)!.push(row)
+          })
+          const sortedGroups = Array.from(groupMap.keys()).sort()
+          const groupMatches = (catDetail.allMatches || []).filter((m: any) => !isKnockoutRound(m.round))
+          const knockoutMatches = (catDetail.allMatches || []).filter((m: any) => isKnockoutRound(m.round))
+          knockoutMatches.sort((a: any, b: any) => getKnockoutOrder(a.round) - getKnockoutOrder(b.round))
+
+          return (
+            <>
+              {sortedGroups.map((groupName) => {
+                const groupRows = groupMap.get(groupName) || []
+                const groupTeamIds = new Set(groupRows.map((r: any) => r.id))
+                const matchesForGroup = groupMatches.filter((m: any) => {
+                  const r = m.round || ''
+                  if (r.includes(groupName) || r === `group_${groupName}` || r === `group ${groupName}`) return true
+                  if (groupTeamIds.has(m.team1_id) || groupTeamIds.has(m.team2_id)) return true
+                  return false
+                })
+                return (
+                  <div key={groupName} className="mb-3">
+                    {sortedGroups.length > 1 && (
+                      <p className="text-xs font-bold text-blue-600 mb-1">Grupo {groupName}</p>
+                    )}
+                    <table className="w-full text-sm mb-1">
+                      <thead>
+                        <tr className="text-gray-500 border-b">
+                          <th className="py-1 px-1 text-left font-medium w-6">#</th>
+                          <th className="py-1 px-1 text-left font-medium min-w-0">Nome</th>
+                          <th className="py-1 px-1 text-center font-medium w-6">V</th>
+                          <th className="py-1 px-1 text-center font-medium w-6">E</th>
+                          <th className="py-1 px-1 text-center font-medium w-6">D</th>
+                          <th className="py-1 px-1 text-center font-medium w-8">+/-</th>
+                          <th className="py-1 px-1 text-center font-semibold w-8">Pts</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {groupRows.map((row: any, i: number) => {
+                          const diff = (row.points_for ?? 0) - (row.points_against ?? 0)
+                          const isMe = myTeamNames.has(row.name)
+                          return (
+                            <tr key={row.id} className={`border-b border-gray-50 ${isMe ? 'bg-red-50 font-semibold' : ''}`}>
+                              <td className="py-1 px-1 text-xs">{i + 1}</td>
+                              <td className="py-1 px-1 min-w-0">
+                                <div className="font-medium break-words text-xs">{row.name}</div>
+                                {row.player1_name && <div className="text-[10px] text-gray-500 break-words">{row.player1_name}</div>}
+                                {row.player2_name && <div className="text-[10px] text-gray-500 break-words">{row.player2_name}</div>}
+                              </td>
+                              <td className="py-1 px-1 text-center text-green-600 text-xs">{row.wins}</td>
+                              <td className="py-1 px-1 text-center text-yellow-600 text-xs">{row.draws ?? 0}</td>
+                              <td className="py-1 px-1 text-center text-red-500 text-xs">{row.losses}</td>
+                              <td className={`py-1 px-1 text-center text-[10px] ${diff > 0 ? 'text-green-600' : diff < 0 ? 'text-red-500' : 'text-gray-400'}`}>{diff > 0 ? '+' : ''}{diff}</td>
+                              <td className="py-1 px-1 text-center font-bold text-xs">{row.points}</td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                    {matchesForGroup.length > 0 && (
+                      <div className="space-y-1 mb-1">
+                        <p className="text-[10px] font-medium text-gray-400 uppercase">Jogos do Grupo</p>
+                        {matchesForGroup.map((m: any) => {
+                          const scores = [m.set1, m.set2, m.set3].filter(Boolean).join(' ')
+                          return (
+                            <div key={m.id} className="flex justify-between items-center text-xs py-1 px-2 bg-gray-50 rounded">
+                              <div className="flex-1 min-w-0">
+                                <span className="text-gray-700">{m.team1_name}</span>
+                                <span className="text-gray-400 mx-1">vs</span>
+                                <span className="text-gray-700">{m.team2_name}</span>
+                              </div>
+                              <span className="font-semibold text-gray-800 ml-2 flex-shrink-0">{scores || '-'}</span>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+              {knockoutMatches.length > 0 && (
+                <div className="mt-2 pt-2 border-t border-gray-100">
+                  <p className="text-xs font-bold text-orange-600 mb-1">Fase Eliminatória</p>
+                  <div className="space-y-1">
+                    {knockoutMatches.map((m: any) => {
+                      const scores = [m.set1, m.set2, m.set3].filter(Boolean).join(' ')
+                      return (
+                        <div key={m.id} className="flex justify-between items-center text-xs py-1.5 px-2 bg-orange-50 rounded">
+                          <div className="flex-1 min-w-0">
+                            <span className="text-[10px] text-orange-500 font-medium mr-1">{knockoutLabel(m.round)}</span>
+                            <span className="text-gray-700">{m.team1_name}</span>
+                            <span className="text-gray-400 mx-1">vs</span>
+                            <span className="text-gray-700">{m.team2_name}</span>
+                          </div>
+                          <span className="font-semibold text-gray-800 ml-2 flex-shrink-0">{scores || '-'}</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+            </>
+          )
+        }
+
+        const completedTournaments = (d?.pastTournaments || []).filter((t: any) => {
+          const isCompleted = t.status === 'completed' || t.status === 'finished'
+          const isCanceled = t.status === 'canceled' || t.status === 'cancelled'
+          return isCompleted && !isCanceled
+        })
+        const visibleTournaments = completedTournaments.slice(0, historyVisibleCount)
+        const hasMore = completedTournaments.length > historyVisibleCount
+
+        return (
         <div className="space-y-4">
-          {pastTournamentLoading ? (
+          {pastTournamentLoading && Object.keys(pastTournamentDetails).length === 0 ? (
             <div className="flex justify-center py-12">
               <div className="w-8 h-8 border-2 border-red-600 border-t-transparent rounded-full animate-spin" />
             </div>
-          ) : d?.pastTournaments && d.pastTournaments.length > 0 ? (
+          ) : visibleTournaments.length > 0 ? (
             <div className="space-y-4">
-              <p className="text-sm text-gray-600">Torneios concluídos</p>
-              {d.pastTournaments.filter((t) => {
-                // Filtrar apenas concluídos, não cancelados
-                const isCompleted = t.status === 'completed' || t.status === 'finished'
-                const isCanceled = t.status === 'canceled' || t.status === 'cancelled'
-                return isCompleted && !isCanceled
-              }).map((t) => {
+              <p className="text-sm text-gray-600">Torneios concluídos ({completedTournaments.length})</p>
+              {visibleTournaments.map((t: any) => {
                 const details = effectivePastDetails[t.id]
-                const wins = details?.myMatches?.filter((m) => m.is_winner).length ?? 0
-                const losses = details?.myMatches?.filter((m) => m.is_winner === false).length ?? 0
+                const wins = details?.myMatches?.filter((m: any) => m.is_winner).length ?? 0
+                const losses = details?.myMatches?.filter((m: any) => m.is_winner === false).length ?? 0
+                const hasCats = details?.categoryStandings && Object.keys(details.categoryStandings).length > 0
+                const expandedCats = expandedCategories[t.id] || new Set<string>()
+
+                let myCatIds: string[] = []
+                let otherCatIds: string[] = []
+                if (hasCats) {
+                  Object.entries(details.categoryStandings).forEach(([catId, catDetail]: [string, any]) => {
+                    if (catDetail.myMatches && catDetail.myMatches.length > 0) {
+                      myCatIds.push(catId)
+                    } else {
+                      otherCatIds.push(catId)
+                    }
+                  })
+                }
+
                 return (
                   <div key={t.id} className="card overflow-hidden p-0">
                     <div className="p-4">
-                      {/* Cabeçalho do torneio */}
                       <div className="flex items-start justify-between gap-2">
                         <div>
                           <h3 className="font-semibold text-gray-900">{t.name}</h3>
                           <p className="text-sm text-gray-500 mt-0.5">{formatDate(t.start_date)}</p>
                           {details && (
                             <div className="flex flex-wrap gap-2 mt-2">
-                              {details.playerPosition != null && (
+                              {details.playerPosition != null && !hasCats && (
                                 <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-100 text-amber-800 text-xs font-medium">
                                   <Trophy className="w-3.5 h-3.5" /> {details.playerPosition}º lugar
                                 </span>
@@ -5267,98 +5493,160 @@ function CompeteScreen({
                             </div>
                           )}
                         </div>
-                        {!details && !pastTournamentLoading && (
-                          <span className="text-xs text-gray-400 animate-pulse flex-shrink-0">{t.common.loading}</span>
+                        {!details && (
+                          <span className="text-xs text-gray-400 animate-pulse flex-shrink-0">A carregar...</span>
                         )}
                       </div>
 
-                      {/* Todos os resultados do jogador */}
-                      {details?.myMatches && details.myMatches.length > 0 && (
-                        <div className="mt-4 pt-4 border-t border-gray-100">
-                          <p className="text-xs font-medium text-gray-500 mb-2">Os teus resultados</p>
-                          <div className="space-y-2">
-                            {details.myMatches.map((m) => {
-                              const setScores = [m.set1, m.set2, m.set3].filter(Boolean)
-                              // Mostrar sempre os jogos de cada set, nunca o resultado 1-0/0-1
-                              const scoreDisplay = setScores.length > 0 ? setScores.join(' ') : '-'
-                              // Determinar qual equipa ganhou baseado no score
-                              const team1Won = m.team1_score !== undefined && m.team2_score !== undefined && m.team1_score > m.team2_score
-                              return (
-                              <div key={m.id} className="flex justify-between items-start text-sm py-2 px-3 bg-gray-50 rounded-lg">
-                                <div className="flex-1 mr-2 min-w-0">
-                                  {/* Equipa 1 */}
-                                  <div className={`text-gray-700 ${team1Won ? 'font-semibold' : ''}`}>
-                                    {m.team1_name}
-                                  </div>
-                                  {/* Equipa 2 */}
-                                  <div className={`text-gray-700 mt-1 ${!team1Won && m.team1_score !== undefined && m.team2_score !== undefined ? 'font-semibold' : ''}`}>
-                                    {m.team2_name}
-                                  </div>
-                                </div>
-                                <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                                  <span className="font-semibold text-gray-900">
-                                    {scoreDisplay}
+                      {hasCats ? (
+                        <>
+                          {myCatIds.map((catId) => {
+                            const catDetail = details.categoryStandings[catId]
+                            const myTeamNames = new Set<string>()
+                            catDetail.myMatches.forEach((m: any) => {
+                              myTeamNames.add(m.team1_name)
+                              myTeamNames.add(m.team2_name)
+                            })
+                            return (
+                              <div key={catId} className="mt-4 pt-4 border-t border-gray-200">
+                                <div className="flex items-center gap-2 mb-3">
+                                  <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-purple-100 text-purple-800 text-xs font-bold">
+                                    {catDetail.categoryName}
                                   </span>
-                                  {m.is_winner !== undefined && (
-                                    <span className={`text-xs font-medium ${m.is_winner ? 'text-green-600' : 'text-red-600'}`}>
-                                      {m.is_winner ? 'V' : 'D'}
+                                  {catDetail.playerPosition != null && (
+                                    <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-100 text-amber-800 text-xs font-medium">
+                                      <Trophy className="w-3 h-3" /> {catDetail.playerPosition}º
                                     </span>
                                   )}
+                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-red-100 text-red-700 text-[10px] font-medium">A tua categoria</span>
                                 </div>
+                                {renderCategoryContent(catDetail, myTeamNames)}
                               </div>
-                            )})}
-                          </div>
-                        </div>
-                      )}
+                            )
+                          })}
 
-                      {/* Classificação completa */}
-                      {details?.standings && details.standings.length > 0 && (
-                        <div className="mt-4 pt-4 border-t border-gray-100">
-                          <p className="text-xs font-medium text-gray-500 mb-2">Classificação final</p>
-                          <table className="w-full text-sm">
-                            <thead>
-                              <tr className="text-gray-500 border-b">
-                                <th className="py-1.5 px-2 text-left font-medium w-8">#</th>
-                                <th className="py-1.5 px-2 text-left font-medium min-w-0">Nome</th>
-                                <th className="py-1.5 px-1 text-center font-medium w-8">V</th>
-                                <th className="py-1.5 px-1 text-center font-medium w-8">E</th>
-                                <th className="py-1.5 px-1 text-center font-medium w-8">D</th>
-                                <th className="py-1.5 px-1 text-center font-medium w-10">+/-</th>
-                                <th className="py-1.5 px-1 text-center font-semibold w-10">Pts</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {details.standings.map((row, i) => {
-                                const diff = (row.points_for ?? 0) - (row.points_against ?? 0)
-                                const hasPlayers = row.player1_name || row.player2_name
-                                return (
-                                  <tr key={row.id} className={`border-b border-gray-50 ${details.playerPosition === i + 1 ? 'bg-red-50 font-semibold' : ''}`}>
-                                    <td className="py-1.5 px-2">{i + 1}</td>
-                                    <td className="py-1.5 px-2 min-w-0">
-                                      <div className="font-medium break-words">{row.name}</div>
-                                      {row.player1_name && (
-                                        <div className="text-xs text-gray-500 break-words">{row.player1_name}</div>
+                          {otherCatIds.length > 0 && (
+                            <div className="mt-4 pt-4 border-t border-gray-200">
+                              <p className="text-[10px] font-medium text-gray-400 uppercase mb-2">Outras categorias</p>
+                              <div className="space-y-2">
+                                {otherCatIds.map((catId) => {
+                                  const catDetail = details.categoryStandings[catId]
+                                  const isExpanded = expandedCats.has(catId)
+                                  return (
+                                    <div key={catId} className="border border-gray-200 rounded-lg overflow-hidden">
+                                      <button
+                                        onClick={() => toggleCategoryExpanded(t.id, catId)}
+                                        className="w-full flex items-center justify-between px-3 py-2 bg-gray-50 hover:bg-gray-100 transition-colors"
+                                      >
+                                        <div className="flex items-center gap-2">
+                                          <span className="inline-flex items-center px-2 py-0.5 rounded bg-purple-100 text-purple-800 text-xs font-bold">
+                                            {catDetail.categoryName}
+                                          </span>
+                                          <span className="text-xs text-gray-500">{catDetail.standings.length} equipas · {(catDetail.allMatches || []).length} jogos</span>
+                                        </div>
+                                        <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                                      </button>
+                                      {isExpanded && (
+                                        <div className="p-3">
+                                          {renderCategoryContent(catDetail, new Set<string>())}
+                                        </div>
                                       )}
-                                      {row.player2_name && (
-                                        <div className="text-xs text-gray-500 break-words">{row.player2_name}</div>
-                                      )}
-                                    </td>
-                                    <td className="py-1.5 px-1 text-center text-green-600">{row.wins}</td>
-                                    <td className="py-1.5 px-1 text-center text-yellow-600">{row.draws ?? 0}</td>
-                                    <td className="py-1.5 px-1 text-center text-red-500">{row.losses}</td>
-                                    <td className={`py-1.5 px-1 text-center text-xs ${diff > 0 ? 'text-green-600' : diff < 0 ? 'text-red-500' : 'text-gray-400'}`}>{diff > 0 ? '+' : ''}{diff}</td>
-                                    <td className="py-1.5 px-1 text-center font-bold">{row.points}</td>
+                                    </div>
+                                  )
+                                })}
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          {details?.myMatches && details.myMatches.length > 0 && (
+                            <div className="mt-4 pt-4 border-t border-gray-100">
+                              <p className="text-xs font-medium text-gray-500 mb-2">Os teus resultados</p>
+                              <div className="space-y-2">
+                                {details.myMatches.map((m: any) => {
+                                  const setScores = [m.set1, m.set2, m.set3].filter(Boolean)
+                                  const scoreDisplay = setScores.length > 0 ? setScores.join(' ') : '-'
+                                  const team1Won = m.team1_score !== undefined && m.team2_score !== undefined && m.team1_score > m.team2_score
+                                  return (
+                                    <div key={m.id} className="flex justify-between items-start text-sm py-2 px-3 bg-gray-50 rounded-lg">
+                                      <div className="flex-1 mr-2 min-w-0">
+                                        <div className={`text-gray-700 ${team1Won ? 'font-semibold' : ''}`}>{m.team1_name}</div>
+                                        <div className={`text-gray-700 mt-1 ${!team1Won && m.team1_score !== undefined && m.team2_score !== undefined ? 'font-semibold' : ''}`}>{m.team2_name}</div>
+                                      </div>
+                                      <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                                        <span className="font-semibold text-gray-900">{scoreDisplay}</span>
+                                        {m.is_winner !== undefined && (
+                                          <span className={`text-xs font-medium ${m.is_winner ? 'text-green-600' : 'text-red-600'}`}>{m.is_winner ? 'V' : 'D'}</span>
+                                        )}
+                                      </div>
+                                    </div>
+                                  )
+                                })}
+                              </div>
+                            </div>
+                          )}
+
+                          {details?.standings && details.standings.length > 0 && (
+                            <div className="mt-4 pt-4 border-t border-gray-100">
+                              <p className="text-xs font-medium text-gray-500 mb-2">Classificação final</p>
+                              <table className="w-full text-sm">
+                                <thead>
+                                  <tr className="text-gray-500 border-b">
+                                    <th className="py-1.5 px-2 text-left font-medium w-8">#</th>
+                                    <th className="py-1.5 px-2 text-left font-medium min-w-0">Nome</th>
+                                    <th className="py-1.5 px-1 text-center font-medium w-8">V</th>
+                                    <th className="py-1.5 px-1 text-center font-medium w-8">E</th>
+                                    <th className="py-1.5 px-1 text-center font-medium w-8">D</th>
+                                    <th className="py-1.5 px-1 text-center font-medium w-10">+/-</th>
+                                    <th className="py-1.5 px-1 text-center font-semibold w-10">Pts</th>
                                   </tr>
-                                )
-                              })}
-                            </tbody>
-                          </table>
-                        </div>
+                                </thead>
+                                <tbody>
+                                  {details.standings.map((row: any, i: number) => {
+                                    const diff = (row.points_for ?? 0) - (row.points_against ?? 0)
+                                    return (
+                                      <tr key={row.id} className={`border-b border-gray-50 ${details.playerPosition === i + 1 ? 'bg-red-50 font-semibold' : ''}`}>
+                                        <td className="py-1.5 px-2">{i + 1}</td>
+                                        <td className="py-1.5 px-2 min-w-0">
+                                          <div className="font-medium break-words">{row.name}</div>
+                                          {row.player1_name && <div className="text-xs text-gray-500 break-words">{row.player1_name}</div>}
+                                          {row.player2_name && <div className="text-xs text-gray-500 break-words">{row.player2_name}</div>}
+                                        </td>
+                                        <td className="py-1.5 px-1 text-center text-green-600">{row.wins}</td>
+                                        <td className="py-1.5 px-1 text-center text-yellow-600">{row.draws ?? 0}</td>
+                                        <td className="py-1.5 px-1 text-center text-red-500">{row.losses}</td>
+                                        <td className={`py-1.5 px-1 text-center text-xs ${diff > 0 ? 'text-green-600' : diff < 0 ? 'text-red-500' : 'text-gray-400'}`}>{diff > 0 ? '+' : ''}{diff}</td>
+                                        <td className="py-1.5 px-1 text-center font-bold">{row.points}</td>
+                                      </tr>
+                                    )
+                                  })}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </>
                       )}
                     </div>
                   </div>
                 )
               })}
+
+              {hasMore && (
+                <button
+                  onClick={() => setHistoryVisibleCount(prev => prev + 5)}
+                  className="w-full py-3 px-4 bg-white border border-gray-200 rounded-xl text-sm font-semibold text-red-600 hover:bg-red-50 transition-colors flex items-center justify-center gap-2 shadow-sm"
+                >
+                  Ver mais torneios ({completedTournaments.length - historyVisibleCount} restantes)
+                  <ChevronDown className="w-4 h-4" />
+                </button>
+              )}
+
+              {pastTournamentLoading && Object.keys(pastTournamentDetails).length > 0 && (
+                <div className="flex justify-center py-4">
+                  <div className="w-6 h-6 border-2 border-red-600 border-t-transparent rounded-full animate-spin" />
+                </div>
+              )}
             </div>
           ) : (
             <div className="card p-8 text-center">
@@ -5367,8 +5655,6 @@ function CompeteScreen({
               <p className="text-sm text-gray-400 mt-1">Os torneios em que participares aparecerão aqui.</p>
             </div>
           )}
-
-          {/* Resultados de Jogos Abertos - Cards individuais no histórico */}
           {openGameHistoryLoading ? (
             <div className="flex justify-center py-6">
               <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
@@ -5383,7 +5669,6 @@ function CompeteScreen({
                 const timeStr = gameDate.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' })
                 const team1Won = game.score1 != null && game.score2 != null && game.score1 > game.score2
                 
-                // Get avatars (with fallback to player names initials)
                 const getAvatar = (avatar: string | null | undefined, name: string) => {
                   if (avatar) return avatar
                   const initials = name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
@@ -5398,7 +5683,6 @@ function CompeteScreen({
                 return (
                   <div key={game.id} className="card overflow-hidden p-0">
                     <div className="p-4">
-                      {/* Header: Data, Hora e Clube */}
                       <div className="flex items-center justify-between mb-3">
                         <div className="flex items-center gap-2 text-xs text-gray-500">
                           <span>{dateStr}</span>
@@ -5418,9 +5702,7 @@ function CompeteScreen({
                         )}
                       </div>
                       
-                      {/* Teams with avatars */}
                       <div className="space-y-3">
-                        {/* Team 1 */}
                         <div className={`flex items-center justify-between p-3 rounded-lg ${team1Won ? 'bg-green-50 border border-green-200' : 'bg-gray-50'}`}>
                           <div className="flex items-center gap-2 flex-1 min-w-0">
                             <div className="flex -space-x-2 flex-shrink-0">
@@ -5440,7 +5722,6 @@ function CompeteScreen({
                           </div>
                         </div>
                         
-                        {/* Team 2 */}
                         <div className={`flex items-center justify-between p-3 rounded-lg ${!team1Won && game.score1 != null && game.score2 != null ? 'bg-green-50 border border-green-200' : 'bg-gray-50'}`}>
                           <div className="flex items-center gap-2 flex-1 min-w-0">
                             <div className="flex -space-x-2 flex-shrink-0">
@@ -5461,7 +5742,6 @@ function CompeteScreen({
                         </div>
                       </div>
                       
-                      {/* Sets scores */}
                       {setScores.length > 0 && (
                         <div className="mt-3 pt-3 border-t border-gray-100">
                           <div className="flex items-center gap-2 text-xs text-gray-600">
@@ -5477,7 +5757,8 @@ function CompeteScreen({
             </div>
           )}
         </div>
-      )}
+        )
+      })()}
 
       {/* Modal classificação da Liga */}
       {viewingLeague && (() => {
@@ -5725,6 +6006,44 @@ function FindGameScreen({
   const [confirmModal, setConfirmModal] = useState<{ game: import('./lib/openGames').OpenGame; result: import('./lib/openGames').OpenGameResult } | null>(null)
   const [resultScores, setResultScores] = useState({ t1s1: '', t2s1: '', t1s2: '', t2s2: '', t1s3: '', t2s3: '' })
   const [submittingResult, setSubmittingResult] = useState(false)
+  const [swapSelected, setSwapSelected] = useState<{ playerId: string; team: number; gameId: string } | null>(null)
+  const [swapping, setSwapping] = useState(false)
+
+  const handlePlayerSwap = async (clickedPlayer: any, clickedTeam: number, gameId: string, gamePlayersRef: any[]) => {
+    if (swapping) return
+    if (!swapSelected || swapSelected.gameId !== gameId) {
+      setSwapSelected({ playerId: clickedPlayer.id, team: clickedTeam, gameId })
+      return
+    }
+    if (swapSelected.playerId === clickedPlayer.id) {
+      setSwapSelected(null)
+      return
+    }
+    if (swapSelected.team === clickedTeam) {
+      setSwapSelected({ playerId: clickedPlayer.id, team: clickedTeam, gameId })
+      return
+    }
+    setSwapping(true)
+    try {
+      const { swapPlayerTeam } = await import('./lib/openGames')
+      const res = await swapPlayerTeam(swapSelected.playerId, clickedPlayer.id)
+      if (res.success) {
+        const pA = gamePlayersRef.find((p: any) => p.id === swapSelected.playerId)
+        const pB = gamePlayersRef.find((p: any) => p.id === clickedPlayer.id)
+        if (pA && pB) {
+          const tmpPos = pA.position
+          pA.position = pB.position
+          pB.position = tmpPos
+        }
+        setPastGames([...pastGames])
+        if (resultModal) setResultModal({ ...resultModal })
+      }
+    } catch (err) {
+      console.error('[Swap] Error:', err)
+    }
+    setSwapSelected(null)
+    setSwapping(false)
+  }
   
   // Filtros
   const [selectedClubId, setSelectedClubId] = useState<string>('')
@@ -6800,44 +7119,57 @@ function FindGameScreen({
                         )}
                       </div>
                       
-                      {/* Teams display */}
+                      {/* Teams display - tap to swap */}
                       <div className="flex items-center gap-3 mb-3">
                         <div className="flex-1 text-center">
                           <p className="text-xs font-semibold text-gray-500 mb-1">Equipa 1</p>
-                          <div className="flex justify-center gap-1.5">
-                            {team1.map(p => (
-                              <div key={p.id} className="flex flex-col items-center">
-                                <div className="w-9 h-9 rounded-full overflow-hidden bg-gray-200 flex items-center justify-center">
+                          <div className="flex justify-center gap-2">
+                            {team1.map(p => {
+                              const isSelected = swapSelected?.playerId === p.id && swapSelected?.gameId === game.id
+                              return (
+                              <div key={p.id} className="flex flex-col items-center cursor-pointer" onClick={() => handlePlayerSwap(p, 1, game.id, confirmedPlayers)}>
+                                <div className={`w-11 h-11 rounded-full overflow-hidden flex items-center justify-center transition-all ${isSelected ? 'ring-3 ring-blue-500 ring-offset-1 scale-110' : 'bg-gray-200'}`}>
                                   {p.avatar_url ? (
                                     <img src={p.avatar_url} className="w-full h-full object-cover" />
                                   ) : (
-                                    <span className="text-sm font-bold text-gray-600">{(p.name || '?').charAt(0).toUpperCase()}</span>
+                                    <div className="w-full h-full bg-gray-200 flex items-center justify-center">
+                                      <span className="text-sm font-bold text-gray-600">{(p.name || '?').charAt(0).toUpperCase()}</span>
+                                    </div>
                                   )}
                                 </div>
-                                <span className="text-[9px] text-gray-600 mt-0.5 truncate max-w-[50px]">{(p.name || '').split(' ')[0]}</span>
+                                <span className="text-[10px] text-gray-600 mt-0.5 truncate max-w-[55px]">{(p.name || '').split(' ')[0]}</span>
                               </div>
-                            ))}
+                              )
+                            })}
                           </div>
                         </div>
                         <span className="text-gray-300 text-lg font-bold">VS</span>
                         <div className="flex-1 text-center">
                           <p className="text-xs font-semibold text-gray-500 mb-1">Equipa 2</p>
-                          <div className="flex justify-center gap-1.5">
-                            {team2.map(p => (
-                              <div key={p.id} className="flex flex-col items-center">
-                                <div className="w-9 h-9 rounded-full overflow-hidden bg-gray-200 flex items-center justify-center">
+                          <div className="flex justify-center gap-2">
+                            {team2.map(p => {
+                              const isSelected = swapSelected?.playerId === p.id && swapSelected?.gameId === game.id
+                              return (
+                              <div key={p.id} className="flex flex-col items-center cursor-pointer" onClick={() => handlePlayerSwap(p, 2, game.id, confirmedPlayers)}>
+                                <div className={`w-11 h-11 rounded-full overflow-hidden flex items-center justify-center transition-all ${isSelected ? 'ring-3 ring-blue-500 ring-offset-1 scale-110' : 'bg-gray-200'}`}>
                                   {p.avatar_url ? (
                                     <img src={p.avatar_url} className="w-full h-full object-cover" />
                                   ) : (
-                                    <span className="text-sm font-bold text-gray-600">{(p.name || '?').charAt(0).toUpperCase()}</span>
+                                    <div className="w-full h-full bg-gray-200 flex items-center justify-center">
+                                      <span className="text-sm font-bold text-gray-600">{(p.name || '?').charAt(0).toUpperCase()}</span>
+                                    </div>
                                   )}
                                 </div>
-                                <span className="text-[9px] text-gray-600 mt-0.5 truncate max-w-[50px]">{(p.name || '').split(' ')[0]}</span>
+                                <span className="text-[10px] text-gray-600 mt-0.5 truncate max-w-[55px]">{(p.name || '').split(' ')[0]}</span>
                               </div>
-                            ))}
+                              )
+                            })}
                           </div>
                         </div>
                       </div>
+                      {swapSelected?.gameId === game.id && (
+                        <p className="text-[10px] text-blue-500 text-center mb-2 animate-pulse">Toca num jogador da outra equipa para trocar</p>
+                      )}
                       
                       {/* Club info */}
                       <div className="flex items-center gap-2 mb-3">
@@ -6914,23 +7246,64 @@ function FindGameScreen({
             </div>
             
             <div className="p-5 space-y-4">
-              {/* Teams */}
+              {/* Teams - tap to swap */}
               {(() => {
                 const cp = resultModal.game.players.filter(p => p.status === 'confirmed')
                 const t1 = cp.filter(p => (p.position || 0) <= 2)
                 const t2 = cp.filter(p => (p.position || 0) > 2)
                 return (
+                  <>
                   <div className="flex items-center gap-4">
                     <div className="flex-1 text-center">
-                      <p className="text-xs font-bold text-blue-600 mb-1">Equipa 1</p>
-                      {t1.map(p => <p key={p.id} className="text-xs text-gray-700">{(p.name || '').split(' ')[0]}</p>)}
+                      <p className="text-xs font-bold text-blue-600 mb-2">Equipa 1</p>
+                      <div className="flex justify-center gap-2">
+                        {t1.map(p => {
+                          const isSelected = swapSelected?.playerId === p.id && swapSelected?.gameId === resultModal.game.id
+                          return (
+                          <div key={p.id} className="flex flex-col items-center cursor-pointer" onClick={() => handlePlayerSwap(p, 1, resultModal.game.id, cp)}>
+                            <div className={`w-11 h-11 rounded-full overflow-hidden flex items-center justify-center transition-all ${isSelected ? 'ring-3 ring-blue-500 ring-offset-1 scale-110' : 'bg-gray-200'}`}>
+                              {p.avatar_url ? (
+                                <img src={p.avatar_url} className="w-full h-full object-cover" />
+                              ) : (
+                                <div className="w-full h-full bg-gray-200 flex items-center justify-center">
+                                  <span className="text-sm font-bold text-gray-600">{(p.name || '?').charAt(0).toUpperCase()}</span>
+                                </div>
+                              )}
+                            </div>
+                            <span className="text-[10px] text-gray-600 mt-0.5 truncate max-w-[55px]">{(p.name || '').split(' ')[0]}</span>
+                          </div>
+                          )
+                        })}
+                      </div>
                     </div>
                     <span className="text-gray-300 font-bold">VS</span>
                     <div className="flex-1 text-center">
-                      <p className="text-xs font-bold text-red-600 mb-1">Equipa 2</p>
-                      {t2.map(p => <p key={p.id} className="text-xs text-gray-700">{(p.name || '').split(' ')[0]}</p>)}
+                      <p className="text-xs font-bold text-red-600 mb-2">Equipa 2</p>
+                      <div className="flex justify-center gap-2">
+                        {t2.map(p => {
+                          const isSelected = swapSelected?.playerId === p.id && swapSelected?.gameId === resultModal.game.id
+                          return (
+                          <div key={p.id} className="flex flex-col items-center cursor-pointer" onClick={() => handlePlayerSwap(p, 2, resultModal.game.id, cp)}>
+                            <div className={`w-11 h-11 rounded-full overflow-hidden flex items-center justify-center transition-all ${isSelected ? 'ring-3 ring-blue-500 ring-offset-1 scale-110' : 'bg-gray-200'}`}>
+                              {p.avatar_url ? (
+                                <img src={p.avatar_url} className="w-full h-full object-cover" />
+                              ) : (
+                                <div className="w-full h-full bg-gray-200 flex items-center justify-center">
+                                  <span className="text-sm font-bold text-gray-600">{(p.name || '?').charAt(0).toUpperCase()}</span>
+                                </div>
+                              )}
+                            </div>
+                            <span className="text-[10px] text-gray-600 mt-0.5 truncate max-w-[55px]">{(p.name || '').split(' ')[0]}</span>
+                          </div>
+                          )
+                        })}
+                      </div>
                     </div>
                   </div>
+                  {swapSelected?.gameId === resultModal.game.id && (
+                    <p className="text-[10px] text-blue-500 text-center animate-pulse">Toca num jogador da outra equipa para trocar</p>
+                  )}
+                  </>
                 )
               })()}
               

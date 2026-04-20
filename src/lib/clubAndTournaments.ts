@@ -395,18 +395,40 @@ export async function fetchMyTournamentInvites(playerAccountId: string): Promise
   }))
 }
 
-/** Actualizar status de um convite de torneio. Se aceite, inscreve o jogador automaticamente. */
+/** Actualizar status de um convite de torneio. Se aceite, inscreve o jogador automaticamente.
+ * Tenta primeiro a RPC `accept_tournament_invite` (SECURITY DEFINER, bypassa RLS).
+ * Faz fallback para o método antigo (UPDATE direto + INSERT em players) se a RPC falhar.
+ */
 export async function updateTournamentInviteStatus(
   playerAccountId: string,
   tournamentId: string,
   status: 'accepted' | 'declined'
 ): Promise<boolean> {
+  // Caminho preferencial: RPC que faz tudo num \u00fanico passo (atualiza convite + auto-enroll)
+  const { data: rpcResult, error: rpcError } = await supabase.rpc('accept_tournament_invite', {
+    p_player_account_id: playerAccountId,
+    p_tournament_id: tournamentId,
+    p_status: status,
+  })
+
+  if (!rpcError && rpcResult && typeof rpcResult === 'object' && (rpcResult as any).success) {
+    return true
+  }
+
+  if (rpcError) {
+    console.warn('[updateTournamentInviteStatus] RPC falhou, a tentar fallback:', rpcError.message)
+  }
+
+  // Fallback: m\u00e9todo antigo (UPDATE direto). Pode falhar silenciosamente em RLS.
   const { error } = await supabase
     .from('tournament_invites')
     .update({ status })
     .eq('player_account_id', playerAccountId)
     .eq('tournament_id', tournamentId)
-  if (error) return false
+  if (error) {
+    console.error('[updateTournamentInviteStatus] UPDATE falhou:', error)
+    return false
+  }
 
   if (status === 'accepted') {
     try {
@@ -428,15 +450,18 @@ export async function updateTournamentInviteStatus(
       if (!account) return true
       const categoryId = categoryRes.data?.[0]?.id || existingPlayersRes.data?.[0]?.category_id || null
 
-      await supabase.from('players').insert({
+      const { error: insertError } = await supabase.from('players').insert({
         tournament_id: tournamentId,
         category_id: categoryId,
         name: account.name,
         phone_number: account.phone_number,
         player_account_id: playerAccountId,
       })
+      if (insertError) {
+        console.error('[updateTournamentInviteStatus] INSERT em players falhou (RLS?):', insertError)
+      }
     } catch (e) {
-      console.error('[updateTournamentInviteStatus] Auto-enroll failed:', e)
+      console.error('[updateTournamentInviteStatus] Auto-enroll falhou:', e)
     }
   }
 

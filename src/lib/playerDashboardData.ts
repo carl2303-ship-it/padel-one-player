@@ -68,11 +68,33 @@ export interface PlayerStats {
   bestFinish: string
 }
 
+export interface CategoryMatchResult {
+  id: string
+  team1_id?: string
+  team2_id?: string
+  team1_name: string
+  team2_name: string
+  set1?: string
+  set2?: string
+  set3?: string
+  round: string
+  status: string
+}
+
+export interface CategoryStandingDetail {
+  categoryName: string
+  standings: TournamentStandingRow[]
+  myMatches: TournamentMyMatch[]
+  allMatches: CategoryMatchResult[]
+  playerPosition?: number
+}
+
 export interface PastTournamentDetail {
   standings: any[]
   myMatches: any[]
   playerPosition?: number
   tournamentName: string
+  categoryStandings?: Record<string, CategoryStandingDetail>
 }
 
 export interface PlayerDashboardData {
@@ -882,6 +904,7 @@ export interface TournamentStandingRow {
   points: number
   player1_name?: string
   player2_name?: string
+  category_id?: string
 }
 
 export interface TournamentMyMatch {
@@ -898,27 +921,27 @@ export interface TournamentMyMatch {
   status: string
   round: string
   is_winner?: boolean
+  category_id?: string
 }
 
 export async function fetchTournamentStandingsAndMatches(
   tournamentId: string,
   userId: string
-): Promise<{ standings: TournamentStandingRow[]; myMatches: TournamentMyMatch[]; tournamentName: string; playerPosition?: number }> {
+): Promise<{ standings: TournamentStandingRow[]; myMatches: TournamentMyMatch[]; tournamentName: string; playerPosition?: number; categoryStandings?: Record<string, CategoryStandingDetail> }> {
   let tournamentName = ''
 
-  // Usar RPC get_tournament_player_names (SECURITY DEFINER) — bypassa RLS
-  // Isto resolve o problema dos nomes não aparecerem no Player App
-  const [{ data: tournament }, { data: matches }, { data: teams, error: teamsError }, { data: rpcPlayers }] = await Promise.all([
+  const [{ data: tournament }, { data: matches }, { data: teams, error: teamsError }, { data: rpcPlayers }, { data: tournamentCategories }] = await Promise.all([
     supabase.from('tournaments').select('name, format').eq('id', tournamentId).maybeSingle(),
     supabase
       .from('matches')
       .select(
-        'id, team1_id, team2_id, player1_individual_id, player2_individual_id, player3_individual_id, player4_individual_id, team1_score_set1, team2_score_set1, team1_score_set2, team2_score_set2, team1_score_set3, team2_score_set3, status, round'
+        'id, team1_id, team2_id, player1_individual_id, player2_individual_id, player3_individual_id, player4_individual_id, team1_score_set1, team2_score_set1, team1_score_set2, team2_score_set2, team1_score_set3, team2_score_set3, status, round, category_id'
       )
       .eq('tournament_id', tournamentId)
       .eq('status', 'completed'),
-    supabase.from('teams').select('id, name, group_name, final_position, player1_id, player2_id').eq('tournament_id', tournamentId),
+    supabase.from('teams').select('id, name, group_name, final_position, player1_id, player2_id, category_id').eq('tournament_id', tournamentId),
     supabase.rpc('get_tournament_player_names', { tournament_uuid: tournamentId }),
+    supabase.from('tournament_categories').select('id, name').eq('tournament_id', tournamentId).order('name'),
   ])
 
   if (teamsError) {
@@ -945,7 +968,7 @@ export async function fetchTournamentStandingsAndMatches(
   // Também serve como fallback completo se a RPC falhou
   const needsExtra = players.length === 0 || !players[0].group_name
   if (needsExtra) {
-    const { data: directPlayers } = await supabase.from('players').select('id, name, group_name, final_position').eq('tournament_id', tournamentId)
+    const { data: directPlayers } = await supabase.from('players').select('id, name, group_name, final_position, category_id').eq('tournament_id', tournamentId)
     if (directPlayers && directPlayers.length > 0) {
       if (players.length === 0) {
         // RPC falhou — usar dados directos
@@ -962,6 +985,7 @@ export async function fetchTournamentStandingsAndMatches(
           if (extra) {
             if (!p.group_name) p.group_name = extra.group_name
             if (!p.final_position) p.final_position = extra.final_position
+            if (!p.category_id) p.category_id = extra.category_id
           }
         })
       }
@@ -1033,13 +1057,14 @@ export async function fetchTournamentStandingsAndMatches(
         id: p.id,
         name: p.name,
         group_name: p.group_name || 'Geral',
-        final_position: p.final_position || null, // Usar final_position da DB se existir
+        final_position: p.final_position || null,
         wins: 0,
         draws: 0,
         losses: 0,
         points_for: 0,
         points_against: 0,
         points: 0,
+        category_id: p.category_id || null,
       })
     })
     ;(matches || []).forEach((m: any) => {
@@ -1104,6 +1129,7 @@ export async function fetchTournamentStandingsAndMatches(
         points: 0,
         player1_name: finalP1Name,
         player2_name: finalP2Name,
+        category_id: (t as any).category_id || null,
       })
     })
     ;(matches || []).forEach((m: any) => {
@@ -1325,7 +1351,7 @@ export async function fetchTournamentStandingsAndMatches(
           .from('matches')
           .select(
             `
-            id, court, scheduled_time, team1_score_set1, team2_score_set1, team1_score_set2, team2_score_set2, team1_score_set3, team2_score_set3, status, round, team1_id, team2_id,
+            id, court, scheduled_time, team1_score_set1, team2_score_set1, team1_score_set2, team2_score_set2, team1_score_set3, team2_score_set3, status, round, team1_id, team2_id, category_id,
             team1:teams!matches_team1_id_fkey(id, name), team2:teams!matches_team2_id_fkey(id, name),
             p1:players!matches_player1_individual_id_fkey(id, name), p2:players!matches_player2_individual_id_fkey(id, name),
             p3:players!matches_player3_individual_id_fkey(id, name), p4:players!matches_player4_individual_id_fkey(id, name)
@@ -1381,6 +1407,7 @@ export async function fetchTournamentStandingsAndMatches(
               status: m.status,
               round: m.round || '',
               is_winner,
+              category_id: m.category_id || undefined,
             }
           })
         }
@@ -1392,5 +1419,62 @@ export async function fetchTournamentStandingsAndMatches(
   const posIdx = standingsArray.findIndex((row) => entityIds.has(row.id))
   if (posIdx >= 0) playerPosition = posIdx + 1
 
-  return { standings: standingsArray, myMatches, tournamentName, playerPosition }
+  let categoryStandings: Record<string, CategoryStandingDetail> | undefined
+  if (tournamentCategories && tournamentCategories.length > 0) {
+    categoryStandings = {}
+    const resolveMatchNames = (m: any): CategoryMatchResult => {
+      let team1Name: string, team2Name: string
+      if (isIndividual) {
+        const p1 = m.player1_individual_id ? (playerNamesMap.get(m.player1_individual_id) || 'TBD') : 'TBD'
+        const p2 = m.player2_individual_id ? (playerNamesMap.get(m.player2_individual_id) || '') : ''
+        const p3 = m.player3_individual_id ? (playerNamesMap.get(m.player3_individual_id) || 'TBD') : 'TBD'
+        const p4 = m.player4_individual_id ? (playerNamesMap.get(m.player4_individual_id) || '') : ''
+        team1Name = p2 ? `${p1} / ${p2}` : p1
+        team2Name = p4 ? `${p3} / ${p4}` : p3
+      } else {
+        const s1 = standingsMap.get(m.team1_id)
+        const s2 = standingsMap.get(m.team2_id)
+        team1Name = s1?.name || 'TBD'
+        team2Name = s2?.name || 'TBD'
+      }
+      const set1 = m.team1_score_set1 != null && m.team2_score_set1 != null
+        ? `${m.team1_score_set1}-${m.team2_score_set1}` : undefined
+      const set2 = m.team1_score_set2 != null && m.team2_score_set2 != null && (m.team1_score_set2 > 0 || m.team2_score_set2 > 0)
+        ? `${m.team1_score_set2}-${m.team2_score_set2}` : undefined
+      const set3 = m.team1_score_set3 != null && m.team2_score_set3 != null && (m.team1_score_set3 > 0 || m.team2_score_set3 > 0)
+        ? `${m.team1_score_set3}-${m.team2_score_set3}` : undefined
+      return {
+        id: m.id,
+        team1_id: m.team1_id || m.player1_individual_id || undefined,
+        team2_id: m.team2_id || m.player3_individual_id || undefined,
+        team1_name: team1Name,
+        team2_name: team2Name,
+        set1, set2, set3,
+        round: m.round || '',
+        status: m.status || '',
+      }
+    }
+
+    for (const cat of tournamentCategories) {
+      const catStandings = standingsArray.filter((s: any) => s.category_id === cat.id)
+      const catMatches = myMatches.filter(m => m.category_id === cat.id)
+      const catAllRaw = (matches || []).filter((m: any) => m.category_id === cat.id && m.status === 'completed')
+      const catAllMatches = catAllRaw.map(resolveMatchNames)
+      let catPosition: number | undefined
+      const catPosIdx = catStandings.findIndex((row: any) => entityIds.has(row.id))
+      if (catPosIdx >= 0) catPosition = catPosIdx + 1
+      if (catStandings.length > 0 || catMatches.length > 0 || catAllMatches.length > 0) {
+        categoryStandings[cat.id] = {
+          categoryName: cat.name,
+          standings: catStandings,
+          myMatches: catMatches,
+          allMatches: catAllMatches,
+          playerPosition: catPosition,
+        }
+      }
+    }
+    if (Object.keys(categoryStandings).length === 0) categoryStandings = undefined
+  }
+
+  return { standings: standingsArray, myMatches, tournamentName, playerPosition, categoryStandings }
 }

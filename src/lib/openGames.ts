@@ -3362,3 +3362,33 @@ async function getPlayerName(playerAccountId: string | null): Promise<string> {
     return 'Um jogador'
   }
 }
+
+export async function swapPlayerTeam(playerIdA: string, playerIdB: string): Promise<{ success: boolean; error?: string }> {
+  const { data: players, error: fetchErr } = await supabase
+    .from('open_game_players')
+    .select('id, position')
+    .in('id', [playerIdA, playerIdB])
+
+  if (fetchErr || !players || players.length !== 2) {
+    return { success: false, error: fetchErr?.message || 'Jogadores não encontrados' }
+  }
+
+  const pA = players.find(p => p.id === playerIdA)!
+  const pB = players.find(p => p.id === playerIdB)!
+
+  const { error: e1 } = await supabase
+    .from('open_game_players')
+    .update({ position: pB.position })
+    .eq('id', playerIdA)
+
+  if (e1) return { success: false, error: e1.message }
+
+  const { error: e2 } = await supabase
+    .from('open_game_players')
+    .update({ position: pA.position })
+    .eq('id', playerIdB)
+
+  if (e2) return { success: false, error: e2.message }
+
+  return { success: true }
+}
