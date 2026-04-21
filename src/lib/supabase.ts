@@ -45,6 +45,7 @@ export interface PlayerAccount {
   wins?: number
   losses?: number
   favorite_club_id?: string | null
+  club_ids?: string[]
   level_reliability_percent?: number | null
   total_reward_points?: number
   created_at: string

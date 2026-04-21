@@ -37,6 +37,31 @@ export async function fetchClubById(clubId: string): Promise<ClubDetail | null> 
   return data as ClubDetail | null
 }
 
+/** Busca os IDs dos clubes onde o jogador joga. */
+export async function fetchPlayerClubs(playerAccountId: string): Promise<string[]> {
+  const { data } = await supabase
+    .from('player_clubs')
+    .select('club_id')
+    .eq('player_account_id', playerAccountId)
+  return (data || []).map(r => r.club_id)
+}
+
+/** Adiciona ou remove um clube da lista de clubes do jogador. Retorna a lista actualizada. */
+export async function togglePlayerClub(playerAccountId: string, clubId: string, add: boolean): Promise<string[]> {
+  if (add) {
+    await supabase
+      .from('player_clubs')
+      .upsert({ player_account_id: playerAccountId, club_id: clubId }, { onConflict: 'player_account_id,club_id' })
+  } else {
+    await supabase
+      .from('player_clubs')
+      .delete()
+      .eq('player_account_id', playerAccountId)
+      .eq('club_id', clubId)
+  }
+  return fetchPlayerClubs(playerAccountId)
+}
+
 export interface UpcomingTournamentFromTour {
   id: string
   name: string
@@ -305,8 +330,8 @@ export async function fetchTournamentFullDetail(tournamentId: string): Promise<T
   }
 }
 
-/** Próximos torneios (Tour) – opcionalmente filtrados por club_id do APC. */
-export async function fetchUpcomingTournaments(clubId?: string | null): Promise<UpcomingTournamentFromTour[]> {
+/** Próximos torneios (Tour) – opcionalmente filtrados por club_ids do jogador. */
+export async function fetchUpcomingTournaments(clubIds?: string[] | string | null): Promise<UpcomingTournamentFromTour[]> {
   const today = new Date().toISOString().split('T')[0]
   let query = supabase
     .from('tournaments')
@@ -314,10 +339,13 @@ export async function fetchUpcomingTournaments(clubId?: string | null): Promise<
     .gte('end_date', today)
     .in('status', ['draft', 'active', 'in_progress'])
     .order('start_date', { ascending: true })
-    .limit(20)
+    .limit(30)
 
-  if (clubId) {
-    query = query.eq('club_id', clubId)
+  const ids = Array.isArray(clubIds) ? clubIds : clubIds ? [clubIds] : []
+  if (ids.length === 1) {
+    query = query.eq('club_id', ids[0])
+  } else if (ids.length > 1) {
+    query = query.in('club_id', ids)
   }
 
   const { data } = await query

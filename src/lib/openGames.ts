@@ -853,6 +853,7 @@ export async function createOpenGame(params: {
           levelMax,
           gender: params.gender,
           scheduledAt: scheduledAtISO,
+          clubId: params.clubId,
           clubName: clubForNotif?.name || 'Clube',
           gameType: params.gameType,
         }),
@@ -2844,7 +2845,7 @@ export async function fetchGamesAwaitingResult(userId: string, playerAccountId?:
     console.log('[OpenGames] Using games from JOIN query, filtering by status and scheduled_at')
     const gamesFromJoin = allGamesCheck.map((g: any) => g._fullData || g)
     gamesData = gamesFromJoin.filter((g: any) => {
-      const hasCorrectStatus = ['full', 'completed'].includes(g.status)
+      const hasCorrectStatus = ['full', 'completed', 'expired'].includes(g.status)
       const scheduledBeforeNow = g.scheduled_at <= now
       console.log('[OpenGames] Game from JOIN:', g.id, 'status:', g.status, 'hasCorrectStatus:', hasCorrectStatus, 'scheduledBeforeNow:', scheduledBeforeNow)
       return hasCorrectStatus && scheduledBeforeNow
@@ -2857,7 +2858,7 @@ export async function fetchGamesAwaitingResult(userId: string, playerAccountId?:
         .from('open_games')
         .select('*')
         .eq('id', gameIds[0])
-        .in('status', ['full', 'completed'])
+        .in('status', ['full', 'completed', 'expired'])
         .lte('scheduled_at', now)
         .order('scheduled_at', { ascending: false })
         .limit(20)
@@ -2869,7 +2870,7 @@ export async function fetchGamesAwaitingResult(userId: string, playerAccountId?:
         .from('open_games')
         .select('*')
         .in('id', gameIds)
-        .in('status', ['full', 'completed'])
+        .in('status', ['full', 'completed', 'expired'])
         .lte('scheduled_at', now)
         .order('scheduled_at', { ascending: false })
         .limit(20)
@@ -2894,7 +2895,7 @@ export async function fetchGamesAwaitingResult(userId: string, playerAccountId?:
     console.error('[OpenGames] No games passed the filters. Games found:', allGamesCheck?.map((g: any) => ({
       id: g.id,
       status: g.status,
-      hasCorrectStatus: ['full', 'completed'].includes(g.status),
+      hasCorrectStatus: ['full', 'completed', 'expired'].includes(g.status),
       scheduled_at: g.scheduled_at,
       scheduled_before_now: g.scheduled_at <= now
     })))

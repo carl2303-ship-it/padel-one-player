@@ -57,7 +57,8 @@ import {
   ShoppingBag,
   CheckCircle,
   AlertCircle,
-  Star
+  Star,
+  Check
 } from 'lucide-react'
 import {
   followUser,
@@ -82,7 +83,7 @@ import {
   type FeedMatchItem,
   getUnifiedFeed,
 } from './lib/communityData'
-import { fetchAllClubs, fetchClubById, fetchUpcomingTournaments, fetchTournamentsByIds, fetchTournamentEnrolledCounts, fetchEnrolledByCategory, fetchTournamentFullDetail, getTournamentRegistrationUrl, fetchMyTournamentInvites, updateTournamentInviteStatus, type ClubDetail, type UpcomingTournamentFromTour, type EnrolledByCategory, type TournamentFullDetail } from './lib/clubAndTournaments'
+import { fetchAllClubs, fetchClubById, fetchUpcomingTournaments, fetchTournamentsByIds, fetchTournamentEnrolledCounts, fetchEnrolledByCategory, fetchTournamentFullDetail, getTournamentRegistrationUrl, fetchMyTournamentInvites, updateTournamentInviteStatus, fetchPlayerClubs, togglePlayerClub, type ClubDetail, type UpcomingTournamentFromTour, type EnrolledByCategory, type TournamentFullDetail } from './lib/clubAndTournaments'
 import { fetchAvailableClasses, fetchMyClasses, enrollInClass, type Class as ClassData } from './lib/classes'
 import { preloadAllPlayerData, getCachedPlayerData } from './lib/playerDataCache'
 import { isPushSupported, checkIsSubscribed, subscribeToPush, unsubscribeFromPush } from './lib/pushNotifications'
@@ -239,18 +240,17 @@ function App() {
         setPlayer(data as any)
         setIsAuthenticated(true)
         setAuthUserId(authUid || data.user_id || null)
+        fetchPlayerClubs(data.id).then(ids => setPlayer(prev => prev ? { ...prev, club_ids: ids } as any : prev))
         if (data.user_id) {
-          // Pass playerAccount to avoid duplicate query (saves ~150ms)
           const [dash] = await Promise.all([
             fetchPlayerDashboardData(data.user_id, {
               id: data.id,
               name: data.name,
               phone_number: data.phone_number,
             }),
-            preloadAllPlayerData(), // Carrega cache de jogadores em paralelo
+            preloadAllPlayerData(),
           ])
           setDashboardData(dash)
-          // Enrich with Edge Function in background (progressive loading)
           enrichDashboardWithEdgeFunction(dash).then(enriched => {
             if (enriched) {
               setEdgeEnrichedData(enriched)
@@ -275,7 +275,7 @@ function App() {
         setPlayer(playerAccount as any)
         setAuthUserId(session.user.id)
         setIsAuthenticated(true)
-        // Pass playerAccount to avoid duplicate query (saves ~150ms)
+        fetchPlayerClubs(playerAccount.id).then(ids => setPlayer(prev => prev ? { ...prev, club_ids: ids } as any : prev))
         const [data] = await Promise.all([
           fetchPlayerDashboardData(session.user.id, {
             id: playerAccount.id,
@@ -285,7 +285,6 @@ function App() {
           preloadAllPlayerData(),
         ])
         setDashboardData(data)
-        // Enrich with Edge Function in background (progressive loading)
         enrichDashboardWithEdgeFunction(data).then(enriched => {
           if (enriched) {
             setEdgeEnrichedData(enriched)
@@ -434,8 +433,8 @@ function App() {
       if (playerAccount) {
         setPlayer(playerAccount as any)
         setAuthUserId(authData?.user?.id || playerAccount.user_id || null)
+        fetchPlayerClubs(playerAccount.id).then(ids => setPlayer(prev => prev ? { ...prev, club_ids: ids } as any : prev))
         if (playerAccount.user_id) {
-          // Pass playerAccount to avoid duplicate query (saves ~150ms)
           const [data] = await Promise.all([
             fetchPlayerDashboardData(playerAccount.user_id, {
               id: playerAccount.id,
@@ -445,7 +444,6 @@ function App() {
             preloadAllPlayerData(),
           ])
           setDashboardData(data)
-          // Enrich with Edge Function in background (progressive loading)
           enrichDashboardWithEdgeFunction(data).then(enriched => {
             if (enriched) {
               setEdgeEnrichedData(enriched)
@@ -498,6 +496,7 @@ function App() {
         setPlayer(pa as any)
         setAuthUserId(pa.user_id || null)
         setIsAuthenticated(true)
+        fetchPlayerClubs(pa.id).then(ids => setPlayer(prev => prev ? { ...prev, club_ids: ids } as any : prev))
         if (pa.user_id) {
           const [data] = await Promise.all([
             fetchPlayerDashboardData(pa.user_id, { id: pa.id, name: pa.name, phone_number: pa.phone_number }),
@@ -724,6 +723,7 @@ function App() {
           <CompeteScreen
             dashboardData={effectiveDashboard}
             favoriteClubId={player?.favorite_club_id ?? null}
+            clubIds={player?.club_ids ?? []}
             userId={player?.user_id ?? null}
             playerAccountId={player?.id ?? null}
             player={player}
@@ -768,6 +768,16 @@ function App() {
           <ProfileEditScreen
             player={player}
             onSaveFavoriteClub={handleSaveFavoriteClub}
+            onToggleClub={async (clubId, add) => {
+              if (!player?.id) return
+              const updated = await togglePlayerClub(player.id, clubId, add)
+              setPlayer(prev => prev ? { ...prev, club_ids: updated } as any : prev)
+              if (add && !player.favorite_club_id) {
+                await handleSaveFavoriteClub(clubId)
+              } else if (!add && player.favorite_club_id === clubId) {
+                await handleSaveFavoriteClub(updated.length > 0 ? updated[0] : null)
+              }
+            }}
             onSaveProfile={handleSaveProfile}
             onOpenInfo={(type) => setShowInfoModal(type)}
           />
@@ -2589,6 +2599,7 @@ function HomeScreen({
   const [pendingConfirmModal, setPendingConfirmModal] = useState<{ game: any; result: any } | null>(null)
   const [pendingResultScores, setPendingResultScores] = useState({ t1s1: '', t2s1: '', t1s2: '', t2s2: '', t1s3: '', t2s3: '' })
   const [pendingSubmitting, setPendingSubmitting] = useState(false)
+  const [pendingResults, setPendingResults] = useState<Record<string, any>>({})
   const [homeSwapSelected, setHomeSwapSelected] = useState<{ playerId: string; team: number; gameId: string } | null>(null)
   const [homeSwapping, setHomeSwapping] = useState(false)
 
@@ -2659,6 +2670,27 @@ function HomeScreen({
       setPendingResultGames(data)
     } catch {}
   }
+
+  useEffect(() => {
+    const pendingGames = pendingResultGames.filter(g => (g as any)._resultStatus === 'pending')
+    if (pendingGames.length === 0) return
+    let active = true
+    const loadResults = async () => {
+      const { fetchGameResult } = await import('./lib/openGames')
+      for (const g of pendingGames) {
+        if (!active) return
+        if (pendingResults[g.id]) continue
+        try {
+          const res = await fetchGameResult(g.id)
+          if (res && active) {
+            setPendingResults(prev => ({ ...prev, [g.id]: res }))
+          }
+        } catch {}
+      }
+    }
+    loadResults()
+    return () => { active = false }
+  }, [pendingResultGames])
 
   const handlePlayerClick = async (playerName: string) => {
     const { findPlayerUserIdByName } = await import('./lib/classes')
@@ -3246,28 +3278,89 @@ function HomeScreen({
                       >
                         📊 Introduzir resultado
                       </button>
-                    ) : (
-                      <button
-                        onClick={async () => {
-                          const { fetchGameResult } = await import('./lib/openGames')
-                          const res = await fetchGameResult(game.id)
-                          if (res) {
-                            setPendingConfirmModal({ game, result: res })
-                          } else {
-                            alert('Erro ao carregar resultado')
-                          }
-                        }}
-                        className={`w-full py-2.5 rounded-xl text-sm font-semibold transition-colors ${
-                          myTeam && myTeam !== ((game as any)._submittedByTeam || 0)
-                            ? 'bg-green-600 text-white hover:bg-green-700'
-                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                        }`}
-                      >
-                        {myTeam && myTeam !== ((game as any)._submittedByTeam || 0)
-                          ? '✓ Confirmar resultado'
-                          : '👁️ Ver resultado'}
-                      </button>
-                    )}
+                    ) : (() => {
+                      const r = pendingResults[game.id]
+                      if (!r) return <p className="text-xs text-gray-400 text-center py-2">A carregar resultado...</p>
+                      const s1 = [r.team1_score_set1 || 0, r.team2_score_set1 || 0]
+                      const s2 = [r.team1_score_set2 || 0, r.team2_score_set2 || 0]
+                      const s3 = [r.team1_score_set3 || 0, r.team2_score_set3 || 0]
+                      const sets1 = (s1[0] > s1[1] ? 1 : 0) + (s2[0] > s2[1] ? 1 : 0) + (s3[0] > s3[1] ? 1 : 0)
+                      const sets2 = (s1[1] > s1[0] ? 1 : 0) + (s2[1] > s2[0] ? 1 : 0) + (s3[1] > s3[0] ? 1 : 0)
+                      const team1Won = sets1 > sets2
+                      const canConfirm = myTeam !== 0 && myTeam !== r.submitted_by_team
+                      return (
+                        <div className="space-y-3">
+                          <div className="bg-gray-50 rounded-xl p-3">
+                            <div className="flex items-center justify-between mb-2">
+                              <div className={`flex-1 text-center ${team1Won ? 'font-bold text-green-700' : 'text-gray-500'}`}>
+                                <span className="text-xs">Eq. 1 {team1Won ? '🏆' : ''}</span>
+                              </div>
+                              <div className="w-8" />
+                              <div className={`flex-1 text-center ${!team1Won ? 'font-bold text-green-700' : 'text-gray-500'}`}>
+                                <span className="text-xs">Eq. 2 {!team1Won ? '🏆' : ''}</span>
+                              </div>
+                            </div>
+                            <div className="flex items-center justify-center gap-3">
+                              <div className="flex gap-2">
+                                {[s1, s2, ...(s3[0] > 0 || s3[1] > 0 ? [s3] : [])].map((s, i) => (
+                                  <div key={i} className="text-center">
+                                    <p className="text-[9px] text-gray-400">Set {i + 1}</p>
+                                    <p className="text-sm font-bold text-gray-800">{s[0]} - {s[1]}</p>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                            <p className="text-[10px] text-gray-400 text-center mt-1">Submetido pela Equipa {r.submitted_by_team}</p>
+                          </div>
+                          {canConfirm ? (
+                            <div className="flex gap-2">
+                              <button
+                                onClick={async () => {
+                                  setPendingSubmitting(true)
+                                  const { confirmGameResult } = await import('./lib/openGames')
+                                  const res = await confirmGameResult(game.id)
+                                  if (res.success) {
+                                    alert('Resultado confirmado! Os níveis serão atualizados.')
+                                    refreshPendingResults()
+                                    onRefresh()
+                                  } else {
+                                    alert(res.error || 'Erro ao confirmar')
+                                  }
+                                  setPendingSubmitting(false)
+                                }}
+                                disabled={pendingSubmitting}
+                                className="flex-1 py-2.5 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 disabled:opacity-50"
+                              >
+                                ✓ Confirmar
+                              </button>
+                              <button
+                                onClick={async () => {
+                                  if (!confirm('Queres disputar este resultado?')) return
+                                  setPendingSubmitting(true)
+                                  const { disputeGameResult } = await import('./lib/openGames')
+                                  const res = await disputeGameResult(game.id)
+                                  if (res.success) {
+                                    alert('Resultado disputado. Um novo resultado pode ser submetido.')
+                                    refreshPendingResults()
+                                  } else {
+                                    alert(res.error || 'Erro ao disputar')
+                                  }
+                                  setPendingSubmitting(false)
+                                }}
+                                disabled={pendingSubmitting}
+                                className="flex-1 py-2.5 bg-red-100 text-red-700 rounded-xl text-sm font-semibold hover:bg-red-200 disabled:opacity-50"
+                              >
+                                ✗ Disputar
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="bg-amber-50 border border-amber-200 rounded-xl p-2 text-center">
+                              <p className="text-xs text-amber-700 font-medium">⏳ A aguardar confirmação da equipa adversária</p>
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })()}
                   </div>
                 </div>
               )
@@ -4161,6 +4254,7 @@ function ClubScreen({ favoriteClubId, onBack }: { favoriteClubId: string | null;
 function CompeteScreen({
   dashboardData,
   favoriteClubId,
+  clubIds,
   userId,
   playerAccountId,
   player,
@@ -4168,6 +4262,7 @@ function CompeteScreen({
 }: {
   dashboardData: PlayerDashboardData | null
   favoriteClubId: string | null
+  clubIds: string[]
   userId: string | null
   playerAccountId: string | null
   player: PlayerAccount | null
@@ -4237,10 +4332,10 @@ function CompeteScreen({
 
   useEffect(() => {
     let active = true
-    const clubId = favoriteClubId || localStorage.getItem('padel_one_player_favorite_club_id')
+    const effectiveClubIds = clubIds.length > 0 ? clubIds : (favoriteClubId ? [favoriteClubId] : [])
     ;(async () => {
       try {
-        const list = await fetchUpcomingTournaments(clubId || undefined)
+        const list = await fetchUpcomingTournaments(effectiveClubIds.length > 0 ? effectiveClubIds : undefined)
         if (!active) return
 
         let invitedIds = new Set<string>()
@@ -4277,7 +4372,7 @@ function CompeteScreen({
       }
     })()
     return () => { active = false }
-  }, [favoriteClubId, player?.id, d?.upcomingTournaments])
+  }, [clubIds, favoriteClubId, player?.id, d?.upcomingTournaments])
 
   // Extrair género e nível do player_category (ex: "M6" → { gender: 'M', level: 6 })
   const getPlayerCategoryInfo = (): { gender: 'M' | 'F'; level: number } | null => {
@@ -4327,9 +4422,9 @@ function CompeteScreen({
     const playerInfo = getPlayerCategoryInfo()
     if (!playerInfo) {
       let active = true
-      const clubId = favoriteClubId || localStorage.getItem('padel_one_player_favorite_club_id')
+      const effIds = clubIds.length > 0 ? clubIds : (favoriteClubId ? [favoriteClubId] : [])
       setLoadingAvailable(true)
-      fetchUpcomingTournaments(clubId || undefined).then(async (list) => {
+      fetchUpcomingTournaments(effIds.length > 0 ? effIds : undefined).then(async (list) => {
         if (!active) return
         let invitedIds = new Set<string>()
         if (player?.id) {
@@ -4368,12 +4463,12 @@ function CompeteScreen({
     }
 
     let active = true
-    const clubId = favoriteClubId || localStorage.getItem('padel_one_player_favorite_club_id')
+    const effIds2 = clubIds.length > 0 ? clubIds : (favoriteClubId ? [favoriteClubId] : [])
     setLoadingAvailable(true)
 
     ;(async () => {
       try {
-        const list = await fetchUpcomingTournaments(clubId || undefined)
+        const list = await fetchUpcomingTournaments(effIds2.length > 0 ? effIds2 : undefined)
         if (!active) return
 
         let invitedIds = new Set<string>()
@@ -10408,12 +10503,14 @@ function ProfileEditScreen({
   player,
   onLogout,
   onSaveFavoriteClub,
+  onToggleClub,
   onSaveProfile,
   onOpenInfo,
 }: {
   player: PlayerAccount | null
   onLogout: () => void
   onSaveFavoriteClub: (clubId: string | null) => Promise<void>
+  onToggleClub: (clubId: string, add: boolean) => Promise<void>
   onSaveProfile: (updates: Partial<PlayerAccount>) => Promise<void>
   onOpenInfo: (type: 'help' | 'howItWorks' | 'privacy') => void
 }) {
@@ -10423,6 +10520,8 @@ function ProfileEditScreen({
   const [saving, setSaving] = useState(false)
   const [saveMsg, setSaveMsg] = useState('')
   const [uploadingAvatar, setUploadingAvatar] = useState(false)
+  const [togglingClub, setTogglingClub] = useState<string | null>(null)
+  const playerClubIds = player?.club_ids ?? []
   const favoriteClubId = player?.favorite_club_id ?? localStorage.getItem('padel_one_player_favorite_club_id')
 
   // Editable fields
@@ -10810,34 +10909,36 @@ function ProfileEditScreen({
             </button>
       </div>
 
-      {/* Clube Favorito – lista de clubes Padel One */}
+      {/* Clubes onde jogo – multi-selecção */}
       <div className="card overflow-hidden">
         <div className="p-4 border-b border-gray-100">
           <div className="flex items-center gap-2">
             <Building2 className="w-5 h-5 text-red-600" />
-            <h3 className="font-semibold text-gray-900">{t.settings.favoriteClub}</h3>
+            <h3 className="font-semibold text-gray-900">Clubes onde jogo</h3>
           </div>
-          <p className="text-sm text-gray-500 mt-1">{t.settings.favoriteClubDesc}</p>
+          <p className="text-sm text-gray-500 mt-1">Seleciona os clubes onde jogas para receber notificações e ver torneios</p>
         </div>
-        <div className="divide-y divide-gray-100 max-h-56 overflow-y-auto">
+        <div className="divide-y divide-gray-100 max-h-64 overflow-y-auto">
           {loadingClubs ? (
             <div className="p-4 text-center text-gray-500">{t.settings.loadingClubs}</div>
           ) : clubs.length === 0 ? (
             <div className="p-4 text-center text-gray-500">{t.settings.noClubsAvailable}</div>
           ) : (
-            <>
-              <button
-                onClick={() => onSaveFavoriteClub(null)}
-                className={`w-full p-4 flex items-center justify-between text-left ${!favoriteClubId ? 'bg-red-50' : 'hover:bg-gray-50'}`}
-              >
-                <span className="text-gray-600">{t.settings.none}</span>
-                {!favoriteClubId && <span className="text-xs text-red-600 font-medium">✓</span>}
-              </button>
-              {clubs.map((club) => (
+            clubs.map((club) => {
+              const isSelected = playerClubIds.includes(club.id)
+              const isToggling = togglingClub === club.id
+              return (
                 <button
                   key={club.id}
-                  onClick={() => onSaveFavoriteClub(club.id)}
-                  className={`w-full p-4 flex items-center gap-3 text-left ${favoriteClubId === club.id ? 'bg-red-50' : 'hover:bg-gray-50'}`}
+                  disabled={isToggling}
+                  onClick={async () => {
+                    setTogglingClub(club.id)
+                    try {
+                      await onToggleClub(club.id, !isSelected)
+                    } catch {}
+                    setTogglingClub(null)
+                  }}
+                  className={`w-full p-4 flex items-center gap-3 text-left transition-colors ${isSelected ? 'bg-red-50' : 'hover:bg-gray-50'} ${isToggling ? 'opacity-50' : ''}`}
                 >
                   {club.logo_url ? (
                     <img src={club.logo_url} alt="" className="w-10 h-10 rounded-lg object-cover shrink-0" />
@@ -10852,12 +10953,19 @@ function ProfileEditScreen({
                       <span className="inline-block mt-0.5 px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-200 text-gray-500">Ainda não na plataforma</span>
                     )}
                   </div>
-                  {favoriteClubId === club.id && <span className="text-xs text-red-600 font-medium">✓</span>}
+                  <div className={`w-6 h-6 rounded-md border-2 flex items-center justify-center shrink-0 transition-colors ${isSelected ? 'bg-red-600 border-red-600' : 'border-gray-300'}`}>
+                    {isSelected && <Check className="w-4 h-4 text-white" />}
+                  </div>
                 </button>
-              ))}
-            </>
+              )
+            })
           )}
         </div>
+        {playerClubIds.length > 0 && (
+          <div className="p-3 border-t border-gray-100 bg-gray-50">
+            <p className="text-xs text-gray-500 text-center">{playerClubIds.length} {playerClubIds.length === 1 ? 'clube seleccionado' : 'clubes seleccionados'}</p>
+          </div>
+        )}
       </div>
 
       {/* Centro de Ajuda, Ajuda rápida, Como funciona, Privacidade */}
