@@ -6,12 +6,38 @@ import { supabase } from './supabase'
 import { notifyOpenGamePlayers, notifyGameCreator, sendPushToPlayer } from './pushNotifications'
 import { getTranslations } from './translations'
 
-/** YYYY-MM-DD using local timezone (avoids UTC date shift near midnight) */
-function localDateStr(d: Date): string {
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
+const DEFAULT_TZ = 'Europe/Lisbon'
+
+/** YYYY-MM-DD in the given timezone */
+function localDateStr(d: Date, tz: string = DEFAULT_TZ): string {
+  return new Intl.DateTimeFormat('sv-SE', { timeZone: tz }).format(d)
+}
+
+/** Convert a "YYYY-MM-DDThh:mm:ss" string in a given timezone to a proper UTC Date */
+function clubLocalToUTC(localIso: string, tz: string = DEFAULT_TZ): Date {
+  const guess = new Date(localIso + 'Z')
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(guess)
+  const gH = Number(parts.find(p => p.type === 'hour')!.value)
+  const gM = Number(parts.find(p => p.type === 'minute')!.value)
+  const gD = Number(parts.find(p => p.type === 'day')!.value)
+  const targetH = parseInt(localIso.substring(11, 13))
+  const targetM = parseInt(localIso.substring(14, 16))
+  const targetD = parseInt(localIso.substring(8, 10))
+  const rawDayDiff = targetD - gD
+  const dayDiff = rawDayDiff > 1 ? -1 : rawDayDiff < -1 ? 1 : rawDayDiff
+  const diffMs = ((dayDiff * 1440) + (targetH * 60 + targetM) - (gH * 60 + gM)) * 60000
+  return new Date(guess.getTime() + diffMs)
+}
+
+/** Extract hours/minutes from a Date in a given timezone */
+function toClubHour(d: Date, tz: string = DEFAULT_TZ): number {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: tz, hour: '2-digit', hour12: false,
+  }).formatToParts(d)
+  return Number(parts.find(p => p.type === 'hour')!.value)
 }
 
 // ============================
@@ -306,7 +332,9 @@ export async function fetchOpenGames(filters?: {
   // Apply time filter if needed
   if (filters?.timeFrom || filters?.timeTo) {
     return games.filter(g => {
-      const hour = new Date(g.scheduled_at).getHours()
+      const d = new Date(g.scheduled_at)
+      const parts = new Intl.DateTimeFormat('en-GB', { timeZone: DEFAULT_TZ, hour: '2-digit', hour12: false }).formatToParts(d)
+      const hour = Number(parts.find(p => p.type === 'hour')!.value)
       const timeFromH = filters?.timeFrom ? parseInt(filters.timeFrom.split(':')[0]) : 0
       const timeToH = filters?.timeTo ? parseInt(filters.timeTo.split(':')[0]) : 24
       return hour >= timeFromH && hour < timeToH
@@ -625,8 +653,9 @@ export async function createOpenGame(params: {
   gender: 'all' | 'male' | 'female' | 'mixed'
   playerLevel: number
   pricePerPlayer: number
-  isPrivate?: boolean // New: mark as private booking
-  players?: { player_account_id: string; position: number; name: string | null; phone_number: string | null }[] // New: pre-fill players
+  isPrivate?: boolean
+  players?: { player_account_id: string; position: number; name: string | null; phone_number: string | null }[]
+  clubTimezone?: string
 }): Promise<{ success: boolean; gameId?: string; error?: string }> {
   // Always use the real auth uid for RLS compliance
   const { data: { user: authUser } } = await supabase.auth.getUser()
@@ -640,8 +669,18 @@ export async function createOpenGame(params: {
   const levelMin = Math.max(0.5, params.playerLevel - 0.5)
   const levelMax = params.playerLevel + 0.5
 
-  // Normalize scheduledAt to ISO string for consistent timezone handling
-  const scheduledAtISO = new Date(params.scheduledAt).toISOString()
+  let tz = params.clubTimezone || DEFAULT_TZ
+  if (!params.clubTimezone) {
+    const { data: clubTz } = await supabase
+      .from('clubs')
+      .select('timezone')
+      .eq('id', params.clubId)
+      .maybeSingle()
+    if (clubTz?.timezone) tz = clubTz.timezone
+  }
+
+  const scheduledAtDate = clubLocalToUTC(params.scheduledAt, tz)
+  const scheduledAtISO = scheduledAtDate.toISOString()
 
   // Create the game
   const { data: game, error: gameError } = await supabase
@@ -753,7 +792,7 @@ export async function createOpenGame(params: {
     const courtName = courtData?.name || 'Campo'
 
     if (club) {
-      const startDate = new Date(params.scheduledAt)
+      const startDate = clubLocalToUTC(params.scheduledAt, tz)
       const endTime = new Date(startDate.getTime() + params.durationMinutes * 60000)
       const gameTypeLabel = params.gameType === 'competitive' ? 'Competitivo' : 'Amigável'
       const bookingName = resolvedName || (typeof window !== 'undefined' ? getTranslations().common.player : 'Jogador')
