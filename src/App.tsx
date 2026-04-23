@@ -105,6 +105,7 @@ function App() {
   const [player, setPlayer] = useState<PlayerAccount | null>(null)
   const [authUserId, setAuthUserId] = useState<string | null>(null) // The real auth.uid() from Supabase
   const [currentScreen, setCurrentScreen] = useState<Screen>('home')
+  const [pendingTournamentId, setPendingTournamentId] = useState<string | null>(null)
   const [selectedPlayerUserId, setSelectedPlayerUserId] = useState<string | null>(null)
   const [followsListUserId, setFollowsListUserId] = useState<string | null>(null) // For FollowsListScreen
   const [selectedClubId, setSelectedClubId] = useState<string | null>(null)
@@ -692,6 +693,7 @@ function App() {
             onOpenFindGame={() => setCurrentScreen('find-game')}
             onOpenRewards={() => setCurrentScreen('rewards')}
             onOpenBooking={() => setCurrentScreen('booking')}
+            onOpenTournamentDetail={(id: string) => { setPendingTournamentId(id); setCurrentScreen('compete') }}
           />
         )}
         {currentScreen === 'booking' && (
@@ -728,6 +730,8 @@ function App() {
             playerAccountId={player?.id ?? null}
             player={player}
             onBack={() => setCurrentScreen('home')}
+            initialTournamentId={pendingTournamentId}
+            onInitialTournamentConsumed={() => setPendingTournamentId(null)}
           />
         )}
         {currentScreen === 'learn' && (
@@ -1297,14 +1301,14 @@ function GameCardPlaytomic({
 
 function TournamentCard({
   tournament,
-  onViewStandings,
+  onClick,
 }: {
   tournament: TournamentForCard
-  onViewStandings?: () => void
+  onClick?: () => void
 }) {
   const { t } = useI18n()
   return (
-    <div className="card overflow-hidden">
+    <div className="card overflow-hidden cursor-pointer hover:shadow-lg transition-shadow" onClick={onClick}>
       <div className="p-4">
         <div className="flex items-start justify-between">
           <div className="flex-1">
@@ -1327,11 +1331,6 @@ function TournamentCard({
             {tournament.status === 'active' || tournament.status === 'in_progress' ? t.games.inProgress : tournament.status}
           </span>
         </div>
-        {onViewStandings && (
-          <button onClick={onViewStandings} className="w-full mt-3 py-2 btn-secondary text-sm font-medium">
-            Ver classificação
-          </button>
-        )}
       </div>
     </div>
   )
@@ -2561,6 +2560,7 @@ function HomeScreen({
   onOpenFindGame,
   onOpenRewards,
   onOpenBooking,
+  onOpenTournamentDetail,
 }: {
   player: PlayerAccount | null
   dashboardData: PlayerDashboardData | null
@@ -2568,6 +2568,7 @@ function HomeScreen({
   onRefresh: () => Promise<void>
   onOpenClub: () => void
   onOpenCompete: () => void
+  onOpenTournamentDetail: (tournamentId: string) => void
   onOpenLearn: () => void
   onOpenGames: (tab?: 'upcoming' | 'history') => void
   onOpenFollowsList: (userId: string) => void
@@ -2577,7 +2578,6 @@ function HomeScreen({
   onOpenBooking: () => void
 }) {
   const { t } = useI18n()
-  const [viewingTournament, setViewingTournament] = useState<{ id: string; name: string } | null>(null)
   const [followingCount, setFollowingCount] = useState(0)
   const [followersCount, setFollowersCount] = useState(0)
   useEffect(() => {
@@ -2585,12 +2585,6 @@ function HomeScreen({
     getFollowingCount(userId).then(setFollowingCount)
     getFollowersCount(userId).then(setFollowersCount)
   }, [userId])
-  const [tournamentDetail, setTournamentDetail] = useState<{
-    standings: any[]
-    myMatches: any[]
-    name: string
-  } | null>(null)
-  const [detailTab, setDetailTab] = useState<'standings' | 'matches'>('standings')
 
   // Pending results state
   const [pendingResultGames, setPendingResultGames] = useState<(import('./lib/openGames').OpenGame & { _resultStatus?: string | null; _submittedByTeam?: number })[]>([])
@@ -2706,20 +2700,6 @@ function HomeScreen({
   const points = d?.leagueStandings?.[0]?.points ?? player?.points ?? 0
   const upcomingMatches = d?.upcomingMatches ?? []
   const upcomingTournaments = d?.upcomingTournaments ?? []
-
-  const viewTournament = async (tournamentId: string, tournamentName: string) => {
-    const { fetchTournamentStandingsAndMatches } = await import('./lib/playerDashboardData')
-    const { supabase } = await import('./lib/supabase')
-    const { data: { session } } = await supabase.auth.getSession()
-    if (!session?.user) return
-    const { standings, myMatches, tournamentName: tn } = await fetchTournamentStandingsAndMatches(
-      tournamentId,
-      session.user.id
-    )
-    setViewingTournament({ id: tournamentId, name: tournamentName })
-    setTournamentDetail({ standings, myMatches, name: tn || tournamentName })
-    setDetailTab('standings')
-  }
 
   const totalMatches = d?.stats?.totalMatches ?? 0
   const losses = d?.stats?.losses ?? 0
@@ -3157,7 +3137,7 @@ function HomeScreen({
               <TournamentCard
                 key={tournament.id}
                 tournament={tournament}
-                onViewStandings={() => viewTournament(tournament.id, tournament.name)}
+                onClick={() => onOpenTournamentDetail(tournament.id)}
               />
             ))
           ) : (
@@ -3596,83 +3576,6 @@ function HomeScreen({
         </div>
       )}
 
-      {/* Modal Torneio – integração Tour */}
-      {viewingTournament && tournamentDetail && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl max-w-lg w-full max-h-[85vh] overflow-hidden">
-            <div className="p-4 border-b">
-              <div className="flex items-center justify-between mb-3">
-                <h2 className="text-lg font-bold">{tournamentDetail.name}</h2>
-                <button onClick={() => { setViewingTournament(null); setTournamentDetail(null) }} className="text-gray-400 hover:text-gray-600">✕</button>
-              </div>
-              <div className="flex gap-2">
-                <button onClick={() => setDetailTab('standings')} className={`flex-1 py-2 rounded-lg text-sm font-medium ${detailTab === 'standings' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-600'}`}>Classificação</button>
-                <button onClick={() => setDetailTab('matches')} className={`flex-1 py-2 rounded-lg text-sm font-medium ${detailTab === 'matches' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-600'}`}>Os Meus Jogos ({tournamentDetail.myMatches.length})</button>
-              </div>
-            </div>
-            <div className="overflow-y-auto max-h-[70vh]">
-              {detailTab === 'standings' && (
-                <table className="w-full text-sm">
-                  <thead className="bg-gray-50 sticky top-0">
-                    <tr>
-                      <th className="px-1.5 py-2 text-left text-xs w-8">#</th>
-                      <th className="px-1.5 py-2 text-left text-xs">Nome</th>
-                      <th className="px-1 py-2 text-center text-xs w-8">V</th>
-                      <th className="px-1 py-2 text-center text-xs w-8">E</th>
-                      <th className="px-1 py-2 text-center text-xs w-8">D</th>
-                      <th className="px-1 py-2 text-center text-xs w-10">+/-</th>
-                      <th className="px-1.5 py-2 text-center text-xs font-semibold w-10">Pts</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {tournamentDetail.standings.map((row, i) => {
-                      const diff = (row.points_for ?? 0) - (row.points_against ?? 0)
-                      const hasPlayers = row.player1_name || row.player2_name
-                      return (
-                        <tr key={row.id} className="border-t">
-                          <td className="px-1.5 py-2 text-gray-500">{i + 1}</td>
-                          <td className="px-1.5 py-2">
-                            <div className="font-medium truncate max-w-[120px]">{row.name}</div>
-                            {hasPlayers && (
-                              <div className="text-xs text-gray-500 truncate max-w-[120px]">
-                                {[row.player1_name, row.player2_name].filter(Boolean).join(' / ')}
-                              </div>
-                            )}
-                          </td>
-                          <td className="px-1 py-2 text-center text-green-600">{row.wins ?? 0}</td>
-                          <td className="px-1 py-2 text-center text-yellow-600">{row.draws ?? 0}</td>
-                          <td className="px-1 py-2 text-center text-red-500">{row.losses ?? 0}</td>
-                          <td className={`px-1 py-2 text-center text-xs ${diff > 0 ? 'text-green-600' : diff < 0 ? 'text-red-500' : 'text-gray-400'}`}>{diff > 0 ? '+' : ''}{diff}</td>
-                          <td className="px-1.5 py-2 text-center font-bold">{row.points}</td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
-              )}
-              {detailTab === 'matches' && (
-                <div className="divide-y">
-                  {tournamentDetail.myMatches.length === 0 ? <div className="p-6 text-center text-gray-500">Sem jogos registados</div> : tournamentDetail.myMatches.map((m) => {
-                    const setScores = [m.set1, m.set2, m.set3].filter(Boolean)
-                    // Mostrar sempre os jogos de cada set, nunca o resultado 1-0/0-1
-                    const scoreDisplay = setScores.length > 0 ? setScores.join(' ') : '-'
-                    return (
-                    <div key={m.id} className="p-4">
-                      <div className="flex justify-between items-start">
-                        <div><p className="font-medium text-gray-900">{m.team1_name}</p><p className="text-sm text-gray-500">vs</p><p className="font-medium text-gray-900">{m.team2_name}</p></div>
-                        <div className="text-right">
-                          {m.status === 'completed' ? <span className="text-lg font-bold">{scoreDisplay}</span> : <span className="text-sm text-gray-500">{formatDateTime(m.scheduled_time)}</span>}
-                          {m.is_winner !== undefined && <span className={`block text-xs mt-1 ${m.is_winner ? 'text-green-600' : 'text-red-600'}`}>{m.is_winner ? t.common.victory : t.common.defeat}</span>}
-                        </div>
-                      </div>
-                    </div>
-                  )})}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
@@ -4259,6 +4162,8 @@ function CompeteScreen({
   playerAccountId,
   player,
   onBack,
+  initialTournamentId,
+  onInitialTournamentConsumed,
 }: {
   dashboardData: PlayerDashboardData | null
   favoriteClubId: string | null
@@ -4267,6 +4172,8 @@ function CompeteScreen({
   playerAccountId: string | null
   player: PlayerAccount | null
   onBack: () => void
+  initialTournamentId?: string | null
+  onInitialTournamentConsumed?: () => void
 }) {
   const { t } = useI18n()
   const [activeTab, setActiveTab] = useState<'upcoming' | 'leagues' | 'history'>('upcoming')
@@ -4297,6 +4204,9 @@ function CompeteScreen({
   const [openGameHistoryFetched, setOpenGameHistoryFetched] = useState(false)
   const [selectedTournamentDetail, setSelectedTournamentDetail] = useState<TournamentFullDetail | null>(null)
   const [selectedTournamentLoading, setSelectedTournamentLoading] = useState(false)
+  const [categoryDetails, setCategoryDetails] = useState<import('./lib/clubAndTournaments').TournamentCategoryDetail[]>([])
+  const [categoryDetailsLoading, setCategoryDetailsLoading] = useState(false)
+  const [expandedDetailCats, setExpandedDetailCats] = useState<Set<string>>(new Set())
   const [showFindPartnerModal, setShowFindPartnerModal] = useState(false)
   const [partnerSide, setPartnerSide] = useState<'right' | 'left' | 'both'>('both')
   const [partnerTargetMode, setPartnerTargetMode] = useState<'any' | 'following'>('any')
@@ -4687,24 +4597,6 @@ function CompeteScreen({
     setLeagueLoading(false)
   }
 
-  const viewTournament = async (tournamentId: string, tournamentName: string) => {
-    // Usar effectivePastDetails (edge function tem prioridade sobre client-side)
-    const cached = effectivePastDetails[tournamentId]
-    if (cached) {
-      setViewingTournament({ id: tournamentId, name: tournamentName })
-      setTournamentDetail({ standings: cached.standings, myMatches: cached.myMatches, name: cached.tournamentName })
-      setDetailTab('standings')
-      return
-    }
-    // Fallback: fetch client-side (pode ter limitações RLS)
-    if (!userId) return
-    const { fetchTournamentStandingsAndMatches } = await import('./lib/playerDashboardData')
-    const { standings, myMatches, tournamentName: tn } = await fetchTournamentStandingsAndMatches(tournamentId, userId)
-    setViewingTournament({ id: tournamentId, name: tournamentName })
-    setTournamentDetail({ standings, myMatches, name: tn || tournamentName })
-    setDetailTab('standings')
-  }
-
   const viewEnrolled = async (tournamentId: string, tournamentName: string) => {
     setViewingEnrolled({ id: tournamentId, name: tournamentName })
     setEnrolledLoading(true)
@@ -4721,9 +4613,22 @@ function CompeteScreen({
   const openTournamentDetail = async (tournamentId: string) => {
     setSelectedTournamentLoading(true)
     setSelectedTournamentDetail(null)
+    setCategoryDetails([])
+    setExpandedDetailCats(new Set())
     try {
       const detail = await fetchTournamentFullDetail(tournamentId)
       setSelectedTournamentDetail(detail)
+      if (detail && (detail.status === 'in_progress' || detail.status === 'active' || detail.status === 'completed' || detail.status === 'finished')) {
+        setCategoryDetailsLoading(true)
+        try {
+          const { fetchTournamentCategoryDetails } = await import('./lib/clubAndTournaments')
+          const catDetails = await fetchTournamentCategoryDetails(tournamentId)
+          setCategoryDetails(catDetails)
+        } catch (err) {
+          console.error('[CompeteScreen] Error loading category details:', err)
+        }
+        setCategoryDetailsLoading(false)
+      }
     } catch (err) {
       console.error('[CompeteScreen] Error loading tournament detail:', err)
     }
@@ -4804,6 +4709,13 @@ function CompeteScreen({
       fetchPartnerInvites()
     }
   }, [])
+
+  useEffect(() => {
+    if (initialTournamentId) {
+      openTournamentDetail(initialTournamentId)
+      onInitialTournamentConsumed?.()
+    }
+  }, [initialTournamentId])
 
   const formatFormatName = (format: string) => {
     const formatMap: Record<string, string> = {
@@ -5075,50 +4987,208 @@ function CompeteScreen({
               </div>
             )}
 
-            {/* Inscritos por categoria */}
-            <div className="card p-4">
-              <h3 className="text-base font-bold text-gray-900 mb-4 flex items-center gap-2">
-                <Users className="w-5 h-5 text-red-600" />
-                {(t as any).partner?.enrolledList || 'Inscritos'} ({td.total_enrolled})
-              </h3>
-              {td.enrolled.length === 0 ? (
-                <p className="text-gray-500 text-center py-4">{(t as any).partner?.noEnrolled || 'Ainda sem inscritos.'}</p>
-              ) : (
-                <div className="space-y-5">
-                  {td.enrolled.map((cat) => (
-                    <div key={cat.category_id}>
-                      <div className="flex items-center gap-2 mb-2">
-                        <span className="w-2 h-2 rounded-full bg-red-500" />
-                        <h4 className="text-sm font-semibold text-gray-700">{cat.category_name}</h4>
-                        <span className="text-xs text-gray-400 ml-auto">{cat.items.length} inscrito{cat.items.length !== 1 ? 's' : ''}</span>
-                      </div>
-                      <div className="space-y-1.5">
-                        {cat.items.map((item, idx) => (
-                          <div key={item.id} className="flex items-center gap-3 py-2 px-3 bg-gray-50 rounded-lg">
-                            <span className="text-xs font-semibold text-gray-400 w-5 text-right">{idx + 1}</span>
-                            <div className="flex-1 min-w-0">
-                              {item.player_names?.length ? (
-                                <p className="text-sm text-gray-900 font-medium truncate">{item.name}</p>
-                              ) : item.player1_name || item.player2_name ? (
-                                <div>
-                                  <p className="text-sm text-gray-900 font-medium truncate">{item.name}</p>
-                                  <p className="text-xs text-gray-500 truncate">{[item.player1_name, item.player2_name].filter(Boolean).join(' / ')}</p>
-                                </div>
+            {/* Categorias: grupos, jogos e brackets (ou inscritos) */}
+            {categoryDetailsLoading ? (
+              <div className="card p-6 flex justify-center">
+                <div className="w-6 h-6 border-2 border-red-600 border-t-transparent rounded-full animate-spin" />
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {td.enrolled.length === 0 && categoryDetails.length === 0 ? (
+                  <div className="card p-4">
+                    <h3 className="text-base font-bold text-gray-900 mb-4 flex items-center gap-2">
+                      <Users className="w-5 h-5 text-red-600" />
+                      {(t as any).partner?.enrolledList || 'Inscritos'} ({td.total_enrolled})
+                    </h3>
+                    <p className="text-gray-500 text-center py-4">{(t as any).partner?.noEnrolled || 'Ainda sem inscritos.'}</p>
+                  </div>
+                ) : (
+                  (() => {
+                    const catDetailsMap = new Map(categoryDetails.map(cd => [cd.category_id, cd]))
+                    const knockoutOrderLocal: Record<string, number> = { 'round_of_16': 0, 'quarter': 1, 'semi': 2, '3rd': 3, 'final': 4 }
+                    const getKOOrder = (round: string) => {
+                      const r = round.toLowerCase()
+                      for (const [key, val] of Object.entries(knockoutOrderLocal)) { if (r.includes(key)) return val }
+                      return 99
+                    }
+                    const knockoutLabelLocal = (round: string) => {
+                      const r = round.toLowerCase()
+                      if (r.includes('final') && !r.includes('semi') && !r.includes('quarter')) return 'Final'
+                      if (r.includes('3rd')) return '3º/4º Lugar'
+                      if (r.includes('semi')) return 'Meia-final'
+                      if (r.includes('quarter')) return 'Quartos-de-final'
+                      if (r.includes('round_of_16')) return 'Oitavos-de-final'
+                      return round
+                    }
+                    return td.enrolled.map((cat) => {
+                      const catDetail = catDetailsMap.get(cat.category_id)
+                      const hasGroupsOrMatches = catDetail?.hasData
+                      const isExpanded = expandedDetailCats.has(cat.category_id)
+                      const sortedKnockout = catDetail ? [...catDetail.knockoutMatches].sort((a, b) => getKOOrder(a.round) - getKOOrder(b.round)) : []
+
+                      return (
+                        <div key={cat.category_id} className="card p-4">
+                          <button
+                            onClick={() => setExpandedDetailCats(prev => {
+                              const next = new Set(prev)
+                              if (next.has(cat.category_id)) next.delete(cat.category_id)
+                              else next.add(cat.category_id)
+                              return next
+                            })}
+                            className="w-full flex items-center justify-between"
+                          >
+                            <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                              <span className="w-2 h-2 rounded-full bg-red-500" />
+                              {cat.category_name}
+                              <span className="text-xs font-normal text-gray-400">{cat.items.length} inscrito{cat.items.length !== 1 ? 's' : ''}</span>
+                            </h3>
+                            <ChevronRight className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+                          </button>
+
+                          {isExpanded && (
+                            <div className="mt-3 space-y-3">
+                              {hasGroupsOrMatches && catDetail ? (
+                                <>
+                                  {Object.keys(catDetail.groups).length > 0 && (
+                                    Object.entries(catDetail.groups).sort(([a], [b]) => a.localeCompare(b)).map(([groupName, rows]) => {
+                                      const groupTeamIds = new Set(rows.map(r => r.id))
+                                      const matchesForGroup = catDetail.groupMatches.filter(m => {
+                                        const r = m.round || ''
+                                        if (r.includes(groupName) || r === `group_${groupName}` || r === `group ${groupName}`) return true
+                                        if ((m.team1_id && groupTeamIds.has(m.team1_id)) || (m.team2_id && groupTeamIds.has(m.team2_id))) return true
+                                        return false
+                                      })
+                                      return (
+                                        <div key={groupName}>
+                                          {Object.keys(catDetail.groups).length > 1 && (
+                                            <p className="text-xs font-bold text-blue-600 mb-1">Grupo {groupName}</p>
+                                          )}
+                                          <table className="w-full text-sm mb-1">
+                                            <thead>
+                                              <tr className="text-gray-500 border-b">
+                                                <th className="py-1 px-1 text-left font-medium w-6">#</th>
+                                                <th className="py-1 px-1 text-left font-medium min-w-0">Nome</th>
+                                                <th className="py-1 px-1 text-center font-medium w-6">V</th>
+                                                <th className="py-1 px-1 text-center font-medium w-6">E</th>
+                                                <th className="py-1 px-1 text-center font-medium w-6">D</th>
+                                                <th className="py-1 px-1 text-center font-medium w-8">+/-</th>
+                                                <th className="py-1 px-1 text-center font-semibold w-8">Pts</th>
+                                              </tr>
+                                            </thead>
+                                            <tbody>
+                                              {rows.map((row, i) => {
+                                                const diff = row.points_for - row.points_against
+                                                return (
+                                                  <tr key={row.id} className="border-b border-gray-50">
+                                                    <td className="py-1 px-1 text-xs">{i + 1}</td>
+                                                    <td className="py-1 px-1 min-w-0">
+                                                      <div className="font-medium break-words text-xs">{row.name}</div>
+                                                    </td>
+                                                    <td className="py-1 px-1 text-center text-green-600 text-xs">{row.wins}</td>
+                                                    <td className="py-1 px-1 text-center text-yellow-600 text-xs">{row.draws}</td>
+                                                    <td className="py-1 px-1 text-center text-red-500 text-xs">{row.losses}</td>
+                                                    <td className={`py-1 px-1 text-center text-[10px] ${diff > 0 ? 'text-green-600' : diff < 0 ? 'text-red-500' : 'text-gray-400'}`}>{diff > 0 ? '+' : ''}{diff}</td>
+                                                    <td className="py-1 px-1 text-center font-bold text-xs">{row.points}</td>
+                                                  </tr>
+                                                )
+                                              })}
+                                            </tbody>
+                                          </table>
+                                          {matchesForGroup.length > 0 && (
+                                            <div className="space-y-1 mb-1">
+                                              <p className="text-[10px] font-medium text-gray-400 uppercase">Jogos do Grupo</p>
+                                              {matchesForGroup.map((m) => {
+                                                const scores = [m.set1, m.set2, m.set3].filter(Boolean).join(' ')
+                                                return (
+                                                  <div key={m.id} className="flex justify-between items-center text-xs py-1 px-2 bg-gray-50 rounded">
+                                                    <div className="flex-1 min-w-0">
+                                                      <span className="text-gray-700">{m.team1_name}</span>
+                                                      <span className="text-gray-400 mx-1">vs</span>
+                                                      <span className="text-gray-700">{m.team2_name}</span>
+                                                    </div>
+                                                    <span className="font-semibold text-gray-800 ml-2 flex-shrink-0">{scores || (m.status === 'completed' ? '0-0' : '-')}</span>
+                                                  </div>
+                                                )
+                                              })}
+                                            </div>
+                                          )}
+                                        </div>
+                                      )
+                                    })
+                                  )}
+                                  {Object.keys(catDetail.groups).length === 0 && catDetail.groupMatches.length > 0 && (
+                                    <div className="space-y-1">
+                                      <p className="text-[10px] font-medium text-gray-400 uppercase">Jogos</p>
+                                      {catDetail.groupMatches.map((m) => {
+                                        const scores = [m.set1, m.set2, m.set3].filter(Boolean).join(' ')
+                                        return (
+                                          <div key={m.id} className="flex justify-between items-center text-xs py-1 px-2 bg-gray-50 rounded">
+                                            <div className="flex-1 min-w-0">
+                                              <span className="text-gray-700">{m.team1_name}</span>
+                                              <span className="text-gray-400 mx-1">vs</span>
+                                              <span className="text-gray-700">{m.team2_name}</span>
+                                            </div>
+                                            <span className="font-semibold text-gray-800 ml-2 flex-shrink-0">{scores || (m.status === 'completed' ? '0-0' : '-')}</span>
+                                          </div>
+                                        )
+                                      })}
+                                    </div>
+                                  )}
+                                  {sortedKnockout.length > 0 && (
+                                    <div className="pt-2 border-t border-gray-100">
+                                      <p className="text-xs font-bold text-orange-600 mb-1">Fase Eliminatória</p>
+                                      <div className="space-y-1">
+                                        {sortedKnockout.map((m) => {
+                                          const scores = [m.set1, m.set2, m.set3].filter(Boolean).join(' ')
+                                          return (
+                                            <div key={m.id} className="flex justify-between items-center text-xs py-1.5 px-2 bg-orange-50 rounded">
+                                              <div className="flex-1 min-w-0">
+                                                <span className="text-[10px] text-orange-500 font-medium mr-1">{knockoutLabelLocal(m.round)}</span>
+                                                <span className="text-gray-700">{m.team1_name}</span>
+                                                <span className="text-gray-400 mx-1">vs</span>
+                                                <span className="text-gray-700">{m.team2_name}</span>
+                                              </div>
+                                              <span className="font-semibold text-gray-800 ml-2 flex-shrink-0">{scores || (m.status === 'completed' ? '0-0' : '-')}</span>
+                                            </div>
+                                          )
+                                        })}
+                                      </div>
+                                    </div>
+                                  )}
+                                </>
                               ) : (
-                                <p className="text-sm text-gray-900 font-medium truncate">{item.name}</p>
-                              )}
-                              {item.player_names && item.player_names.length > 0 && (
-                                <p className="text-xs text-gray-500 truncate">{item.player_names.join(' · ')}</p>
+                                <div className="space-y-1.5">
+                                  {cat.items.map((item, idx) => (
+                                    <div key={item.id} className="flex items-center gap-3 py-2 px-3 bg-gray-50 rounded-lg">
+                                      <span className="text-xs font-semibold text-gray-400 w-5 text-right">{idx + 1}</span>
+                                      <div className="flex-1 min-w-0">
+                                        {item.player_names?.length ? (
+                                          <p className="text-sm text-gray-900 font-medium truncate">{item.name}</p>
+                                        ) : item.player1_name || item.player2_name ? (
+                                          <div>
+                                            <p className="text-sm text-gray-900 font-medium truncate">{item.name}</p>
+                                            <p className="text-xs text-gray-500 truncate">{[item.player1_name, item.player2_name].filter(Boolean).join(' / ')}</p>
+                                          </div>
+                                        ) : (
+                                          <p className="text-sm text-gray-900 font-medium truncate">{item.name}</p>
+                                        )}
+                                        {item.player_names && item.player_names.length > 0 && (
+                                          <p className="text-xs text-gray-500 truncate">{item.player_names.join(' · ')}</p>
+                                        )}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
                               )}
                             </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+                          )}
+                        </div>
+                      )
+                    })
+                  })()
+                )}
+              </div>
+            )}
           </div>
         ) : (
           <div className="card p-8 text-center text-gray-500">{(t as any).partner?.tournamentNotFound || 'Torneio não encontrado.'}</div>

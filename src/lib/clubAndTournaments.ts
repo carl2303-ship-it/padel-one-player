@@ -495,3 +495,238 @@ export async function updateTournamentInviteStatus(
 
   return true
 }
+
+// ============================================
+// Grupos, jogos e brackets por categoria
+// ============================================
+
+export interface CategoryGroupStanding {
+  id: string
+  name: string
+  group_name: string
+  wins: number
+  draws: number
+  losses: number
+  points_for: number
+  points_against: number
+  points: number
+  player1_name?: string
+  player2_name?: string
+}
+
+export interface CategoryMatchInfo {
+  id: string
+  team1_id: string | null
+  team2_id: string | null
+  team1_name: string
+  team2_name: string
+  set1?: string
+  set2?: string
+  set3?: string
+  round: string
+  status: string
+  scheduled_time?: string
+}
+
+export interface TournamentCategoryDetail {
+  category_id: string
+  category_name: string
+  groups: Record<string, CategoryGroupStanding[]>
+  groupMatches: CategoryMatchInfo[]
+  knockoutMatches: CategoryMatchInfo[]
+  hasData: boolean
+}
+
+const KNOCKOUT_ROUNDS = ['quarter', 'semi', 'final', '3rd', 'round_of_16']
+function isKnockoutRound(round: string) {
+  const r = round.toLowerCase()
+  return KNOCKOUT_ROUNDS.some(k => r.includes(k))
+}
+
+export async function fetchTournamentCategoryDetails(tournamentId: string): Promise<TournamentCategoryDetail[]> {
+  const { data: tournament } = await supabase
+    .from('tournaments')
+    .select('format, round_robin_type')
+    .eq('id', tournamentId)
+    .maybeSingle()
+
+  if (!tournament) return []
+
+  const { data: categories } = await supabase
+    .from('tournament_categories')
+    .select('id, name')
+    .eq('tournament_id', tournamentId)
+    .order('name')
+
+  const isIndividual =
+    (tournament.format === 'round_robin' && (tournament as any).round_robin_type === 'individual') ||
+    tournament.format === 'individual_groups_knockout' ||
+    tournament.format === 'mixed_american' ||
+    tournament.format === 'mixed_gender'
+
+  const { data: allMatches } = await supabase
+    .from('matches')
+    .select('id, team1_id, team2_id, score1, score2, set1_team1, set1_team2, set2_team1, set2_team2, set3_team1, set3_team2, round, status, scheduled_time, category_id, player1_individual_id, player2_individual_id, player3_individual_id, player4_individual_id')
+    .eq('tournament_id', tournamentId)
+    .order('round')
+
+  let nameMap = new Map<string, string>()
+
+  if (isIndividual) {
+    const { data: players } = await supabase
+      .from('players')
+      .select('id, name, group_name, category_id')
+      .eq('tournament_id', tournamentId)
+    if (players) {
+      for (const p of players as any[]) nameMap.set(p.id, p.name)
+    }
+  } else {
+    const { data: teams } = await supabase
+      .from('teams')
+      .select('id, name, group_name, category_id, player1_id, player2_id')
+      .eq('tournament_id', tournamentId)
+    if (teams) {
+      const playerIds = new Set<string>()
+      for (const tm of teams as any[]) {
+        nameMap.set(tm.id, tm.name)
+        if (tm.player1_id) playerIds.add(tm.player1_id)
+        if (tm.player2_id) playerIds.add(tm.player2_id)
+      }
+      if (playerIds.size > 0) {
+        const { data: playersForTeams } = await supabase
+          .from('players')
+          .select('id, name, group_name, category_id')
+          .in('id', Array.from(playerIds))
+        if (playersForTeams) {
+          for (const p of playersForTeams as any[]) nameMap.set(p.id, p.name)
+        }
+      }
+    }
+  }
+
+  const entityTable = isIndividual ? 'players' : 'teams'
+  const { data: entities } = await supabase
+    .from(entityTable)
+    .select('id, name, group_name, category_id')
+    .eq('tournament_id', tournamentId)
+
+  const entityByCat = new Map<string, any[]>()
+  if (entities) {
+    for (const e of entities) {
+      const catId = (e as any).category_id || 'none'
+      if (!entityByCat.has(catId)) entityByCat.set(catId, [])
+      entityByCat.get(catId)!.push(e)
+    }
+  }
+
+  const matchesByCat = new Map<string, any[]>()
+  if (allMatches) {
+    for (const m of allMatches) {
+      const catId = (m as any).category_id || 'none'
+      if (!matchesByCat.has(catId)) matchesByCat.set(catId, [])
+      matchesByCat.get(catId)!.push(m)
+    }
+  }
+
+  const buildMatchInfo = (m: any): CategoryMatchInfo => {
+    let t1id = m.team1_id
+    let t2id = m.team2_id
+    if (isIndividual && !t1id) {
+      t1id = m.player1_individual_id
+      t2id = m.player2_individual_id
+    }
+    const set1 = (m.set1_team1 != null && m.set1_team2 != null) ? `${m.set1_team1}-${m.set1_team2}` : undefined
+    const set2 = (m.set2_team1 != null && m.set2_team2 != null) ? `${m.set2_team1}-${m.set2_team2}` : undefined
+    const set3 = (m.set3_team1 != null && m.set3_team2 != null) ? `${m.set3_team1}-${m.set3_team2}` : undefined
+    return {
+      id: m.id,
+      team1_id: t1id,
+      team2_id: t2id,
+      team1_name: nameMap.get(t1id) || 'TBD',
+      team2_name: nameMap.get(t2id) || 'TBD',
+      set1, set2, set3,
+      round: m.round || '',
+      status: m.status || 'scheduled',
+      scheduled_time: m.scheduled_time,
+    }
+  }
+
+  const computeGroupStandings = (catEntities: any[], catMatches: any[]): Record<string, CategoryGroupStanding[]> => {
+    const hasGroups = catEntities.some((e: any) => e.group_name)
+    if (!hasGroups) return {}
+
+    const groups: Record<string, CategoryGroupStanding[]> = {}
+    for (const e of catEntities) {
+      const gn = (e as any).group_name || 'Geral'
+      if (!groups[gn]) groups[gn] = []
+      groups[gn].push({
+        id: e.id,
+        name: (e as any).name,
+        group_name: gn,
+        wins: 0, draws: 0, losses: 0,
+        points_for: 0, points_against: 0, points: 0,
+      })
+    }
+
+    const completedMatches = catMatches.filter((m: any) => m.status === 'completed')
+    for (const m of completedMatches) {
+      const t1id = isIndividual ? (m.player1_individual_id || m.team1_id) : m.team1_id
+      const t2id = isIndividual ? (m.player2_individual_id || m.team2_id) : m.team2_id
+      if (!t1id || !t2id) continue
+      if (isKnockoutRound(m.round || '')) continue
+
+      let t1row: CategoryGroupStanding | undefined
+      let t2row: CategoryGroupStanding | undefined
+      for (const rows of Object.values(groups)) {
+        if (!t1row) t1row = rows.find(r => r.id === t1id)
+        if (!t2row) t2row = rows.find(r => r.id === t2id)
+      }
+      if (!t1row || !t2row) continue
+
+      const s1 = m.score1 ?? 0
+      const s2 = m.score2 ?? 0
+      t1row.points_for += s1; t1row.points_against += s2
+      t2row.points_for += s2; t2row.points_against += s1
+
+      if (s1 > s2) { t1row.wins++; t2row.losses++; t1row.points += 3 }
+      else if (s2 > s1) { t2row.wins++; t1row.losses++; t2row.points += 3 }
+      else { t1row.draws++; t2row.draws++; t1row.points++; t2row.points++ }
+    }
+
+    for (const rows of Object.values(groups)) {
+      rows.sort((a, b) => b.points - a.points || (b.points_for - b.points_against) - (a.points_for - a.points_against))
+    }
+    return groups
+  }
+
+  const catList = (categories && categories.length > 0)
+    ? categories
+    : [{ id: 'none', name: 'Geral' }]
+
+  const result: TournamentCategoryDetail[] = []
+
+  for (const cat of catList) {
+    const catEntities = entityByCat.get(cat.id) || []
+    const catMatches = matchesByCat.get(cat.id) || []
+
+    const groups = computeGroupStandings(catEntities, catMatches)
+    const hasGroups = Object.keys(groups).length > 0
+
+    const matchInfos = catMatches.map(buildMatchInfo)
+    const groupMatches = matchInfos.filter(m => !isKnockoutRound(m.round))
+    const knockoutMatches = matchInfos.filter(m => isKnockoutRound(m.round))
+
+    const hasData = hasGroups || matchInfos.length > 0
+
+    result.push({
+      category_id: cat.id,
+      category_name: cat.name,
+      groups,
+      groupMatches,
+      knockoutMatches,
+      hasData,
+    })
+  }
+
+  return result
+}
