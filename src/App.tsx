@@ -4618,7 +4618,7 @@ function CompeteScreen({
     setExpandedDetailCats(new Set())
     setPendingInviteForTournament(null)
     try {
-      const detail = await fetchTournamentFullDetail(tournamentId)
+      const detail = await fetchTournamentFullDetail(tournamentId, player?.id)
       setSelectedTournamentDetail(detail)
       if (player?.id) {
         const invites = await fetchMyTournamentInvites(player.id)
@@ -4986,7 +4986,7 @@ function CompeteScreen({
                           await updateTournamentInviteStatus(player.id, td.id, 'accepted')
                           setPendingInviteForTournament(null)
                           alert('Inscrição aceite com sucesso!')
-                          const refreshed = await fetchTournamentFullDetail(td.id)
+                          const refreshed = await fetchTournamentFullDetail(td.id, player?.id)
                           if (refreshed) setSelectedTournamentDetail(refreshed)
                         } catch (err) {
                           alert('Erro ao aceitar o convite.')

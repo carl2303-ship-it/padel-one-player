@@ -265,13 +265,30 @@ export interface TournamentFullDetail {
 }
 
 /** Busca todos os detalhes de um torneio, incluindo clube, categorias e inscritos. */
-export async function fetchTournamentFullDetail(tournamentId: string): Promise<TournamentFullDetail | null> {
-  // 1) Dados do torneio
-  const { data: t } = await supabase
+export async function fetchTournamentFullDetail(tournamentId: string, playerAccountId?: string | null): Promise<TournamentFullDetail | null> {
+  // 1) Dados do torneio (tenta SELECT directo; se RLS bloquear, usa RPC para torneios invite_only)
+  let t: any = null
+  const { data: directData } = await supabase
     .from('tournaments')
     .select('id, name, description, start_date, end_date, status, format, image_url, number_of_courts, match_duration_minutes, daily_start_time, daily_end_time, club_id, round_robin_type')
     .eq('id', tournamentId)
     .maybeSingle()
+
+  t = directData
+
+  if (!t && playerAccountId) {
+    try {
+      const { data: rpcData } = await supabase.rpc('get_tournament_for_invited_player', {
+        p_player_account_id: playerAccountId,
+        p_tournament_id: tournamentId,
+      })
+      if (rpcData && typeof rpcData === 'object' && !(rpcData as any).error) {
+        t = rpcData
+      }
+    } catch (e) {
+      console.warn('[fetchTournamentFullDetail] RPC fallback failed:', e)
+    }
+  }
 
   if (!t) return null
 
@@ -389,7 +406,10 @@ export async function fetchTournamentsByIds(ids: string[]): Promise<UpcomingTour
   return (data || []) as UpcomingTournamentFromTour[]
 }
 
-/** Busca convites de torneio para o jogador actual. */
+/** Busca convites de torneio para o jogador actual.
+ *  Tenta a RPC get_my_tournament_invites (SECURITY DEFINER) que garante
+ *  acesso a torneios invite_only; faz fallback para queries directas.
+ */
 export async function fetchMyTournamentInvites(playerAccountId: string): Promise<{
   tournament_id: string
   status: string
@@ -397,6 +417,19 @@ export async function fetchMyTournamentInvites(playerAccountId: string): Promise
   tournament_start_date?: string
   tournament_image_url?: string | null
 }[]> {
+  try {
+    const { data: rpcData, error: rpcError } = await supabase.rpc('get_my_tournament_invites', {
+      p_player_account_id: playerAccountId,
+    })
+    if (!rpcError && rpcData) {
+      const arr = Array.isArray(rpcData) ? rpcData : (typeof rpcData === 'string' ? JSON.parse(rpcData) : null)
+      if (Array.isArray(arr)) return arr
+    }
+    if (rpcError) console.warn('[fetchMyTournamentInvites] RPC falhou, fallback:', rpcError.message)
+  } catch (e) {
+    console.warn('[fetchMyTournamentInvites] RPC exception, fallback:', e)
+  }
+
   const { data, error } = await supabase
     .from('tournament_invites')
     .select('tournament_id, status')
