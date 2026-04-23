@@ -2813,13 +2813,6 @@ function HomeScreen({
     return () => { active = false }
   }, [player?.id])
 
-  const handleTournamentInviteAccept = async (tournamentId: string) => {
-    if (!player?.id) return
-    await updateTournamentInviteStatus(player.id, tournamentId, 'accepted')
-    setHomeTournamentInvites(prev => prev.filter(i => i.tournament_id !== tournamentId))
-    onOpenCompete()
-  }
-
   const handleTournamentInviteDecline = async (tournamentId: string) => {
     if (!player?.id) return
     await updateTournamentInviteStatus(player.id, tournamentId, 'declined')
@@ -3085,32 +3078,38 @@ function HomeScreen({
             </span>
           </div>
           <div className="space-y-3">
-            <p className="text-xs text-gray-600">{t.home.tournamentInvitesHint}</p>
+            <p className="text-xs text-gray-600">Foste convidado para torneios exclusivos. Vê os detalhes antes de aceitar.</p>
             {homeTournamentInvites.slice(0, 5).map(inv => (
-              <div key={inv.tournament_id} className="flex items-center gap-3 p-3 bg-white rounded-xl border border-amber-100">
-                {inv.tournament_image_url ? (
-                  <img src={inv.tournament_image_url} className="w-12 h-12 rounded-lg object-cover flex-shrink-0" alt="" />
-                ) : (
-                  <div className="w-12 h-12 rounded-lg bg-amber-100 flex items-center justify-center flex-shrink-0">
-                    <Trophy className="w-6 h-6 text-amber-600" />
-                  </div>
-                )}
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-gray-900 truncate">{inv.tournament_name || 'Torneio'}</p>
-                  {inv.tournament_start_date && (
-                    <p className="text-xs text-gray-500">{new Date(inv.tournament_start_date).toLocaleDateString('pt-PT')}</p>
+              <div key={inv.tournament_id} className="p-3 bg-white rounded-xl border border-amber-100">
+                <div className="flex items-center gap-3">
+                  {inv.tournament_image_url ? (
+                    <img src={inv.tournament_image_url} className="w-14 h-14 rounded-lg object-cover flex-shrink-0" alt="" />
+                  ) : (
+                    <div className="w-14 h-14 rounded-lg bg-amber-100 flex items-center justify-center flex-shrink-0">
+                      <Trophy className="w-7 h-7 text-amber-600" />
+                    </div>
                   )}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-gray-900 truncate">{inv.tournament_name || 'Torneio'}</p>
+                    {inv.tournament_start_date && (
+                      <p className="text-xs text-gray-500 flex items-center gap-1 mt-0.5">
+                        <Calendar className="w-3 h-3" />
+                        {new Date(inv.tournament_start_date).toLocaleDateString('pt-PT')}
+                      </p>
+                    )}
+                    <span className="inline-block mt-1 px-2 py-0.5 text-[10px] font-medium bg-amber-100 text-amber-700 rounded-full">Convite pendente</span>
+                  </div>
                 </div>
-                <div className="flex gap-1.5">
+                <div className="flex gap-2 mt-3">
                   <button
-                    onClick={() => handleTournamentInviteAccept(inv.tournament_id)}
-                    className="px-3 py-1.5 bg-amber-600 text-white rounded-lg text-xs font-medium hover:bg-amber-700"
+                    onClick={() => onOpenTournamentDetail(inv.tournament_id)}
+                    className="flex-1 py-2 bg-amber-600 text-white rounded-lg text-sm font-medium hover:bg-amber-700 transition-colors"
                   >
-                    {t.home.view}
+                    Ver detalhes
                   </button>
                   <button
                     onClick={() => handleTournamentInviteDecline(inv.tournament_id)}
-                    className="px-3 py-1.5 bg-gray-200 text-gray-700 rounded-lg text-xs font-medium hover:bg-gray-300"
+                    className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-300 transition-colors"
                   >
                     {t.home.decline}
                   </button>
@@ -4204,6 +4203,8 @@ function CompeteScreen({
   const [openGameHistoryFetched, setOpenGameHistoryFetched] = useState(false)
   const [selectedTournamentDetail, setSelectedTournamentDetail] = useState<TournamentFullDetail | null>(null)
   const [selectedTournamentLoading, setSelectedTournamentLoading] = useState(false)
+  const [pendingInviteForTournament, setPendingInviteForTournament] = useState<string | null>(null)
+  const [inviteActionLoading, setInviteActionLoading] = useState(false)
   const [categoryDetails, setCategoryDetails] = useState<import('./lib/clubAndTournaments').TournamentCategoryDetail[]>([])
   const [categoryDetailsLoading, setCategoryDetailsLoading] = useState(false)
   const [expandedDetailCats, setExpandedDetailCats] = useState<Set<string>>(new Set())
@@ -4615,9 +4616,15 @@ function CompeteScreen({
     setSelectedTournamentDetail(null)
     setCategoryDetails([])
     setExpandedDetailCats(new Set())
+    setPendingInviteForTournament(null)
     try {
       const detail = await fetchTournamentFullDetail(tournamentId)
       setSelectedTournamentDetail(detail)
+      if (player?.id) {
+        const invites = await fetchMyTournamentInvites(player.id)
+        const pending = invites.find(i => i.tournament_id === tournamentId && i.status === 'pending')
+        if (pending) setPendingInviteForTournament(tournamentId)
+      }
       if (detail && (detail.status === 'in_progress' || detail.status === 'active' || detail.status === 'completed' || detail.status === 'finished')) {
         setCategoryDetailsLoading(true)
         try {
@@ -4960,29 +4967,83 @@ function CompeteScreen({
               </div>
             )}
 
-            {/* Botão de inscrição */}
+            {/* Botão de inscrição / aceitar convite */}
             {!isEnrolled && td.status === 'active' && (
               <div className="space-y-2">
-                <a
-                  href={getTournamentRegistrationUrl(td.id, player?.phone_number || undefined)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center justify-center gap-2 w-full py-3.5 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-xl transition-colors"
-                >
-                  {(t as any).partner?.registerMe || 'Inscrever-me'}
-                  <ExternalLink className="w-4 h-4" />
-                </a>
-                {isPartnerMatchingEligible(td.format, (td as any).round_robin_type || null) && (
-                  <button
-                    onClick={() => {
-                      const preferredCat = td.categories.find((c) => (player?.player_category ? c.name.toUpperCase().includes(player.player_category) : false))
-                      setPartnerCategoryId(preferredCat?.id || td.categories[0]?.id || null)
-                      setShowFindPartnerModal(true)
-                    }}
-                    className="flex items-center justify-center gap-2 w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl transition-colors"
-                  >
-                    {(t as any).partner?.findPartner || 'Encontrar Parceiro'}
-                  </button>
+                {pendingInviteForTournament === td.id ? (
+                  <>
+                    <div className="card p-3 border-2 border-amber-200 bg-amber-50/40 mb-2">
+                      <p className="text-sm text-amber-800 font-medium flex items-center gap-2">
+                        <span>🔒</span> Foste convidado para este torneio exclusivo
+                      </p>
+                    </div>
+                    <button
+                      disabled={inviteActionLoading}
+                      onClick={async () => {
+                        if (!player?.id) return
+                        setInviteActionLoading(true)
+                        try {
+                          await updateTournamentInviteStatus(player.id, td.id, 'accepted')
+                          setPendingInviteForTournament(null)
+                          alert('Inscrição aceite com sucesso!')
+                          const refreshed = await fetchTournamentFullDetail(td.id)
+                          if (refreshed) setSelectedTournamentDetail(refreshed)
+                        } catch (err) {
+                          alert('Erro ao aceitar o convite.')
+                        } finally {
+                          setInviteActionLoading(false)
+                        }
+                      }}
+                      className="flex items-center justify-center gap-2 w-full py-3.5 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white font-semibold rounded-xl transition-colors"
+                    >
+                      {inviteActionLoading ? 'A processar...' : 'Aceitar convite e inscrever-me'}
+                    </button>
+                    <button
+                      disabled={inviteActionLoading}
+                      onClick={async () => {
+                        if (!player?.id) return
+                        if (!confirm('Tens a certeza que queres recusar este convite?')) return
+                        setInviteActionLoading(true)
+                        try {
+                          await updateTournamentInviteStatus(player.id, td.id, 'declined')
+                          setPendingInviteForTournament(null)
+                          setSelectedTournamentDetail(null)
+                          setSelectedTournamentLoading(false)
+                        } catch (err) {
+                          alert('Erro ao recusar o convite.')
+                        } finally {
+                          setInviteActionLoading(false)
+                        }
+                      }}
+                      className="flex items-center justify-center gap-2 w-full py-2.5 bg-gray-200 hover:bg-gray-300 disabled:opacity-50 text-gray-700 font-medium rounded-xl transition-colors"
+                    >
+                      Recusar convite
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <a
+                      href={getTournamentRegistrationUrl(td.id, player?.phone_number || undefined)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-center gap-2 w-full py-3.5 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-xl transition-colors"
+                    >
+                      {(t as any).partner?.registerMe || 'Inscrever-me'}
+                      <ExternalLink className="w-4 h-4" />
+                    </a>
+                    {isPartnerMatchingEligible(td.format, (td as any).round_robin_type || null) && (
+                      <button
+                        onClick={() => {
+                          const preferredCat = td.categories.find((c) => (player?.player_category ? c.name.toUpperCase().includes(player.player_category) : false))
+                          setPartnerCategoryId(preferredCat?.id || td.categories[0]?.id || null)
+                          setShowFindPartnerModal(true)
+                        }}
+                        className="flex items-center justify-center gap-2 w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl transition-colors"
+                      >
+                        {(t as any).partner?.findPartner || 'Encontrar Parceiro'}
+                      </button>
+                    )}
+                  </>
                 )}
               </div>
             )}
