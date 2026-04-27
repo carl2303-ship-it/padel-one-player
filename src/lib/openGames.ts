@@ -754,6 +754,18 @@ export async function createOpenGame(params: {
     console.error('[OpenGames] Error adding creator to game:', playerError)
   }
 
+  // Auto-register creator at this club (for future notifications)
+  if (resolvedAccountId && params.clubId) {
+    supabase
+      .from('player_clubs')
+      .insert({ player_account_id: resolvedAccountId, club_id: params.clubId })
+      .then(({ error: clubErr }) => {
+        if (clubErr && clubErr.code !== '23505') {
+          console.error('[OpenGames] Error auto-registering player at club:', clubErr)
+        }
+      })
+  }
+
   // Add other players if provided (for private bookings)
   if (params.players && params.players.length > 0) {
     const otherPlayers = params.players.filter(p => p.player_account_id !== resolvedAccountId)
@@ -1143,7 +1155,7 @@ export async function joinOpenGame(params: {
 
     const { data: game } = await supabase
       .from('open_games')
-      .select('max_players')
+      .select('max_players, club_id')
       .eq('id', params.gameId)
       .single()
 
@@ -1152,6 +1164,18 @@ export async function joinOpenGame(params: {
         .from('open_games')
         .update({ status: 'full' })
         .eq('id', params.gameId)
+    }
+
+    // Auto-register player at this club (for future notifications)
+    if (resolvedAccountId && game?.club_id) {
+      supabase
+        .from('player_clubs')
+        .insert({ player_account_id: resolvedAccountId, club_id: game.club_id })
+        .then(({ error: clubErr }) => {
+          if (clubErr && clubErr.code !== '23505') {
+            console.error('[OpenGames] Error auto-registering player at club:', clubErr)
+          }
+        })
     }
   }
 

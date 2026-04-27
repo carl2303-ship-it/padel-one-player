@@ -73,7 +73,8 @@ export async function requestPartnerMatch(params: {
   tournamentId: string;
   categoryId?: string | null;
   sidePreference: "right" | "left" | "both";
-  targetMode: "any" | "following";
+  targetMode: "any" | "following" | "direct";
+  inviteePhone?: string;
 }) {
   return callFn("request-partner-match", params);
 }

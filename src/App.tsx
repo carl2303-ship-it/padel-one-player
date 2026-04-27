@@ -4210,7 +4210,11 @@ function CompeteScreen({
   const [expandedDetailCats, setExpandedDetailCats] = useState<Set<string>>(new Set())
   const [showFindPartnerModal, setShowFindPartnerModal] = useState(false)
   const [partnerSide, setPartnerSide] = useState<'right' | 'left' | 'both'>('both')
-  const [partnerTargetMode, setPartnerTargetMode] = useState<'any' | 'following'>('any')
+  const [partnerTargetMode, setPartnerTargetMode] = useState<'any' | 'following' | 'direct'>('any')
+  const [partnerInviteePhone, setPartnerInviteePhone] = useState('')
+  const [partnerInviteeLookup, setPartnerInviteeLookup] = useState<{ found: boolean; name: string | null; position: string | null } | null>(null)
+  const [partnerInviteeLooking, setPartnerInviteeLooking] = useState(false)
+  const partnerPhoneLookupRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [partnerCategoryId, setPartnerCategoryId] = useState<string | null>(null)
   const [partnerLoading, setPartnerLoading] = useState(false)
   const [pendingPartnerInvites, setPendingPartnerInvites] = useState<PartnerInvite[]>([])
@@ -4741,6 +4745,40 @@ function CompeteScreen({
     return !['individual_groups_knockout', 'mixed_american'].includes(format)
   }
 
+  const handlePartnerPhoneLookup = async (phone: string) => {
+    const normalized = phone.replace(/\s+/g, '').trim()
+    if (normalized.length < 6) {
+      setPartnerInviteeLookup(null)
+      return
+    }
+    setPartnerInviteeLooking(true)
+    try {
+      const { data } = await supabase
+        .from('player_accounts')
+        .select('name, court_position')
+        .eq('phone_number', normalized)
+        .not('user_id', 'is', null)
+        .maybeSingle()
+      if (data) {
+        setPartnerInviteeLookup({ found: true, name: data.name, position: data.court_position || null })
+      } else {
+        setPartnerInviteeLookup({ found: false, name: null, position: null })
+      }
+    } catch {
+      setPartnerInviteeLookup({ found: false, name: null, position: null })
+    }
+    setPartnerInviteeLooking(false)
+  }
+
+  const handlePartnerPhoneChange = (phone: string) => {
+    setPartnerInviteePhone(phone)
+    setPartnerInviteeLookup(null)
+    if (partnerPhoneLookupRef.current) clearTimeout(partnerPhoneLookupRef.current)
+    if (phone.replace(/\s+/g, '').length >= 6) {
+      partnerPhoneLookupRef.current = setTimeout(() => handlePartnerPhoneLookup(phone), 500)
+    }
+  }
+
   const handleRequestPartner = async (tournament: TournamentFullDetail) => {
     setPartnerLoading(true)
     try {
@@ -4749,8 +4787,12 @@ function CompeteScreen({
         categoryId: partnerCategoryId,
         sidePreference: partnerSide,
         targetMode: partnerTargetMode,
+        ...(partnerTargetMode === 'direct' && partnerInviteePhone ? { inviteePhone: partnerInviteePhone } : {}),
       })
-      if (result?.invitesSent > 0) {
+      if (partnerTargetMode === 'direct' && result?.invitesSent > 0) {
+        const name = result?.inviteeName || 'jogador'
+        alert(`Convite enviado para ${name}! O jogador pode aceitar em Compete → Convites de Parceiro.`)
+      } else if (result?.invitesSent > 0) {
         const delivered = Number(result?.pushDelivered || 0)
         alert(
           `Convites registados para ${result.invitesSent} jogador(es). Cada um pode ver o convite em Compete → Convites de Parceiro (não precisa de notificação push).\n\nNotificações push entregues: ${delivered} (só para quem tem alertas ativos neste dispositivo).`,
@@ -4759,6 +4801,8 @@ function CompeteScreen({
         alert('Pedido criado, sem candidatos disponíveis de momento.')
       }
       setShowFindPartnerModal(false)
+      setPartnerInviteePhone('')
+      setPartnerInviteeLookup(null)
       await loadPartnerRequestSummary(tournament.id)
     } catch (error: any) {
       alert(error?.message || 'Não foi possível enviar o pedido.')
@@ -5259,7 +5303,7 @@ function CompeteScreen({
             <div className="bg-white rounded-2xl p-4 w-full max-w-md space-y-4">
               <div className="flex items-center justify-between">
                 <h3 className="text-lg font-bold text-gray-900">{(t as any).partner?.findPartner || 'Encontrar Parceiro'}</h3>
-                <button onClick={() => setShowFindPartnerModal(false)} className="p-1 rounded hover:bg-gray-100">
+                <button onClick={() => { setShowFindPartnerModal(false); setPartnerInviteePhone(''); setPartnerInviteeLookup(null); }} className="p-1 rounded hover:bg-gray-100">
                   <X className="w-4 h-4 text-gray-500" />
                 </button>
               </div>
@@ -5272,12 +5316,51 @@ function CompeteScreen({
                 </div>
               </div>
               <div>
-                <p className="text-sm font-medium text-gray-700 mb-2">{(t as any).partner?.targetQuestion || 'Qualquer um ou jogadores que sigo?'}</p>
+                <p className="text-sm font-medium text-gray-700 mb-2">{(t as any).partner?.targetQuestion || 'Como queres encontrar parceiro?'}</p>
                 <div className="flex gap-2">
                   <button onClick={() => setPartnerTargetMode('any')} className={`flex-1 py-2 rounded-lg text-sm font-medium ${partnerTargetMode === 'any' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-700'}`}>{(t as any).partner?.anyone || 'Qualquer um'}</button>
-                  <button onClick={() => setPartnerTargetMode('following')} className={`flex-1 py-2 rounded-lg text-sm font-medium ${partnerTargetMode === 'following' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-700'}`}>{(t as any).partner?.followingOnly || 'Jogadores que sigo'}</button>
+                  <button onClick={() => setPartnerTargetMode('following')} className={`flex-1 py-2 rounded-lg text-sm font-medium ${partnerTargetMode === 'following' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-700'}`}>{(t as any).partner?.followingOnly || 'Quem sigo'}</button>
+                  <button onClick={() => setPartnerTargetMode('direct')} className={`flex-1 py-2 rounded-lg text-sm font-medium ${partnerTargetMode === 'direct' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-700'}`}>{(t as any).partner?.directInvite || 'Convidar'}</button>
                 </div>
               </div>
+              {partnerTargetMode === 'direct' && (
+                <div>
+                  <p className="text-sm font-medium text-gray-700 mb-2">{(t as any).partner?.inviteePhoneLabel || 'Telemóvel do parceiro'}</p>
+                  <div className="relative">
+                    <input
+                      type="tel"
+                      value={partnerInviteePhone}
+                      onChange={(e) => handlePartnerPhoneChange(e.target.value)}
+                      className={`w-full p-2.5 border rounded-lg text-sm ${partnerInviteeLookup?.found ? 'border-green-400 bg-green-50' : partnerInviteeLookup && !partnerInviteeLookup.found ? 'border-red-300 bg-red-50' : 'border-gray-200'}`}
+                      placeholder="+351 912 345 678"
+                    />
+                    {partnerInviteeLooking && (
+                      <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                        <div className="w-4 h-4 border-2 border-gray-300 border-t-blue-600 rounded-full animate-spin" />
+                      </div>
+                    )}
+                  </div>
+                  {partnerInviteeLookup?.found && (
+                    <div className="mt-2 p-2.5 bg-green-50 border border-green-200 rounded-lg flex items-center gap-2">
+                      <span className="text-green-600 text-lg">✓</span>
+                      <div>
+                        <p className="text-sm font-semibold text-green-800">{partnerInviteeLookup.name}</p>
+                        {partnerInviteeLookup.position && (
+                          <p className="text-xs text-green-600">Posição: {partnerInviteeLookup.position === 'right' ? 'Direita' : partnerInviteeLookup.position === 'left' ? 'Esquerda' : 'Ambos'}</p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  {partnerInviteeLookup && !partnerInviteeLookup.found && (
+                    <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded-lg">
+                      <p className="text-xs text-red-600">Nenhum jogador encontrado com este número.</p>
+                    </div>
+                  )}
+                  {!partnerInviteeLookup && !partnerInviteeLooking && (
+                    <p className="text-xs text-gray-500 mt-1">{(t as any).partner?.inviteePhoneHint || 'O jogador tem que estar registado na app.'}</p>
+                  )}
+                </div>
+              )}
               <div>
                 <p className="text-sm font-medium text-gray-700 mb-2">{(t as any).partner?.category || 'Categoria'}</p>
                 <select
@@ -5293,10 +5376,14 @@ function CompeteScreen({
               </div>
               <button
                 onClick={() => handleRequestPartner(td)}
-                disabled={partnerLoading || !partnerCategoryId}
+                disabled={partnerLoading || !partnerCategoryId || (partnerTargetMode === 'direct' && (!partnerInviteeLookup?.found || partnerInviteePhone.replace(/\s+/g, '').length < 6))}
                 className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white font-semibold"
               >
-                {partnerLoading ? ((t as any).partner?.searching || 'A procurar...') : ((t as any).partner?.find || 'Encontrar')}
+                {partnerLoading
+                  ? ((t as any).partner?.searching || 'A procurar...')
+                  : partnerTargetMode === 'direct'
+                    ? ((t as any).partner?.sendInvite || 'Enviar Convite')
+                    : ((t as any).partner?.find || 'Encontrar')}
               </button>
             </div>
           </div>
@@ -11057,37 +11144,57 @@ function ProfileEditScreen({
           ) : (
             clubs.map((club) => {
               const isSelected = playerClubIds.includes(club.id)
+              const isFavorite = favoriteClubId === club.id
               const isToggling = togglingClub === club.id
               return (
-                <button
+                <div
                   key={club.id}
-                  disabled={isToggling}
-                  onClick={async () => {
-                    setTogglingClub(club.id)
-                    try {
-                      await onToggleClub(club.id, !isSelected)
-                    } catch {}
-                    setTogglingClub(null)
-                  }}
-                  className={`w-full p-4 flex items-center gap-3 text-left transition-colors ${isSelected ? 'bg-red-50' : 'hover:bg-gray-50'} ${isToggling ? 'opacity-50' : ''}`}
+                  className={`w-full p-4 flex items-center gap-3 transition-colors ${isSelected ? 'bg-red-50' : 'hover:bg-gray-50'} ${isToggling ? 'opacity-50' : ''}`}
                 >
-                  {club.logo_url ? (
-                    <img src={club.logo_url} alt="" className="w-10 h-10 rounded-lg object-cover shrink-0" />
-                  ) : (
-                    <div className="w-10 h-10 rounded-lg bg-gray-200 flex items-center justify-center shrink-0">
-                      <Building2 className="w-5 h-5 text-gray-400" />
-                    </div>
+                  {isSelected && (
+                    <button
+                      onClick={async (e) => {
+                        e.stopPropagation()
+                        if (!isFavorite) await onSaveFavoriteClub(club.id)
+                      }}
+                      className="shrink-0"
+                      title={isFavorite ? 'Clube favorito' : 'Definir como favorito'}
+                    >
+                      <Star className={`w-5 h-5 transition-colors ${isFavorite ? 'text-amber-500 fill-amber-500' : 'text-gray-300 hover:text-amber-400'}`} />
+                    </button>
                   )}
-                  <div className="flex-1 min-w-0">
-                    <span className="font-medium text-gray-900 truncate block">{club.name}</span>
-                    {club.is_managed === false && !club.owner_id && (
-                      <span className="inline-block mt-0.5 px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-200 text-gray-500">Ainda não na plataforma</span>
+                  <button
+                    disabled={isToggling}
+                    onClick={async () => {
+                      setTogglingClub(club.id)
+                      try {
+                        await onToggleClub(club.id, !isSelected)
+                      } catch {}
+                      setTogglingClub(null)
+                    }}
+                    className="flex items-center gap-3 flex-1 min-w-0 text-left"
+                  >
+                    {club.logo_url ? (
+                      <img src={club.logo_url} alt="" className="w-10 h-10 rounded-lg object-cover shrink-0" />
+                    ) : (
+                      <div className="w-10 h-10 rounded-lg bg-gray-200 flex items-center justify-center shrink-0">
+                        <Building2 className="w-5 h-5 text-gray-400" />
+                      </div>
                     )}
-                  </div>
-                  <div className={`w-6 h-6 rounded-md border-2 flex items-center justify-center shrink-0 transition-colors ${isSelected ? 'bg-red-600 border-red-600' : 'border-gray-300'}`}>
-                    {isSelected && <Check className="w-4 h-4 text-white" />}
-                  </div>
-                </button>
+                    <div className="flex-1 min-w-0">
+                      <span className="font-medium text-gray-900 truncate block">{club.name}</span>
+                      {isFavorite && (
+                        <span className="text-xs text-amber-600 font-medium">Clube favorito</span>
+                      )}
+                      {club.is_managed === false && !club.owner_id && (
+                        <span className="inline-block mt-0.5 px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-200 text-gray-500">Ainda não na plataforma</span>
+                      )}
+                    </div>
+                    <div className={`w-6 h-6 rounded-md border-2 flex items-center justify-center shrink-0 transition-colors ${isSelected ? 'bg-red-600 border-red-600' : 'border-gray-300'}`}>
+                      {isSelected && <Check className="w-4 h-4 text-white" />}
+                    </div>
+                  </button>
+                </div>
               )
             })
           )}
