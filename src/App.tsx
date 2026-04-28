@@ -2694,6 +2694,28 @@ function HomeScreen({
     }
   }
 
+  // Available open games for player's level
+  const [homeOpenGames, setHomeOpenGames] = useState<import('./lib/openGames').OpenGame[]>([])
+  const [homeOpenGamesLoading, setHomeOpenGamesLoading] = useState(false)
+
+  useEffect(() => {
+    if (!userId || !player?.level) return
+    let active = true
+    const load = async () => {
+      setHomeOpenGamesLoading(true)
+      try {
+        const { fetchOpenGamesForLevel } = await import('./lib/openGames')
+        const data = await fetchOpenGamesForLevel(player.level!, userId)
+        if (active) setHomeOpenGames(data)
+      } catch (err) {
+        console.error('[Home] Error fetching open games for level:', err)
+      }
+      if (active) setHomeOpenGamesLoading(false)
+    }
+    load()
+    return () => { active = false }
+  }, [userId, player?.level])
+
   const d = dashboardData
   const name = d?.playerName || player?.name?.split(' ')[0] || t.common.player
   const wins = d?.stats.wins ?? player?.wins ?? 0
@@ -3001,6 +3023,110 @@ function HomeScreen({
           </div>
         )}
       </div>
+
+      {/* Jogos Abertos — jogos disponíveis para o nível do jogador */}
+      {(homeOpenGames.length > 0 || homeOpenGamesLoading) && (
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+              <span>🎾</span> Jogos Abertos
+            </h2>
+            <button onClick={onOpenFindGame} className="text-red-600 text-sm font-medium flex items-center gap-1">
+              {t.home.viewAll} <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+          {homeOpenGamesLoading ? (
+            <div className="card p-6 text-center">
+              <div className="animate-spin w-6 h-6 border-2 border-red-600 border-t-transparent rounded-full mx-auto"></div>
+              <p className="text-sm text-gray-500 mt-2">A carregar jogos...</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto pb-2 -mx-4 px-4 sm:mx-0 sm:px-0 snap-x snap-mandatory scroll-smooth games-horizontal-scroll">
+              <div className="flex gap-3" style={{ width: 'max-content' }}>
+                {homeOpenGames.slice(0, 8).map((game) => {
+                  const gameDate = new Date(game.scheduled_at)
+                  const confirmedCount = game.players.filter(p => p.status === 'confirmed').length
+                  const spotsLeft = game.max_players - confirmedCount
+                  return (
+                    <div key={game.id} className="snap-center w-[260px] shrink-0 card p-4 border border-gray-100 hover:shadow-md transition-shadow">
+                      <div className="flex items-center gap-2 mb-2">
+                        {game.club_logo_url ? (
+                          <img src={game.club_logo_url} alt="" className="w-8 h-8 rounded-full object-cover" />
+                        ) : (
+                          <div className="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center text-sm">🏟️</div>
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-semibold text-gray-900 truncate">{game.club_name}</p>
+                          {game.club_city && <p className="text-xs text-gray-500 truncate">{game.club_city}</p>}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 text-xs text-gray-600 mb-2">
+                        <Calendar className="w-3.5 h-3.5 shrink-0" />
+                        <span>{formatDate(game.scheduled_at)}</span>
+                        <span className="font-medium">{`${String(gameDate.getHours()).padStart(2, '0')}:${String(gameDate.getMinutes()).padStart(2, '0')}`}</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-xs text-gray-600 mb-2">
+                        <span className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-medium">
+                          Nv. {game.level_min.toFixed(1)}-{game.level_max.toFixed(1)}
+                        </span>
+                        <span className="px-1.5 py-0.5 rounded bg-gray-100 text-gray-700">
+                          {game.duration_minutes} min
+                        </span>
+                        {game.game_type === 'competitive' ? (
+                          <span className="px-1.5 py-0.5 rounded bg-red-100 text-red-700">Competitivo</span>
+                        ) : (
+                          <span className="px-1.5 py-0.5 rounded bg-green-100 text-green-700">Amigável</span>
+                        )}
+                      </div>
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-1">
+                          {Array.from({ length: game.max_players }).map((_, i) => (
+                            <div key={i} className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${i < confirmedCount ? 'bg-green-500 text-white' : 'bg-gray-200 text-gray-400'}`}>
+                              {i < confirmedCount ? '✓' : '?'}
+                            </div>
+                          ))}
+                        </div>
+                        <span className={`text-xs font-semibold ${spotsLeft <= 1 ? 'text-red-600' : 'text-green-600'}`}>
+                          {spotsLeft} {spotsLeft === 1 ? 'lugar' : 'lugares'}
+                        </span>
+                      </div>
+                      {game.price_per_player > 0 && (
+                        <p className="text-xs text-gray-500 mb-2">{game.price_per_player.toFixed(2)}€ / jogador</p>
+                      )}
+                      <button
+                        onClick={async () => {
+                          if (!userId || !player?.id) {
+                            alert('Tens de ter sessão iniciada para entrar num jogo.')
+                            return
+                          }
+                          const { joinOpenGame } = await import('./lib/openGames')
+                          const result = await joinOpenGame({
+                            gameId: game.id,
+                            userId,
+                            playerAccountId: player.id,
+                            playerLevel: player.level || 3.0,
+                            gameLevelMin: game.level_min,
+                            gameLevelMax: game.level_max,
+                          })
+                          if (result.success) {
+                            setHomeOpenGames(prev => prev.filter(g => g.id !== game.id))
+                            onRefresh()
+                          } else {
+                            alert(result.error || 'Erro ao juntar-se ao jogo.')
+                          }
+                        }}
+                        className="w-full py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white text-sm font-semibold transition-colors"
+                      >
+                        Juntar-me
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Convites de parceiro (torneios) — visível na home para resposta rápida */}
       <div

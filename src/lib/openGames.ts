@@ -344,6 +344,25 @@ export async function fetchOpenGames(filters?: {
   return games
 }
 
+/**
+ * Fetch open games matching a player's level (±1.0 range).
+ * Excludes games the player already joined and private games they can't see.
+ */
+export async function fetchOpenGamesForLevel(playerLevel: number, playerUserId: string): Promise<OpenGame[]> {
+  const allGames = await fetchOpenGames()
+  const levelMin = playerLevel - 1.0
+  const levelMax = playerLevel + 1.0
+
+  return allGames.filter(g => {
+    if (g.status !== 'open') return false
+    if (g.level_min > levelMax || g.level_max < levelMin) return false
+    const isPlayer = g.players.some(p => p.user_id === playerUserId)
+    if (isPlayer) return false
+    if (g.creator_user_id === playerUserId) return false
+    return true
+  })
+}
+
 // ============================
 // Fetch clubs with availability for "Crie um Jogo"
 // ============================
@@ -758,12 +777,18 @@ export async function createOpenGame(params: {
   if (resolvedAccountId && params.clubId) {
     supabase
       .from('player_clubs')
-      .insert({ player_account_id: resolvedAccountId, club_id: params.clubId })
-      .then(({ error: clubErr }) => {
-        if (clubErr && clubErr.code !== '23505') {
-          console.error('[OpenGames] Error auto-registering player at club:', clubErr)
+      .select('id')
+      .eq('player_account_id', resolvedAccountId)
+      .eq('club_id', params.clubId)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!data) {
+          return supabase
+            .from('player_clubs')
+            .insert({ player_account_id: resolvedAccountId, club_id: params.clubId })
         }
       })
+      .catch((err) => console.error('[OpenGames] Error auto-registering player at club:', err))
   }
 
   // Add other players if provided (for private bookings)
@@ -908,6 +933,9 @@ export async function createOpenGame(params: {
           clubName: clubForNotif?.name || 'Clube',
           gameType: params.gameType,
         }),
+      }).then(async (resp) => {
+        const result = await resp.json().catch(() => null)
+        console.log('[Push] notify-new-open-game response:', resp.status, result)
       }).catch(err => console.error('[Push] notify-new-open-game fetch error:', err))
     } catch (err) {
       console.error('[Push] Error triggering matching player notifications:', err)
@@ -1170,12 +1198,18 @@ export async function joinOpenGame(params: {
     if (resolvedAccountId && game?.club_id) {
       supabase
         .from('player_clubs')
-        .insert({ player_account_id: resolvedAccountId, club_id: game.club_id })
-        .then(({ error: clubErr }) => {
-          if (clubErr && clubErr.code !== '23505') {
-            console.error('[OpenGames] Error auto-registering player at club:', clubErr)
+        .select('id')
+        .eq('player_account_id', resolvedAccountId)
+        .eq('club_id', game.club_id)
+        .maybeSingle()
+        .then(({ data }) => {
+          if (!data) {
+            return supabase
+              .from('player_clubs')
+              .insert({ player_account_id: resolvedAccountId, club_id: game.club_id })
           }
         })
+        .catch((err) => console.error('[OpenGames] Error auto-registering player at club:', err))
     }
   }
 
