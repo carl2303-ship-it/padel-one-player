@@ -16,13 +16,14 @@ export interface ClubDetail {
   website: string | null
   owner_id?: string | null
   is_managed?: boolean
+  plan_type?: string | null
 }
 
 /** Lista todos os clubes geridos pela Padel One (para o jogador escolher no perfil). */
 export async function fetchAllClubs(): Promise<ClubDetail[]> {
   const { data } = await supabase
     .from('clubs')
-    .select('id, name, description, logo_url, address, city, country, phone, email, website, owner_id, is_managed')
+    .select('id, name, description, logo_url, address, city, country, phone, email, website, owner_id, is_managed, plan_type')
     .order('name', { ascending: true })
   return (data || []) as ClubDetail[]
 }
@@ -31,7 +32,7 @@ export async function fetchAllClubs(): Promise<ClubDetail[]> {
 export async function fetchClubById(clubId: string): Promise<ClubDetail | null> {
   const { data } = await supabase
     .from('clubs')
-    .select('id, name, description, logo_url, address, city, country, phone, email, website')
+    .select('id, name, description, logo_url, address, city, country, phone, email, website, plan_type')
     .eq('id', clubId)
     .maybeSingle()
   return data as ClubDetail | null

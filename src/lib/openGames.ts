@@ -1511,6 +1511,15 @@ export async function cancelOpenGame(gameId: string): Promise<boolean> {
     }
   }
 
+  // Delete game players and game from DB after cancellation
+  try {
+    await supabase.from('open_game_players').delete().eq('game_id', gameId)
+    await supabase.from('open_games').delete().eq('id', gameId)
+    console.log('[OpenGames] Game and players deleted from DB after cancellation')
+  } catch (delErr) {
+    console.warn('[OpenGames] Error deleting cancelled game from DB:', delErr)
+  }
+
   return true
 }
 

@@ -4246,6 +4246,13 @@ function ClubScreen({ favoriteClubId, onBack }: { favoriteClubId: string | null;
         )}
         <div className="p-5">
           <h1 className="text-xl font-bold text-gray-900">{club.name}</h1>
+          {club.plan_type === 'preview' && (
+            <div className="mt-3 p-3 rounded-xl bg-amber-50 border border-amber-200">
+              <p className="text-sm text-amber-800 font-medium">
+                Este clube ainda não está ativo na Padel One. Entre em contacto com o seu clube! Obrigado.
+              </p>
+            </div>
+          )}
           {club.description && (
             <p className="text-gray-600 mt-2 text-sm leading-relaxed">{club.description}</p>
           )}
@@ -10817,7 +10824,7 @@ function ProfileViewScreen({
           <div className="overflow-x-auto pb-2 -mx-4 px-4 sm:mx-0 sm:px-0 snap-x snap-mandatory scroll-smooth">
             <div className="flex gap-3" style={{ width: 'max-content' }}>
               {clubsWherePlays.map((club) => (
-                <div key={club.id} className="snap-center flex-shrink-0 w-[140px] card overflow-hidden p-0">
+                <div key={club.id} className={`snap-center flex-shrink-0 w-[160px] card overflow-hidden p-0 ${club.plan_type === 'preview' ? 'border-amber-200' : ''}`}>
                   <div className="h-20 bg-gray-100 flex items-center justify-center">
                     {club.logo_url ? (
                       <img src={club.logo_url} alt="" className="w-full h-full object-cover" />
@@ -10827,6 +10834,9 @@ function ProfileViewScreen({
                   </div>
                   <div className="p-3">
                     <p className="font-medium text-gray-900 text-sm truncate" title={club.name}>{club.name}</p>
+                    {club.plan_type === 'preview' && (
+                      <p className="text-[10px] text-amber-700 mt-1 leading-tight">Clube ainda não ativo na Padel One</p>
+                    )}
                   </div>
                 </div>
               ))}
