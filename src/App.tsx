@@ -1,6 +1,8 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { supabase, PlayerAccount } from './lib/supabase'
 import { useI18n } from './lib/i18nContext'
+import PlayerLandingPage from './components/PlayerLandingPage'
+import ClubLandingPage from './components/ClubLandingPage'
 import {
   fetchPlayerDashboardData,
   enrichDashboardWithEdgeFunction,
@@ -132,7 +134,26 @@ function App() {
   const [pushLoading, setPushLoading] = useState(false)
   const [showInfoModal, setShowInfoModal] = useState<'help' | 'howItWorks' | 'privacy' | null>(null)
   const [showRegister, setShowRegister] = useState(false)
+  const [publicPage, setPublicPage] = useState<'landing' | 'clubs' | 'login' | 'register'>(() => {
+    const p = window.location.pathname
+    if (p === '/clubs') return 'clubs'
+    if (p === '/login') return 'login'
+    if (p === '/register') return 'register'
+    return 'landing'
+  })
   const [languageDropdownOpen, setLanguageDropdownOpen] = useState(false)
+
+  useEffect(() => {
+    const onPopState = () => {
+      const p = window.location.pathname
+      if (p === '/clubs') setPublicPage('clubs')
+      else if (p === '/login') setPublicPage('login')
+      else if (p === '/register') { setPublicPage('register'); setShowRegister(true) }
+      else { setPublicPage('landing'); setShowRegister(false) }
+    }
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
+  }, [])
 
   useEffect(() => {
     checkAuth()
@@ -492,11 +513,24 @@ function App() {
   }
 
   if (!isAuthenticated) {
-    if (showRegister) {
-      return <RegisterScreen onBack={() => setShowRegister(false)} onSuccess={async (pa) => {
+    const navigateTo = (page: typeof publicPage, path: string) => {
+      window.history.pushState({}, '', path)
+      setPublicPage(page)
+      if (page === 'register') setShowRegister(true)
+      else setShowRegister(false)
+    }
+
+    if (publicPage === 'clubs') {
+      return <ClubLandingPage />
+    }
+
+    if (publicPage === 'register' || showRegister) {
+      return <RegisterScreen onBack={() => navigateTo('landing', '/')} onSuccess={async (pa) => {
         setPlayer(pa as any)
         setAuthUserId(pa.user_id || null)
         setIsAuthenticated(true)
+        window.history.pushState({}, '', '/')
+        setPublicPage('landing')
         fetchPlayerClubs(pa.id).then(ids => setPlayer(prev => prev ? { ...prev, club_ids: ids } as any : prev))
         if (pa.user_id) {
           const [data] = await Promise.all([
@@ -507,17 +541,25 @@ function App() {
         }
       }} />
     }
-    return <LoginScreen 
-      phone={phone}
-      setPhone={setPhone}
-      password={password}
-      setPassword={setPassword}
-      showPassword={showPassword}
-      setShowPassword={setShowPassword}
-      error={authError}
-      isLoading={isAuthLoading}
-      onLogin={handleLogin}
-      onRegister={() => setShowRegister(true)}
+
+    if (publicPage === 'login') {
+      return <LoginScreen 
+        phone={phone}
+        setPhone={setPhone}
+        password={password}
+        setPassword={setPassword}
+        showPassword={showPassword}
+        setShowPassword={setShowPassword}
+        error={authError}
+        isLoading={isAuthLoading}
+        onLogin={handleLogin}
+        onRegister={() => navigateTo('register', '/register')}
+      />
+    }
+
+    return <PlayerLandingPage
+      onLogin={() => navigateTo('login', '/login')}
+      onRegister={() => navigateTo('register', '/register')}
     />
   }
 
@@ -11522,6 +11564,7 @@ function RegisterScreen({ onBack, onSuccess }: {
   // Step 1: Dados pessoais
   const [name, setName] = useState('')
   const [regPhone, setRegPhone] = useState('')
+  const [gender, setGender] = useState<'M' | 'F'>('M')
   const [email, setEmail] = useState('')
   const [regPassword, setRegPassword] = useState('')
   const [confirmPwd, setConfirmPwd] = useState('')
@@ -11553,14 +11596,14 @@ function RegisterScreen({ onBack, onSuccess }: {
     return Math.max(1.0, Math.min(7.0, Math.round(level * 2) / 2))
   }
 
-  // M1=7, M2=6, M3=5, M4=4, M5=3, M6=2 (abaixo de 2 → M6)
   const getCategoryFromLevel = (level: number): string => {
-    if (level >= 6.5) return 'M1'
-    if (level >= 5.5) return 'M2'
-    if (level >= 4.5) return 'M3'
-    if (level >= 3.5) return 'M4'
-    if (level >= 2.5) return 'M5'
-    return 'M6'
+    const prefix = gender === 'F' ? 'F' : 'M'
+    if (level >= 6.5) return `${prefix}1`
+    if (level >= 5.5) return `${prefix}2`
+    if (level >= 4.5) return `${prefix}3`
+    if (level >= 3.5) return `${prefix}4`
+    if (level >= 2.5) return `${prefix}5`
+    return `${prefix}6`
   }
 
   const handleRegister = async () => {
@@ -11747,6 +11790,33 @@ function RegisterScreen({ onBack, onSuccess }: {
               </p>
             </div>
             <div>
+              <label className="text-sm font-medium text-gray-700 mb-1 block">{t.register?.gender || 'Género'}</label>
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setGender('M')}
+                  className={`flex-1 py-3 rounded-xl font-semibold text-sm border transition-all ${
+                    gender === 'M'
+                      ? 'bg-blue-600 text-white border-blue-600 ring-2 ring-blue-200'
+                      : 'bg-gray-50 text-gray-700 border-gray-200 hover:border-blue-300'
+                  }`}
+                >
+                  {t.register?.male || 'Masculino'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setGender('F')}
+                  className={`flex-1 py-3 rounded-xl font-semibold text-sm border transition-all ${
+                    gender === 'F'
+                      ? 'bg-pink-600 text-white border-pink-600 ring-2 ring-pink-200'
+                      : 'bg-gray-50 text-gray-700 border-gray-200 hover:border-pink-300'
+                  }`}
+                >
+                  {t.register?.female || 'Feminino'}
+                </button>
+              </div>
+            </div>
+            <div>
               <label className="text-sm font-medium text-gray-700 mb-1 block">{t.register.email}</label>
               <div className="relative">
                 <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
@@ -11769,13 +11839,23 @@ function RegisterScreen({ onBack, onSuccess }: {
             </div>
 
             <button 
-              onClick={() => {
+              onClick={async () => {
                 setError('')
                 if (!name.trim()) { setError(t.register.nameRequired); return }
                 if (!regPhone.trim()) { setError(t.register.phoneRequired); return }
                 if (!email.trim()) { setError(t.register.emailRequired); return }
                 if (regPassword.length < 6) { setError(t.register.passwordMin); return }
                 if (regPassword !== confirmPwd) { setError(t.register.passwordsMismatch); return }
+
+                let checkPhone = regPhone.trim().replace(/\s+/g, '')
+                if (!checkPhone.startsWith('+')) checkPhone = '+351' + checkPhone
+                const { data: dupPhone } = await supabase
+                  .from('player_accounts')
+                  .select('id')
+                  .eq('phone_number', checkPhone)
+                  .maybeSingle()
+                if (dupPhone) { setError(t.register.phoneAlreadyRegistered); return }
+
                 setStep(2)
                 setQuizPage(0)
               }}
@@ -11792,9 +11872,14 @@ function RegisterScreen({ onBack, onSuccess }: {
             {quizPage === 0 && (
               <>
                 <h2 className="text-lg font-bold text-gray-900">{t.register.levelAssessment}</h2>
-                <p className="text-sm text-gray-500 -mt-3">
-                  {t.register.levelAssessmentDesc}
-                </p>
+                <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 -mt-2">
+                  <p className="text-sm text-amber-800 leading-relaxed">
+                    Responda a estas questões o mais sinceramente possível para que possamos determinar o seu nível de partida no mundo <strong>Padel One</strong>!
+                  </p>
+                  <p className="text-sm text-amber-800 leading-relaxed mt-2">
+                    Lembramos que o Nível é a base de tudo para conseguir jogos interessantes com jogadores de um nível similar! Obrigado 🎾
+                  </p>
+                </div>
               </>
             )}
 
