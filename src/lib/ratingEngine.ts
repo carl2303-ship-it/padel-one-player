@@ -16,6 +16,7 @@
  */
 
 import { supabase } from './supabase'
+import { logLevelChange } from './levelHistory'
 
 // ============================================
 // Types
@@ -411,6 +412,8 @@ export async function processMatchRating(matchId: string, cache?: PlayerCache): 
         })
       }
 
+      const levelBefore = acctData?.level ?? (rp.rating - rp.delta)
+
       const { error } = await supabase.rpc('update_player_rating', {
         p_player_account_id: rp.id,
         p_new_level: rp.rating,
@@ -420,6 +423,8 @@ export async function processMatchRating(matchId: string, cache?: PlayerCache): 
 
       if (error) {
         console.error('[RatingEngine] Error updating player:', rp.id, error)
+      } else {
+        logLevelChange(rp.id, levelBefore, rp.rating, rp.delta, 'tournament', rp.won)
       }
     }
 

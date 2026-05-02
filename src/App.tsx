@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { supabase, PlayerAccount } from './lib/supabase'
 import { useI18n } from './lib/i18nContext'
 import PlayerLandingPage from './components/PlayerLandingPage'
@@ -88,6 +89,7 @@ import {
 import { fetchAllClubs, fetchClubById, fetchUpcomingTournaments, fetchTournamentsByIds, fetchTournamentEnrolledCounts, fetchEnrolledByCategory, fetchTournamentFullDetail, getTournamentRegistrationUrl, fetchMyTournamentInvites, updateTournamentInviteStatus, fetchPlayerClubs, togglePlayerClub, type ClubDetail, type UpcomingTournamentFromTour, type EnrolledByCategory, type TournamentFullDetail } from './lib/clubAndTournaments'
 import { fetchAvailableClasses, fetchMyClasses, enrollInClass, type Class as ClassData } from './lib/classes'
 import { preloadAllPlayerData, getCachedPlayerData } from './lib/playerDataCache'
+import { fetchLevelHistory, type LevelHistoryEntry } from './lib/levelHistory'
 import { isPushSupported, checkIsSubscribed, subscribeToPush, unsubscribeFromPush } from './lib/pushNotifications'
 import {
   requestPartnerMatch,
@@ -736,6 +738,17 @@ function App() {
             onOpenRewards={() => setCurrentScreen('rewards')}
             onOpenBooking={() => setCurrentScreen('booking')}
             onOpenTournamentDetail={(id: string) => { setPendingTournamentId(id); setCurrentScreen('compete') }}
+            onSaveFavoriteClub={handleSaveFavoriteClub}
+            onToggleClub={async (clubId, add) => {
+              if (!player?.id) return
+              const updated = await togglePlayerClub(player.id, clubId, add)
+              setPlayer(prev => prev ? { ...prev, club_ids: updated } as any : prev)
+              if (add && !player.favorite_club_id) {
+                await handleSaveFavoriteClub(clubId)
+              } else if (!add && player.favorite_club_id === clubId) {
+                await handleSaveFavoriteClub(updated.length > 0 ? updated[0] : null)
+              }
+            }}
           />
         )}
         {currentScreen === 'booking' && (
@@ -754,6 +767,7 @@ function App() {
             onRefresh={refreshDashboard}
             onBack={() => setCurrentScreen('home')}
             onOpenPlayerProfile={(uid: string) => { setSelectedPlayerUserId(uid); setCurrentScreen('player-profile') }}
+            onOpenFindGame={() => setCurrentScreen('find-game')}
             initialTab={gamesInitialTab}
           />
         )}
@@ -813,17 +827,6 @@ function App() {
         {currentScreen === 'profile-edit' && (
           <ProfileEditScreen
             player={player}
-            onSaveFavoriteClub={handleSaveFavoriteClub}
-            onToggleClub={async (clubId, add) => {
-              if (!player?.id) return
-              const updated = await togglePlayerClub(player.id, clubId, add)
-              setPlayer(prev => prev ? { ...prev, club_ids: updated } as any : prev)
-              if (add && !player.favorite_club_id) {
-                await handleSaveFavoriteClub(clubId)
-              } else if (!add && player.favorite_club_id === clubId) {
-                await handleSaveFavoriteClub(updated.length > 0 ? updated[0] : null)
-              }
-            }}
             onSaveProfile={handleSaveProfile}
             onOpenInfo={(type) => setShowInfoModal(type)}
           />
@@ -2603,6 +2606,8 @@ function HomeScreen({
   onOpenRewards,
   onOpenBooking,
   onOpenTournamentDetail,
+  onSaveFavoriteClub,
+  onToggleClub,
 }: {
   player: PlayerAccount | null
   dashboardData: PlayerDashboardData | null
@@ -2618,6 +2623,8 @@ function HomeScreen({
   onOpenFindGame: () => void
   onOpenRewards: () => void
   onOpenBooking: () => void
+  onSaveFavoriteClub: (clubId: string | null) => Promise<void>
+  onToggleClub: (clubId: string, add: boolean) => Promise<void>
 }) {
   const { t } = useI18n()
   const [followingCount, setFollowingCount] = useState(0)
@@ -2627,6 +2634,33 @@ function HomeScreen({
     getFollowingCount(userId).then(setFollowingCount)
     getFollowersCount(userId).then(setFollowersCount)
   }, [userId])
+
+  // Clubs state
+  const [homeClubs, setHomeClubs] = useState<ClubDetail[]>([])
+  const [homeClubsLoading, setHomeClubsLoading] = useState(true)
+  const [homeTogglingClub, setHomeTogglingClub] = useState<string | null>(null)
+  const [showClubsModal, setShowClubsModal] = useState(false)
+  const playerClubIds = player?.club_ids ?? []
+  const favoriteClubId = player?.favorite_club_id ?? localStorage.getItem('padel_one_player_favorite_club_id')
+
+  useEffect(() => {
+    fetchAllClubs().then(list => {
+      setHomeClubs(list)
+      setHomeClubsLoading(false)
+    }).catch(() => setHomeClubsLoading(false))
+  }, [])
+
+  const sortedClubs = useMemo(() => {
+    const fav: ClubDetail[] = []
+    const selected: ClubDetail[] = []
+    const rest: ClubDetail[] = []
+    homeClubs.forEach(c => {
+      if (c.id === favoriteClubId) fav.push(c)
+      else if (playerClubIds.includes(c.id)) selected.push(c)
+      else rest.push(c)
+    })
+    return [...fav, ...selected, ...rest]
+  }, [homeClubs, favoriteClubId, playerClubIds])
 
   // Pending results state
   const [pendingResultGames, setPendingResultGames] = useState<(import('./lib/openGames').OpenGame & { _resultStatus?: string | null; _submittedByTeam?: number })[]>([])
@@ -2898,7 +2932,7 @@ function HomeScreen({
       {/* Quick Actions */}
       <div className="grid grid-cols-5 gap-3">
         <ActionButton icon={Calendar} label={t.home.book} color="lime" onClick={onOpenBooking} />
-        <ActionButton icon={Building2} label={t.home.favoriteClub} color="blue" onClick={onOpenClub} />
+        <ActionButton icon={Building2} label="Clubes" color="blue" onClick={() => setShowClubsModal(true)} />
         <ActionButton icon={Trophy} label={t.home.compete} color="amber" onClick={onOpenCompete} />
         <ActionButton icon={Gamepad2} label={t.home.findGame} color="purple" emoji="🎾" onClick={onOpenFindGame} />
         <ActionButton icon={GraduationCap} label={t.home.learn} color="emerald" onClick={onOpenLearn} />
@@ -3021,6 +3055,91 @@ function HomeScreen({
           🎁 {t.home.spendPoints}
         </button>
       </div>
+
+      {/* Modal Clubes — renderizado via portal para ficar acima de tudo */}
+      {showClubsModal && createPortal(
+        <div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center" onClick={() => setShowClubsModal(false)}>
+          <div className="absolute inset-0 bg-black/40" />
+          <div className="relative bg-white rounded-t-2xl sm:rounded-2xl w-full max-w-lg max-h-[80vh] flex flex-col animate-fade-in" onClick={e => e.stopPropagation()}>
+            <div className="p-4 border-b border-gray-100 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Building2 className="w-5 h-5 text-red-600" />
+                <h3 className="font-bold text-lg text-gray-900">Clubes</h3>
+              </div>
+              <button onClick={() => setShowClubsModal(false)} className="p-1.5 rounded-full hover:bg-gray-100">
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+            <div className="divide-y divide-gray-100 overflow-y-auto flex-1">
+              {homeClubsLoading ? (
+                <div className="p-6 text-center text-gray-500">{t.settings.loadingClubs}</div>
+              ) : sortedClubs.length === 0 ? (
+                <div className="p-6 text-center text-gray-500">{t.settings.noClubsAvailable}</div>
+              ) : (
+                sortedClubs.map(club => {
+                  const isSelected = playerClubIds.includes(club.id)
+                  const isFavorite = favoriteClubId === club.id
+                  const isToggling = homeTogglingClub === club.id
+                  return (
+                    <div
+                      key={club.id}
+                      className={`w-full p-3.5 flex items-center gap-3 transition-colors ${isFavorite ? 'bg-amber-50' : isSelected ? 'bg-red-50/50' : 'hover:bg-gray-50'} ${isToggling ? 'opacity-50' : ''}`}
+                    >
+                      <button
+                        onClick={async (e) => {
+                          e.stopPropagation()
+                          if (isSelected && !isFavorite) {
+                            await onSaveFavoriteClub(club.id)
+                          } else if (isFavorite && playerClubIds.length > 1) {
+                            await onSaveFavoriteClub(null)
+                          }
+                        }}
+                        className="shrink-0"
+                        title={isFavorite ? 'Clube favorito' : isSelected ? 'Definir como favorito' : ''}
+                        disabled={!isSelected}
+                      >
+                        <Star className={`w-5 h-5 transition-colors ${isFavorite ? 'text-amber-500 fill-amber-500' : isSelected ? 'text-gray-300 hover:text-amber-400' : 'text-gray-200'}`} />
+                      </button>
+                      <button
+                        disabled={isToggling}
+                        onClick={async () => {
+                          setHomeTogglingClub(club.id)
+                          try {
+                            await onToggleClub(club.id, !isSelected)
+                          } catch {}
+                          setHomeTogglingClub(null)
+                        }}
+                        className="flex items-center gap-3 flex-1 min-w-0 text-left"
+                      >
+                        {club.logo_url ? (
+                          <img src={club.logo_url} alt="" className="w-10 h-10 rounded-lg object-cover shrink-0" />
+                        ) : (
+                          <div className="w-10 h-10 rounded-lg bg-gray-200 flex items-center justify-center shrink-0">
+                            <Building2 className="w-5 h-5 text-gray-400" />
+                          </div>
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <span className="font-medium text-gray-900 text-sm truncate block">{club.name}</span>
+                          {isFavorite && <span className="text-[10px] text-amber-600 font-medium">Clube favorito</span>}
+                        </div>
+                        <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-colors ${isSelected ? 'bg-red-600 border-red-600' : 'border-gray-300'}`}>
+                          {isSelected && <Check className="w-3 h-3 text-white" />}
+                        </div>
+                      </button>
+                    </div>
+                  )
+                })
+              )}
+            </div>
+            {playerClubIds.length > 0 && (
+              <div className="p-3 border-t border-gray-100 bg-gray-50 rounded-b-2xl">
+                <p className="text-xs text-gray-500 text-center">{playerClubIds.length} {playerClubIds.length === 1 ? 'clube seleccionado' : 'clubes seleccionados'}</p>
+              </div>
+            )}
+          </div>
+        </div>,
+        document.body
+      )}
 
       {/* Próximos Jogos – lista horizontal ao estilo Playtomic */}
       <div>
@@ -4804,12 +4923,15 @@ function CompeteScreen({
         const pending = invites.find(i => i.tournament_id === tournamentId && i.status === 'pending')
         if (pending) setPendingInviteForTournament(tournamentId)
       }
-      if (detail && (detail.status === 'in_progress' || detail.status === 'active' || detail.status === 'completed' || detail.status === 'finished')) {
+      if (detail) {
         setCategoryDetailsLoading(true)
         try {
           const { fetchTournamentCategoryDetails } = await import('./lib/clubAndTournaments')
           const catDetails = await fetchTournamentCategoryDetails(tournamentId)
           setCategoryDetails(catDetails)
+          const autoExpand = new Set<string>()
+          catDetails.forEach(cd => { if (cd.hasData) autoExpand.add(cd.category_id) })
+          if (autoExpand.size > 0) setExpandedDetailCats(autoExpand)
         } catch (err) {
           console.error('[CompeteScreen] Error loading category details:', err)
         }
@@ -5301,7 +5423,8 @@ function CompeteScreen({
                       return round
                     }
                     return td.enrolled.map((cat) => {
-                      const catDetail = catDetailsMap.get(cat.category_id)
+                      let catDetail = catDetailsMap.get(cat.category_id)
+                      if (!catDetail && categoryDetails.length === 1) catDetail = categoryDetails[0]
                       const hasGroupsOrMatches = catDetail?.hasData
                       const isExpanded = expandedDetailCats.has(cat.category_id)
                       const sortedKnockout = catDetail ? [...catDetail.knockoutMatches].sort((a, b) => getKOOrder(a.round) - getKOOrder(b.round)) : []
@@ -9879,6 +10002,7 @@ function GamesScreen({
   onRefresh,
   onBack,
   onOpenPlayerProfile,
+  onOpenFindGame,
   initialTab,
 }: {
   player: PlayerAccount | null
@@ -9886,6 +10010,7 @@ function GamesScreen({
   onRefresh: () => Promise<void>
   onBack: () => void
   onOpenPlayerProfile: (userId: string) => void
+  onOpenFindGame: () => void
   initialTab?: 'upcoming' | 'history'
 }) {
   const { t } = useI18n()
@@ -9974,7 +10099,7 @@ function GamesScreen({
           <span className="text-4xl mb-2 block">🎾</span>
           <h3 className="text-lg font-semibold text-gray-900 mb-1">Sem jogos</h3>
           <p className="text-gray-500 text-sm mb-4">Cria um jogo ou inscreve-te num torneio para começar</p>
-          <button className="px-6 py-3 btn-primary">Criar Jogo</button>
+          <button onClick={onOpenFindGame} className="px-6 py-3 btn-primary">Criar Jogo</button>
         </div>
       )}
     </div>
@@ -10634,6 +10759,64 @@ function ProfileViewScreen({
   }
   const ageCategory = getAgeCategory()
 
+  // --- Level Evolution Chart ---
+  const [levelHistory, setLevelHistory] = useState<LevelHistoryEntry[]>([])
+
+  useEffect(() => {
+    if (!player?.id) return
+    fetchLevelHistory(player.id, 50).then(setLevelHistory)
+  }, [player?.id])
+
+  const levelChartData = useMemo(() => {
+    const currentLevel = player?.level ?? 3.0
+
+    if (levelHistory.length > 0) {
+      const sorted = [...levelHistory].sort((a, b) =>
+        new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+      )
+      return sorted.slice(-5).map((h, i) => ({
+        index: i,
+        level: h.level_after,
+        levelBefore: h.level_before,
+        delta: h.delta,
+        won: h.match_won,
+        date: new Date(h.created_at),
+        matchType: h.match_type,
+      }))
+    }
+
+    const matches = [...recentMatches].reverse()
+    if (matches.length === 0) return [{ index: 0, level: currentLevel, levelBefore: currentLevel, delta: 0, won: null as boolean | null, date: new Date(), matchType: 'tournament' }]
+
+    const totalRated = (player?.wins ?? 0) + (player?.losses ?? 0)
+    const K = totalRated < 5 ? 0.50 : totalRated < 10 ? 0.35 : totalRated < 20 ? 0.25 : totalRated < 40 ? 0.15 : totalRated < 60 ? 0.10 : 0.06
+    const baseDelta = K * 0.4
+
+    const deltas: number[] = matches.map(m => m.is_winner ? baseDelta : -baseDelta)
+
+    let startLvl = currentLevel
+    for (let i = deltas.length - 1; i >= 0; i--) startLvl = Math.max(0.5, startLvl - deltas[i])
+
+    const points: typeof levelChartData = []
+    let runLvl = startLvl
+    for (let i = 0; i < matches.length; i++) {
+      const before = runLvl
+      runLvl = Math.max(0.5, parseFloat((runLvl + deltas[i]).toFixed(2)))
+      points.push({
+        index: i,
+        level: runLvl,
+        levelBefore: parseFloat(before.toFixed(2)),
+        delta: parseFloat(deltas[i].toFixed(4)),
+        won: matches[i].is_winner ?? null,
+        date: new Date(matches[i].start_time),
+        matchType: matches[i].is_open_game ? 'open_game' : 'tournament',
+      })
+    }
+
+    const filtered = points.slice(-5)
+    return filtered.length > 0 ? filtered : [{ index: 0, level: currentLevel, levelBefore: currentLevel, delta: 0, won: null as boolean | null, date: new Date(), matchType: 'tournament' }]
+  }, [levelHistory, recentMatches, player?.level, player?.wins, player?.losses])
+
   const getHandLabel = (h?: string) => ({ right: 'Direita', left: 'Esquerda', ambidextrous: 'Ambidestro' }[h || ''] || '—')
   const getPositionLabel = (p?: string) => ({ right: 'Direita', left: 'Esquerda', both: 'Ambas' }[p || ''] || '—')
   const getGameTypeLabel = (g?: string) => ({ competitive: 'Competitivo', friendly: 'Amigável', both: 'Ambos' }[g || ''] || '—')
@@ -10703,6 +10886,107 @@ function ProfileViewScreen({
                 )}
               </div>
             </div>
+          </div>
+        )
+      })()}
+
+      {/* Evolução do nível — gráfico inspirado no Playtomic */}
+      {(() => {
+        const data = levelChartData
+        if (data.length === 0) return null
+
+        const W = 320
+        const H = 160
+        const PAD_L = 42
+        const PAD_R = 14
+        const PAD_T = 16
+        const PAD_B = 28
+        const chartW = W - PAD_L - PAD_R
+        const chartH = H - PAD_T - PAD_B
+
+        const levels = data.map(d => d.level)
+        const minLvl = Math.floor((Math.min(...levels) - 0.1) * 10) / 10
+        const maxLvl = Math.ceil((Math.max(...levels) + 0.1) * 10) / 10
+        const range = maxLvl - minLvl || 0.2
+
+        const toX = (i: number) => PAD_L + (data.length > 1 ? (i / (data.length - 1)) * chartW : chartW / 2)
+        const toY = (lvl: number) => PAD_T + chartH - ((lvl - minLvl) / range) * chartH
+
+        const gridLines: number[] = []
+        const step = range <= 0.3 ? 0.05 : range <= 0.6 ? 0.1 : 0.2
+        for (let v = Math.ceil(minLvl / step) * step; v <= maxLvl; v = parseFloat((v + step).toFixed(2))) gridLines.push(v)
+
+        const pathD = data.map((d, i) => `${i === 0 ? 'M' : 'L'}${toX(i).toFixed(1)},${toY(d.level).toFixed(1)}`).join(' ')
+        const areaD = pathD + ` L${toX(data.length - 1).toFixed(1)},${(PAD_T + chartH).toFixed(1)} L${toX(0).toFixed(1)},${(PAD_T + chartH).toFixed(1)} Z`
+
+        const last = data[data.length - 1]
+        const first = data[0]
+        const totalDelta = last.level - first.levelBefore
+        const isPositive = totalDelta >= 0
+
+        return (
+          <div className="card p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-bold text-gray-900 flex items-center gap-2">
+                <TrendingUp className="w-5 h-5 text-blue-600" />
+                Evolução do nível
+              </h3>
+              {data.length > 1 && (
+                <span className={`text-xs font-bold px-2 py-1 rounded-full ${isPositive ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                  {isPositive ? '+' : ''}{totalDelta.toFixed(2)}
+                </span>
+              )}
+            </div>
+
+            <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ maxHeight: 200 }}>
+              <defs>
+                <linearGradient id="levelAreaGradProfile" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#3b82f6" stopOpacity="0.15" />
+                  <stop offset="100%" stopColor="#3b82f6" stopOpacity="0.01" />
+                </linearGradient>
+              </defs>
+
+              {gridLines.map(v => (
+                <g key={v}>
+                  <line x1={PAD_L} y1={toY(v)} x2={W - PAD_R} y2={toY(v)} stroke="#e5e7eb" strokeWidth="0.5" strokeDasharray="3,3" />
+                  <text x={PAD_L - 4} y={toY(v) + 3} textAnchor="end" fill="#9ca3af" fontSize="8" fontFamily="system-ui">{v.toFixed(2)}</text>
+                </g>
+              ))}
+
+              {data.length > 1 && <path d={areaD} fill="url(#levelAreaGradProfile)" />}
+              {data.length > 1 && <path d={pathD} fill="none" stroke="#3b82f6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />}
+
+              {data.map((d, i) => (
+                <g key={i}>
+                  <circle cx={toX(i)} cy={toY(d.level)} r={i === data.length - 1 ? 5 : 3} fill={d.won === true ? '#22c55e' : d.won === false ? '#ef4444' : '#3b82f6'} stroke="white" strokeWidth="1.5" />
+                  {i === data.length - 1 && (
+                    <>
+                      <rect x={toX(i) - 16} y={toY(d.level) - 20} width="32" height="14" rx="4" fill="#3b82f6" />
+                      <text x={toX(i)} y={toY(d.level) - 10.5} textAnchor="middle" fill="white" fontSize="8" fontWeight="bold" fontFamily="system-ui">{d.level.toFixed(2)}</text>
+                    </>
+                  )}
+                </g>
+              ))}
+
+              {data.length > 1 && data.map((d, i) => {
+                const dateStr = `${d.date.getDate()}/${d.date.getMonth() + 1}`
+                return i % Math.max(1, Math.floor(data.length / 5)) === 0 || i === data.length - 1 ? (
+                  <text key={`d${i}`} x={toX(i)} y={H - 4} textAnchor="middle" fill="#9ca3af" fontSize="7" fontFamily="system-ui">{dateStr}</text>
+                ) : null
+              })}
+            </svg>
+
+            {data.length > 1 && (
+              <div className="flex items-center justify-center gap-4 mt-2 text-[10px] text-gray-400">
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500 inline-block" /> Vitória</span>
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500 inline-block" /> Derrota</span>
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500 inline-block" /> Empate</span>
+              </div>
+            )}
+
+            {levelHistory.length === 0 && recentMatches.length > 0 && (
+              <p className="text-[10px] text-gray-400 text-center mt-1 italic">Valores estimados com base nos resultados recentes</p>
+            )}
           </div>
         )
       })()}
@@ -10898,27 +11182,18 @@ function ProfileViewScreen({
 function ProfileEditScreen({
   player,
   onLogout,
-  onSaveFavoriteClub,
-  onToggleClub,
   onSaveProfile,
   onOpenInfo,
 }: {
   player: PlayerAccount | null
   onLogout: () => void
-  onSaveFavoriteClub: (clubId: string | null) => Promise<void>
-  onToggleClub: (clubId: string, add: boolean) => Promise<void>
   onSaveProfile: (updates: Partial<PlayerAccount>) => Promise<void>
   onOpenInfo: (type: 'help' | 'howItWorks' | 'privacy') => void
 }) {
   const { t } = useI18n()
-  const [clubs, setClubs] = useState<ClubDetail[]>([])
-  const [loadingClubs, setLoadingClubs] = useState(true)
   const [saving, setSaving] = useState(false)
   const [saveMsg, setSaveMsg] = useState('')
   const [uploadingAvatar, setUploadingAvatar] = useState(false)
-  const [togglingClub, setTogglingClub] = useState<string | null>(null)
-  const playerClubIds = player?.club_ids ?? []
-  const favoriteClubId = player?.favorite_club_id ?? localStorage.getItem('padel_one_player_favorite_club_id')
 
   // Editable fields
   const [editName, setEditName] = useState(player?.name || '')
@@ -10948,12 +11223,6 @@ function ProfileEditScreen({
     }
   }, [player])
 
-  useEffect(() => {
-    fetchAllClubs().then((list) => {
-      setClubs(list)
-      setLoadingClubs(false)
-    }).catch(() => setLoadingClubs(false))
-  }, [])
 
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -11303,85 +11572,6 @@ function ProfileEditScreen({
                 </>
               )}
             </button>
-      </div>
-
-      {/* Clubes onde jogo – multi-selecção */}
-      <div className="card overflow-hidden">
-        <div className="p-4 border-b border-gray-100">
-          <div className="flex items-center gap-2">
-            <Building2 className="w-5 h-5 text-red-600" />
-            <h3 className="font-semibold text-gray-900">Clubes onde jogo</h3>
-          </div>
-          <p className="text-sm text-gray-500 mt-1">Seleciona os clubes onde jogas para receber notificações e ver torneios</p>
-        </div>
-        <div className="divide-y divide-gray-100 max-h-64 overflow-y-auto">
-          {loadingClubs ? (
-            <div className="p-4 text-center text-gray-500">{t.settings.loadingClubs}</div>
-          ) : clubs.length === 0 ? (
-            <div className="p-4 text-center text-gray-500">{t.settings.noClubsAvailable}</div>
-          ) : (
-            clubs.map((club) => {
-              const isSelected = playerClubIds.includes(club.id)
-              const isFavorite = favoriteClubId === club.id
-              const isToggling = togglingClub === club.id
-              return (
-                <div
-                  key={club.id}
-                  className={`w-full p-4 flex items-center gap-3 transition-colors ${isSelected ? 'bg-red-50' : 'hover:bg-gray-50'} ${isToggling ? 'opacity-50' : ''}`}
-                >
-                  {isSelected && (
-                    <button
-                      onClick={async (e) => {
-                        e.stopPropagation()
-                        if (!isFavorite) await onSaveFavoriteClub(club.id)
-                      }}
-                      className="shrink-0"
-                      title={isFavorite ? 'Clube favorito' : 'Definir como favorito'}
-                    >
-                      <Star className={`w-5 h-5 transition-colors ${isFavorite ? 'text-amber-500 fill-amber-500' : 'text-gray-300 hover:text-amber-400'}`} />
-                    </button>
-                  )}
-                  <button
-                    disabled={isToggling}
-                    onClick={async () => {
-                      setTogglingClub(club.id)
-                      try {
-                        await onToggleClub(club.id, !isSelected)
-                      } catch {}
-                      setTogglingClub(null)
-                    }}
-                    className="flex items-center gap-3 flex-1 min-w-0 text-left"
-                  >
-                    {club.logo_url ? (
-                      <img src={club.logo_url} alt="" className="w-10 h-10 rounded-lg object-cover shrink-0" />
-                    ) : (
-                      <div className="w-10 h-10 rounded-lg bg-gray-200 flex items-center justify-center shrink-0">
-                        <Building2 className="w-5 h-5 text-gray-400" />
-                      </div>
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <span className="font-medium text-gray-900 truncate block">{club.name}</span>
-                      {isFavorite && (
-                        <span className="text-xs text-amber-600 font-medium">Clube favorito</span>
-                      )}
-                      {club.is_managed === false && !club.owner_id && (
-                        <span className="inline-block mt-0.5 px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-200 text-gray-500">Ainda não na plataforma</span>
-                      )}
-                    </div>
-                    <div className={`w-6 h-6 rounded-md border-2 flex items-center justify-center shrink-0 transition-colors ${isSelected ? 'bg-red-600 border-red-600' : 'border-gray-300'}`}>
-                      {isSelected && <Check className="w-4 h-4 text-white" />}
-                    </div>
-                  </button>
-                </div>
-              )
-            })
-          )}
-        </div>
-        {playerClubIds.length > 0 && (
-          <div className="p-3 border-t border-gray-100 bg-gray-50">
-            <p className="text-xs text-gray-500 text-center">{playerClubIds.length} {playerClubIds.length === 1 ? 'clube seleccionado' : 'clubes seleccionados'}</p>
-          </div>
-        )}
       </div>
 
       {/* Centro de Ajuda, Ajuda rápida, Como funciona, Privacidade */}

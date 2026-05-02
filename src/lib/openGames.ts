@@ -2163,6 +2163,8 @@ async function processOpenGameRating(gameId: string): Promise<void> {
       `| won: ${rp.won}`,
       `| matches: ${rp.matches}`)
     
+    const levelBefore = currentAccount?.level ?? (rp.rating - rp.delta)
+
     const { error: rpcError } = await supabase.rpc('update_player_rating', {
       p_player_account_id: rp.id,
       p_new_level: rp.rating,
@@ -2174,6 +2176,8 @@ async function processOpenGameRating(gameId: string): Promise<void> {
       console.error('[OpenGames] processOpenGameRating: Error updating rating for', rp.id, rp.name, ':', rpcError)
     } else {
       console.log('[OpenGames] processOpenGameRating: ✅ Successfully updated', rp.name)
+      const { logLevelChange } = await import('./levelHistory')
+      logLevelChange(rp.id, levelBefore, rp.rating, rp.delta, 'open_game', rp.won)
     }
   }
 

@@ -418,37 +418,60 @@ export async function fetchMyTournamentInvites(playerAccountId: string): Promise
   tournament_start_date?: string
   tournament_image_url?: string | null
 }[]> {
+  let invites: { tournament_id: string; status: string }[] = []
+
   try {
     const { data: rpcData, error: rpcError } = await supabase.rpc('get_my_tournament_invites', {
       p_player_account_id: playerAccountId,
     })
     if (!rpcError && rpcData) {
       const arr = Array.isArray(rpcData) ? rpcData : (typeof rpcData === 'string' ? JSON.parse(rpcData) : null)
-      if (Array.isArray(arr)) return arr
+      if (Array.isArray(arr)) invites = arr
     }
     if (rpcError) console.warn('[fetchMyTournamentInvites] RPC falhou, fallback:', rpcError.message)
   } catch (e) {
     console.warn('[fetchMyTournamentInvites] RPC exception, fallback:', e)
   }
 
-  const { data, error } = await supabase
-    .from('tournament_invites')
-    .select('tournament_id, status')
-    .eq('player_account_id', playerAccountId)
-    .in('status', ['pending', 'accepted'])
+  if (invites.length === 0) {
+    const { data, error } = await supabase
+      .from('tournament_invites')
+      .select('tournament_id, status')
+      .eq('player_account_id', playerAccountId)
+      .in('status', ['pending', 'accepted'])
 
-  if (error || !data || data.length === 0) return []
+    if (error || !data || data.length === 0) return []
+    invites = data
+  }
 
-  const tournamentIds = data.map(d => d.tournament_id)
-  const { data: tournaments } = await supabase
-    .from('tournaments')
-    .select('id, name, start_date, image_url')
-    .in('id', tournamentIds)
+  const tournamentIds = invites.map(d => d.tournament_id)
+
+  const [tournamentsRes, enrolledRes] = await Promise.all([
+    supabase.from('tournaments').select('id, name, start_date, image_url').in('id', tournamentIds),
+    supabase.from('players').select('tournament_id').eq('player_account_id', playerAccountId).in('tournament_id', tournamentIds),
+  ])
+
+  const enrolledTournamentIds = new Set((enrolledRes.data || []).map((p: any) => p.tournament_id))
+
+  // Auto-cleanup: mark invites as 'accepted' for tournaments where player is already enrolled
+  const toCleanup = invites.filter(inv => inv.status === 'pending' && enrolledTournamentIds.has(inv.tournament_id))
+  if (toCleanup.length > 0) {
+    for (const inv of toCleanup) {
+      supabase.from('tournament_invites')
+        .update({ status: 'accepted' })
+        .eq('player_account_id', playerAccountId)
+        .eq('tournament_id', inv.tournament_id)
+        .then(() => {})
+    }
+  }
+
+  const filtered = invites.filter(inv => !enrolledTournamentIds.has(inv.tournament_id))
+  if (filtered.length === 0) return []
 
   const tMap: Record<string, any> = {}
-  ;(tournaments || []).forEach(t => { tMap[t.id] = t })
+  ;(tournamentsRes.data || []).forEach(t => { tMap[t.id] = t })
 
-  return data.map(inv => ({
+  return filtered.map(inv => ({
     tournament_id: inv.tournament_id,
     status: inv.status,
     tournament_name: tMap[inv.tournament_id]?.name,
@@ -600,7 +623,7 @@ export async function fetchTournamentCategoryDetails(tournamentId: string): Prom
 
   const { data: allMatches } = await supabase
     .from('matches')
-    .select('id, team1_id, team2_id, score1, score2, set1_team1, set1_team2, set2_team1, set2_team2, set3_team1, set3_team2, round, status, scheduled_time, category_id, player1_individual_id, player2_individual_id, player3_individual_id, player4_individual_id')
+    .select('id, team1_id, team2_id, team1_score_set1, team2_score_set1, team1_score_set2, team2_score_set2, team1_score_set3, team2_score_set3, round, status, scheduled_time, category_id, player1_individual_id, player2_individual_id, player3_individual_id, player4_individual_id')
     .eq('tournament_id', tournamentId)
     .order('round')
 
@@ -647,7 +670,7 @@ export async function fetchTournamentCategoryDetails(tournamentId: string): Prom
   const entityByCat = new Map<string, any[]>()
   if (entities) {
     for (const e of entities) {
-      const catId = (e as any).category_id || 'none'
+      const catId = (e as any).category_id || 'all'
       if (!entityByCat.has(catId)) entityByCat.set(catId, [])
       entityByCat.get(catId)!.push(e)
     }
@@ -656,7 +679,7 @@ export async function fetchTournamentCategoryDetails(tournamentId: string): Prom
   const matchesByCat = new Map<string, any[]>()
   if (allMatches) {
     for (const m of allMatches) {
-      const catId = (m as any).category_id || 'none'
+      const catId = (m as any).category_id || 'all'
       if (!matchesByCat.has(catId)) matchesByCat.set(catId, [])
       matchesByCat.get(catId)!.push(m)
     }
@@ -665,19 +688,36 @@ export async function fetchTournamentCategoryDetails(tournamentId: string): Prom
   const buildMatchInfo = (m: any): CategoryMatchInfo => {
     let t1id = m.team1_id
     let t2id = m.team2_id
-    if (isIndividual && !t1id) {
-      t1id = m.player1_individual_id
-      t2id = m.player2_individual_id
+    let t1name: string
+    let t2name: string
+
+    if (isIndividual) {
+      const p1 = m.player1_individual_id
+      const p2 = m.player2_individual_id
+      const p3 = m.player3_individual_id
+      const p4 = m.player4_individual_id
+      if (!t1id) t1id = p1
+      if (!t2id) t2id = p3
+      const n1 = nameMap.get(p1) || ''
+      const n2 = nameMap.get(p2) || ''
+      const n3 = nameMap.get(p3) || ''
+      const n4 = nameMap.get(p4) || ''
+      t1name = [n1, n2].filter(Boolean).join(' - ') || 'TBD'
+      t2name = [n3, n4].filter(Boolean).join(' - ') || 'TBD'
+    } else {
+      t1name = nameMap.get(t1id) || 'TBD'
+      t2name = nameMap.get(t2id) || 'TBD'
     }
-    const set1 = (m.set1_team1 != null && m.set1_team2 != null) ? `${m.set1_team1}-${m.set1_team2}` : undefined
-    const set2 = (m.set2_team1 != null && m.set2_team2 != null) ? `${m.set2_team1}-${m.set2_team2}` : undefined
-    const set3 = (m.set3_team1 != null && m.set3_team2 != null) ? `${m.set3_team1}-${m.set3_team2}` : undefined
+
+    const set1 = (m.team1_score_set1 != null && m.team2_score_set1 != null) ? `${m.team1_score_set1}-${m.team2_score_set1}` : undefined
+    const set2 = (m.team1_score_set2 != null && m.team2_score_set2 != null) ? `${m.team1_score_set2}-${m.team2_score_set2}` : undefined
+    const set3 = (m.team1_score_set3 != null && m.team2_score_set3 != null) ? `${m.team1_score_set3}-${m.team2_score_set3}` : undefined
     return {
       id: m.id,
       team1_id: t1id,
       team2_id: t2id,
-      team1_name: nameMap.get(t1id) || 'TBD',
-      team2_name: nameMap.get(t2id) || 'TBD',
+      team1_name: t1name,
+      team2_name: t2name,
       set1, set2, set3,
       round: m.round || '',
       status: m.status || 'scheduled',
@@ -717,13 +757,23 @@ export async function fetchTournamentCategoryDetails(tournamentId: string): Prom
       }
       if (!t1row || !t2row) continue
 
-      const s1 = m.score1 ?? 0
-      const s2 = m.score2 ?? 0
-      t1row.points_for += s1; t1row.points_against += s2
-      t2row.points_for += s2; t2row.points_against += s1
+      let setsWonT1 = 0, setsWonT2 = 0
+      const sets = [
+        [m.team1_score_set1, m.team2_score_set1],
+        [m.team1_score_set2, m.team2_score_set2],
+        [m.team1_score_set3, m.team2_score_set3],
+      ]
+      for (const [a, b] of sets) {
+        if (a != null && b != null) {
+          if (a > b) setsWonT1++
+          else if (b > a) setsWonT2++
+        }
+      }
+      t1row.points_for += setsWonT1; t1row.points_against += setsWonT2
+      t2row.points_for += setsWonT2; t2row.points_against += setsWonT1
 
-      if (s1 > s2) { t1row.wins++; t2row.losses++; t1row.points += 3 }
-      else if (s2 > s1) { t2row.wins++; t1row.losses++; t2row.points += 3 }
+      if (setsWonT1 > setsWonT2) { t1row.wins++; t2row.losses++; t1row.points += 3 }
+      else if (setsWonT2 > setsWonT1) { t2row.wins++; t1row.losses++; t2row.points += 3 }
       else { t1row.draws++; t2row.draws++; t1row.points++; t2row.points++ }
     }
 
@@ -733,9 +783,23 @@ export async function fetchTournamentCategoryDetails(tournamentId: string): Prom
     return groups
   }
 
-  const catList = (categories && categories.length > 0)
-    ? categories
-    : [{ id: 'none', name: 'Geral' }]
+  let catList: { id: string; name: string }[]
+  if (categories && categories.length > 0) {
+    catList = categories
+  } else {
+    const derivedCatIds = new Set<string>()
+    if (entities) {
+      for (const e of entities) {
+        const cid = (e as any).category_id
+        if (cid) derivedCatIds.add(cid)
+      }
+    }
+    if (derivedCatIds.size > 0) {
+      catList = Array.from(derivedCatIds).map(id => ({ id, name: 'Geral' }))
+    } else {
+      catList = [{ id: 'all', name: 'Geral' }]
+    }
+  }
 
   const result: TournamentCategoryDetail[] = []
 

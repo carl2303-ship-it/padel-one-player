@@ -129,7 +129,39 @@ export async function fetchPendingPartnerInvites(playerAccountId: string): Promi
     : { data: [] as { id: string; player_category: string | null; level: number | null }[] };
   const profileByAccountId = new Map((inviteeProfiles ?? []).map((p) => [p.id, p]));
 
+  // Filter out invites for tournaments where invitee is already enrolled
+  const tournamentIds = [...new Set((data as any[]).map((r) => r.tournament_id).filter(Boolean))];
+  let enrolledTournamentIds = new Set<string>();
+  if (tournamentIds.length > 0) {
+    const { data: enrolledPlayers } = await supabase
+      .from("players")
+      .select("tournament_id")
+      .in("player_account_id", inviteeAccountIds)
+      .in("tournament_id", tournamentIds);
+    const { data: enrolledTeams } = await supabase
+      .from("teams")
+      .select("tournament_id, player1_id, player2_id")
+      .in("tournament_id", tournamentIds);
+
+    if (enrolledPlayers) {
+      for (const p of enrolledPlayers) enrolledTournamentIds.add(p.tournament_id);
+    }
+    if (enrolledTeams) {
+      const { data: playerLinks } = await supabase
+        .from("players")
+        .select("id, player_account_id")
+        .in("player_account_id", inviteeAccountIds);
+      const myPlayerIds = new Set((playerLinks ?? []).map((p: any) => p.id));
+      for (const tm of enrolledTeams as any[]) {
+        if (myPlayerIds.has(tm.player1_id) || myPlayerIds.has(tm.player2_id)) {
+          enrolledTournamentIds.add(tm.tournament_id);
+        }
+      }
+    }
+  }
+
   const eligibleRows = (data as any[]).filter((row) => {
+    if (enrolledTournamentIds.has(row.tournament_id)) return false;
     const cat = row.category;
     if (!cat?.name) return true;
     const profile = profileByAccountId.get(row.invitee_player_account_id);
