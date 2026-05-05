@@ -80,6 +80,7 @@ export interface OpenGame {
   players: OpenGamePlayer[]
   created_at: string
   club_payment_method?: ClubPaymentMethod
+  group_id?: string | null
 }
 
 export type ClubPaymentMethod = 'at_club' | 'per_player' | 'full_court' | 'at_club_or_per_player' | 'at_club_or_full_court' | 'all'
@@ -673,6 +674,7 @@ export async function createOpenGame(params: {
   playerLevel: number
   pricePerPlayer: number
   isPrivate?: boolean
+  groupId?: string
   players?: { player_account_id: string; position: number; name: string | null; phone_number: string | null }[]
   clubTimezone?: string
 }): Promise<{ success: boolean; gameId?: string; error?: string }> {
@@ -717,7 +719,8 @@ export async function createOpenGame(params: {
       price_per_player: params.pricePerPlayer,
       max_players: 4,
       status: 'open', // Always start as open - status 'full' only when all 4 players are added
-      is_private: params.isPrivate || false, // Private games are hidden from "Encontrar Jogos"
+      is_private: params.isPrivate || !!params.groupId || false,
+      ...(params.groupId ? { group_id: params.groupId } : {}),
     })
     .select('id')
     .single()
