@@ -81,6 +81,7 @@ export interface OpenGame {
   created_at: string
   club_payment_method?: ClubPaymentMethod
   group_id?: string | null
+  is_quick_result?: boolean
 }
 
 export type ClubPaymentMethod = 'at_club' | 'per_player' | 'full_court' | 'at_club_or_per_player' | 'at_club_or_full_court' | 'all'
@@ -3475,6 +3476,126 @@ async function getPlayerName(playerAccountId: string | null): Promise<string> {
   } catch {
     return 'Um jogador'
   }
+}
+
+// ============================
+// Quick Result Game — create a game just to record a result (no reservation)
+// ============================
+
+export async function createQuickResultGame(params: {
+  userId: string
+  playerAccountId?: string | null
+  clubId: string
+  scheduledAt: string      // ISO date string of when the game was played
+  gameType: 'competitive' | 'friendly'
+  players: { player_account_id: string; position: number; name: string | null }[]
+  sets: { t1s1: number; t2s1: number; t1s2: number; t2s2: number; t1s3?: number; t2s3?: number }
+}): Promise<{ success: boolean; gameId?: string; error?: string }> {
+  const { data: { user: authUser } } = await supabase.auth.getUser()
+  const realUserId = authUser?.id
+  if (!realUserId) return { success: false, error: 'Utilizador não autenticado' }
+
+  // Get player level for range
+  let playerLevel = 3.0
+  if (params.playerAccountId) {
+    const { data: pa } = await supabase
+      .from('player_accounts')
+      .select('level')
+      .eq('id', params.playerAccountId)
+      .maybeSingle()
+    if (pa?.level) playerLevel = pa.level
+  }
+
+  const levelMin = Math.max(0.5, playerLevel - 1.0)
+  const levelMax = playerLevel + 1.0
+
+  // Create the game as completed with no court
+  const { data: game, error: gameError } = await supabase
+    .from('open_games')
+    .insert({
+      creator_user_id: realUserId,
+      club_id: params.clubId,
+      court_id: null,
+      scheduled_at: params.scheduledAt,
+      duration_minutes: 90,
+      game_type: params.gameType,
+      gender: 'all',
+      level_min: levelMin,
+      level_max: levelMax,
+      price_per_player: 0,
+      max_players: 4,
+      status: 'completed',
+      is_private: true,
+      is_quick_result: true,
+    })
+    .select('id')
+    .single()
+
+  if (gameError || !game) {
+    console.error('[QuickResult] Error creating game:', gameError)
+    return { success: false, error: gameError?.message || 'Erro ao criar jogo' }
+  }
+
+  // Insert all 4 players
+  const playerInserts = params.players.map(p => ({
+    game_id: game.id,
+    user_id: p.player_account_id === params.playerAccountId ? realUserId : null,
+    player_account_id: p.player_account_id,
+    status: 'confirmed' as const,
+    position: p.position,
+  }))
+
+  // For players we don't know the user_id of, try to look it up
+  for (const pi of playerInserts) {
+    if (!pi.user_id && pi.player_account_id) {
+      const { data: pa } = await supabase
+        .from('player_accounts')
+        .select('user_id')
+        .eq('id', pi.player_account_id)
+        .maybeSingle()
+      if (pa?.user_id) pi.user_id = pa.user_id
+    }
+  }
+
+  const { error: playersError } = await supabase.from('open_game_players').insert(playerInserts)
+  if (playersError) {
+    console.error('[QuickResult] Error adding players:', playersError)
+  }
+
+  // Insert result directly into open_game_results (auto-confirmed since creator is entering it)
+  const { error: resultError } = await supabase
+    .from('open_game_results')
+    .insert({
+      game_id: game.id,
+      submitted_by_user_id: realUserId,
+      submitted_by_player_account_id: params.playerAccountId || null,
+      submitted_by_team: 1,
+      team1_score_set1: params.sets.t1s1,
+      team2_score_set1: params.sets.t2s1,
+      team1_score_set2: params.sets.t1s2,
+      team2_score_set2: params.sets.t2s2,
+      team1_score_set3: params.sets.t1s3 ?? 0,
+      team2_score_set3: params.sets.t2s3 ?? 0,
+      status: 'confirmed',
+      confirmed_by_user_id: realUserId,
+      confirmed_at: new Date().toISOString(),
+    })
+
+  if (resultError) {
+    console.error('[QuickResult] Error inserting result:', resultError)
+    return { success: false, error: resultError.message }
+  }
+
+  // Process ratings if competitive
+  if (params.gameType === 'competitive') {
+    try {
+      await processOpenGameRating(game.id)
+    } catch (err) {
+      console.error('[QuickResult] Error processing rating:', err)
+    }
+  }
+
+  return { success: true, gameId: game.id }
 }
 
 export async function swapPlayerTeam(playerIdA: string, playerIdB: string): Promise<{ success: boolean; error?: string }> {

@@ -7257,6 +7257,142 @@ function FindGameScreen({
   const [swapSelected, setSwapSelected] = useState<{ playerId: string; team: number; gameId: string } | null>(null)
   const [swapping, setSwapping] = useState(false)
 
+  // Quick Result state
+  const [quickResultModal, setQuickResultModal] = useState(false)
+  const [qrStep, setQrStep] = useState<1 | 2 | 3>(1)
+  const [qrClubId, setQrClubId] = useState('')
+  const [qrClubName, setQrClubName] = useState('')
+  const [qrDate, setQrDate] = useState(new Date().toISOString().split('T')[0])
+  const [qrGameType, setQrGameType] = useState<'competitive' | 'friendly'>('competitive')
+  const [qrPlayers, setQrPlayers] = useState<{ position: number; id: string; name: string; avatar_url: string | null; level: number | null }[]>([])
+  const [qrScores, setQrScores] = useState({ t1s1: '', t2s1: '', t1s2: '', t2s2: '', t1s3: '', t2s3: '' })
+  const [qrSearchQuery, setQrSearchQuery] = useState('')
+  const [qrSearchResults, setQrSearchResults] = useState<CommunityPlayer[]>([])
+  const [qrSearching, setQrSearching] = useState(false)
+  const [qrSelectingPosition, setQrSelectingPosition] = useState<number | null>(null)
+  const [qrSwapPosition, setQrSwapPosition] = useState<number | null>(null)
+  const [qrSubmitting, setQrSubmitting] = useState(false)
+  const [qrClubs, setQrClubs] = useState<{ id: string; name: string; logo_url: string | null }[]>([])
+  const [qrClubsLoading, setQrClubsLoading] = useState(false)
+
+  // Load clubs when quick result modal opens
+  useEffect(() => {
+    if (quickResultModal && qrClubs.length === 0) {
+      setQrClubsLoading(true)
+      fetchAllClubs().then(clubs => {
+        setQrClubs(clubs.map(c => ({ id: c.id, name: c.name, logo_url: c.logo_url })))
+        setQrClubsLoading(false)
+      })
+    }
+  }, [quickResultModal])
+
+  // Pre-fill creator as player 1
+  useEffect(() => {
+    if (quickResultModal && qrPlayers.length === 0 && player) {
+      setQrPlayers([{
+        position: 1,
+        id: player.id,
+        name: player.name || '',
+        avatar_url: player.avatar_url || null,
+        level: player.level || null,
+      }])
+    }
+  }, [quickResultModal, player])
+
+  // Search players for quick result
+  useEffect(() => {
+    if (!qrSearchQuery || qrSearchQuery.length < 2) { setQrSearchResults([]); return }
+    const timeout = setTimeout(async () => {
+      setQrSearching(true)
+      const excludeIds = qrPlayers.map(p => p.id)
+      const results = await searchPlayers(qrSearchQuery, excludeIds.map(id => {
+        // searchPlayers excludes by user_id, but we have player_account_id
+        return id
+      }))
+      setQrSearchResults(results)
+      setQrSearching(false)
+    }, 300)
+    return () => clearTimeout(timeout)
+  }, [qrSearchQuery, qrPlayers])
+
+  const openQuickResultModal = (prefill?: { clubId: string; clubName: string; date: string; gameType: 'competitive' | 'friendly'; players: typeof qrPlayers }) => {
+    if (prefill) {
+      setQrClubId(prefill.clubId)
+      setQrClubName(prefill.clubName)
+      setQrDate(prefill.date)
+      setQrGameType(prefill.gameType)
+      setQrPlayers(prefill.players)
+      setQrStep(2)
+    } else {
+      setQrClubId('')
+      setQrClubName('')
+      setQrDate(new Date().toISOString().split('T')[0])
+      setQrGameType('competitive')
+      setQrPlayers(player ? [{
+        position: 1,
+        id: player.id,
+        name: player.name || '',
+        avatar_url: player.avatar_url || null,
+        level: player.level || null,
+      }] : [])
+      setQrStep(1)
+    }
+    setQrScores({ t1s1: '', t2s1: '', t1s2: '', t2s2: '', t1s3: '', t2s3: '' })
+    setQrSearchQuery('')
+    setQrSearchResults([])
+    setQrSelectingPosition(null)
+    setQrSwapPosition(null)
+    setQrSubmitting(false)
+    setQuickResultModal(true)
+  }
+
+  const handleQuickResultSubmit = async () => {
+    if (!userId || !qrClubId || qrPlayers.length !== 4) return
+    if (!qrScores.t1s1 || !qrScores.t2s1 || !qrScores.t1s2 || !qrScores.t2s2) return
+    setQrSubmitting(true)
+    try {
+      const { createQuickResultGame } = await import('./lib/openGames')
+      const scheduledAt = new Date(qrDate + 'T12:00:00').toISOString()
+      const result = await createQuickResultGame({
+        userId,
+        playerAccountId: player?.id || null,
+        clubId: qrClubId,
+        scheduledAt,
+        gameType: qrGameType,
+        players: qrPlayers.map(p => ({
+          player_account_id: p.id,
+          position: p.position,
+          name: p.name,
+        })),
+        sets: {
+          t1s1: parseInt(qrScores.t1s1) || 0,
+          t2s1: parseInt(qrScores.t2s1) || 0,
+          t1s2: parseInt(qrScores.t1s2) || 0,
+          t2s2: parseInt(qrScores.t2s2) || 0,
+          t1s3: parseInt(qrScores.t1s3) || 0,
+          t2s3: parseInt(qrScores.t2s3) || 0,
+        },
+      })
+      if (result.success) {
+        alert(t.common.resultSaved)
+        setQuickResultModal(false)
+        // Refresh past games
+        if (userId) {
+          const { fetchGamesAwaitingResult } = await import('./lib/openGames')
+          const data = await fetchGamesAwaitingResult(userId, player?.id)
+          setPastGames(data)
+        }
+        if (onRefresh) onRefresh()
+      } else {
+        alert(result.error || 'Erro ao registar resultado')
+      }
+    } catch (err) {
+      console.error('[QuickResult] Error:', err)
+      alert('Erro ao registar resultado')
+    }
+    setQrSubmitting(false)
+  }
+
   const handlePlayerSwap = async (clickedPlayer: any, clickedTeam: number, gameId: string, gamePlayersRef: any[]) => {
     if (swapping) return
     if (!swapSelected || swapSelected.gameId !== gameId) {
@@ -8361,6 +8497,15 @@ function FindGameScreen({
             <h2 className="text-lg font-bold text-gray-900">Resultados</h2>
             <p className="text-xs text-gray-500">Introduza resultados de jogos terminados ou confirme resultados submetidos</p>
           </div>
+
+          {/* Quick Result Button */}
+          <button
+            onClick={() => openQuickResultModal()}
+            className="w-full py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-2xl text-sm font-bold hover:from-green-700 hover:to-emerald-700 transition-all shadow-md flex items-center justify-center gap-2"
+          >
+            <Plus className="w-4 h-4" />
+            {t.common.quickResult}
+          </button>
           
           {loadingPastGames ? (
             <div className="text-center py-10">
@@ -8499,6 +8644,31 @@ function FindGameScreen({
                             👁️ Ver resultado e confirmar/disputar
                           </button>
                         </div>
+                      )}
+
+                      {/* Duplicate button — available on any completed game with result */}
+                      {(isConfirmed || (game as any).is_quick_result) && (
+                        <button
+                          onClick={() => {
+                            openQuickResultModal({
+                              clubId: game.club_id,
+                              clubName: game.club_name,
+                              date: new Date().toISOString().split('T')[0],
+                              gameType: game.game_type,
+                              players: confirmedPlayers.map(p => ({
+                                position: p.position || 0,
+                                id: p.player_account_id || '',
+                                name: p.name || '',
+                                avatar_url: p.avatar_url || null,
+                                level: p.level ?? null,
+                              })),
+                            })
+                          }}
+                          className="w-full py-2 bg-gray-100 text-gray-700 rounded-xl text-xs font-semibold hover:bg-gray-200 transition-colors flex items-center justify-center gap-1.5 mt-2"
+                        >
+                          <RefreshCw className="w-3.5 h-3.5" />
+                          {t.common.duplicateGameDesc}
+                        </button>
                       )}
                     </div>
                   </div>
@@ -8660,6 +8830,415 @@ function FindGameScreen({
               >
                 {submittingResult ? 'A submeter...' : '✓ Submeter resultado'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* === MODAL: Resultado Rápido (3 passos) === */}
+      {quickResultModal && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 p-4 overflow-y-auto" onClick={() => setQuickResultModal(false)}>
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-fade-in my-4" onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div className="p-4 border-b border-gray-100 flex items-center justify-between">
+              <div>
+                <h3 className="font-bold text-lg text-gray-900">{t.common.quickResultTitle}</h3>
+                <p className="text-xs text-gray-500">{t.common.step} {qrStep}/3</p>
+              </div>
+              <button onClick={() => setQuickResultModal(false)} className="p-1">
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+
+            {/* Progress bar */}
+            <div className="flex gap-1 px-4 pt-3">
+              {[1, 2, 3].map(s => (
+                <div key={s} className={`flex-1 h-1.5 rounded-full transition-colors ${s <= qrStep ? 'bg-green-500' : 'bg-gray-200'}`} />
+              ))}
+            </div>
+
+            <div className="p-5 space-y-4">
+              {/* === STEP 1: Club + Date + Game Type === */}
+              {qrStep === 1 && (
+                <>
+                  {/* Game Type */}
+                  <div>
+                    <label className="text-sm font-semibold text-gray-700 mb-2 block">{t.common.gameType}</label>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setQrGameType('competitive')}
+                        className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-colors ${qrGameType === 'competitive' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-600'}`}
+                      >
+                        🏆 {t.common.competitive}
+                      </button>
+                      <button
+                        onClick={() => setQrGameType('friendly')}
+                        className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-colors ${qrGameType === 'friendly' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'}`}
+                      >
+                        🤝 {t.common.friendly}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Date */}
+                  <div>
+                    <label className="text-sm font-semibold text-gray-700 mb-2 block">📅 {t.common.selectDate}</label>
+                    <input
+                      type="date"
+                      value={qrDate}
+                      max={new Date().toISOString().split('T')[0]}
+                      onChange={e => setQrDate(e.target.value)}
+                      className="w-full py-2.5 px-4 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                    />
+                  </div>
+
+                  {/* Club selection */}
+                  <div>
+                    <label className="text-sm font-semibold text-gray-700 mb-2 block">🏟️ {t.common.selectClub}</label>
+                    {qrClubsLoading ? (
+                      <div className="text-center py-4">
+                        <div className="animate-spin w-6 h-6 border-2 border-green-600 border-t-transparent rounded-full mx-auto" />
+                      </div>
+                    ) : (
+                      <div className="max-h-48 overflow-y-auto space-y-1 border border-gray-200 rounded-xl p-2">
+                        {qrClubs.map(club => (
+                          <button
+                            key={club.id}
+                            onClick={() => { setQrClubId(club.id); setQrClubName(club.name) }}
+                            className={`w-full flex items-center gap-3 p-2.5 rounded-lg text-left transition-colors ${qrClubId === club.id ? 'bg-green-50 border border-green-300' : 'hover:bg-gray-50'}`}
+                          >
+                            {club.logo_url ? (
+                              <img src={club.logo_url} alt="" className="w-8 h-8 rounded-lg object-cover" />
+                            ) : (
+                              <div className="w-8 h-8 rounded-lg bg-gray-200 flex items-center justify-center">
+                                <Building2 className="w-4 h-4 text-gray-400" />
+                              </div>
+                            )}
+                            <span className="text-sm font-medium text-gray-900">{club.name}</span>
+                            {qrClubId === club.id && <Check className="w-4 h-4 text-green-600 ml-auto" />}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <button
+                    disabled={!qrClubId}
+                    onClick={() => setQrStep(2)}
+                    className="w-full py-3 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {t.common.next} →
+                  </button>
+                </>
+              )}
+
+              {/* === STEP 2: Players === */}
+              {qrStep === 2 && (
+                <>
+                  {/* Swap hint */}
+                  {qrPlayers.length === 4 && (
+                    <p className="text-[10px] text-blue-500 text-center animate-pulse">
+                      {qrSwapPosition !== null ? 'Toca num jogador da outra equipa para trocar' : 'Toca num jogador para trocar de equipa'}
+                    </p>
+                  )}
+
+                  <div className="flex items-center gap-4">
+                    {/* Team 1 */}
+                    <div className="flex-1">
+                      <p className="text-xs font-bold text-blue-600 mb-2 text-center">{t.common.team1}</p>
+                      <div className="space-y-2">
+                        {[1, 2].map(pos => {
+                          const p = qrPlayers.find(pl => pl.position === pos)
+                          const isSwapSelected = qrSwapPosition === pos
+                          const otherTeamSelected = qrSwapPosition !== null && qrSwapPosition > 2
+                          return (
+                            <div key={pos} className="flex items-center gap-2">
+                              {p ? (
+                                <div
+                                  onClick={() => {
+                                    if (qrSwapPosition === pos) { setQrSwapPosition(null); return }
+                                    if (qrSwapPosition !== null) {
+                                      const swapTeam = qrSwapPosition <= 2 ? 1 : 2
+                                      const thisTeam = pos <= 2 ? 1 : 2
+                                      if (swapTeam !== thisTeam) {
+                                        setQrPlayers(prev => prev.map(pl => {
+                                          if (pl.position === pos) return { ...pl, position: qrSwapPosition! }
+                                          if (pl.position === qrSwapPosition!) return { ...pl, position: pos }
+                                          return pl
+                                        }))
+                                        setQrSwapPosition(null)
+                                        return
+                                      }
+                                    }
+                                    setQrSwapPosition(pos)
+                                  }}
+                                  className={`flex-1 flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition-all ${
+                                    isSwapSelected ? 'bg-blue-100 border-blue-500 ring-2 ring-blue-400 scale-105' :
+                                    otherTeamSelected ? 'bg-blue-50 border-blue-300 hover:border-blue-500 hover:bg-blue-100' :
+                                    'bg-blue-50 border-blue-200'
+                                  }`}
+                                >
+                                  <div className="w-8 h-8 rounded-full overflow-hidden bg-blue-100 flex items-center justify-center flex-shrink-0">
+                                    {p.avatar_url ? (
+                                      <img src={p.avatar_url} className="w-full h-full object-cover" />
+                                    ) : (
+                                      <span className="text-xs font-bold text-blue-600">{(p.name || '?').charAt(0).toUpperCase()}</span>
+                                    )}
+                                  </div>
+                                  <div className="min-w-0 flex-1">
+                                    <p className="text-xs font-semibold text-gray-900 truncate">{p.name.split(' ')[0]}</p>
+                                    {p.level && <p className="text-[10px] text-gray-500">Nv. {p.level}</p>}
+                                  </div>
+                                  {p.id !== player?.id && (
+                                    <button onClick={e => { e.stopPropagation(); setQrPlayers(prev => prev.filter(pl => pl.position !== pos)); setQrSwapPosition(null) }} className="p-1 text-red-400 hover:text-red-600">
+                                      <X className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+                                </div>
+                              ) : (
+                                <button
+                                  onClick={() => { setQrSelectingPosition(pos); setQrSwapPosition(null); setQrSearchQuery(''); setQrSearchResults([]) }}
+                                  className={`flex-1 flex items-center justify-center gap-1 p-2 rounded-lg border-2 border-dashed transition-colors ${qrSelectingPosition === pos ? 'border-green-400 bg-green-50' : 'border-gray-300 hover:border-green-400'}`}
+                                >
+                                  <Plus className="w-3.5 h-3.5 text-gray-400" />
+                                  <span className="text-xs text-gray-500">{t.common.player} {pos}</span>
+                                </button>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+
+                    <span className="text-gray-300 font-bold text-lg">VS</span>
+
+                    {/* Team 2 */}
+                    <div className="flex-1">
+                      <p className="text-xs font-bold text-red-600 mb-2 text-center">{t.common.team2}</p>
+                      <div className="space-y-2">
+                        {[3, 4].map(pos => {
+                          const p = qrPlayers.find(pl => pl.position === pos)
+                          const isSwapSelected = qrSwapPosition === pos
+                          const otherTeamSelected = qrSwapPosition !== null && qrSwapPosition <= 2
+                          return (
+                            <div key={pos} className="flex items-center gap-2">
+                              {p ? (
+                                <div
+                                  onClick={() => {
+                                    if (qrSwapPosition === pos) { setQrSwapPosition(null); return }
+                                    if (qrSwapPosition !== null) {
+                                      const swapTeam = qrSwapPosition <= 2 ? 1 : 2
+                                      const thisTeam = pos <= 2 ? 1 : 2
+                                      if (swapTeam !== thisTeam) {
+                                        setQrPlayers(prev => prev.map(pl => {
+                                          if (pl.position === pos) return { ...pl, position: qrSwapPosition! }
+                                          if (pl.position === qrSwapPosition!) return { ...pl, position: pos }
+                                          return pl
+                                        }))
+                                        setQrSwapPosition(null)
+                                        return
+                                      }
+                                    }
+                                    setQrSwapPosition(pos)
+                                  }}
+                                  className={`flex-1 flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition-all ${
+                                    isSwapSelected ? 'bg-red-100 border-red-500 ring-2 ring-red-400 scale-105' :
+                                    otherTeamSelected ? 'bg-red-50 border-red-300 hover:border-red-500 hover:bg-red-100' :
+                                    'bg-red-50 border-red-200'
+                                  }`}
+                                >
+                                  <div className="w-8 h-8 rounded-full overflow-hidden bg-red-100 flex items-center justify-center flex-shrink-0">
+                                    {p.avatar_url ? (
+                                      <img src={p.avatar_url} className="w-full h-full object-cover" />
+                                    ) : (
+                                      <span className="text-xs font-bold text-red-600">{(p.name || '?').charAt(0).toUpperCase()}</span>
+                                    )}
+                                  </div>
+                                  <div className="min-w-0 flex-1">
+                                    <p className="text-xs font-semibold text-gray-900 truncate">{p.name.split(' ')[0]}</p>
+                                    {p.level && <p className="text-[10px] text-gray-500">Nv. {p.level}</p>}
+                                  </div>
+                                  <button onClick={e => { e.stopPropagation(); setQrPlayers(prev => prev.filter(pl => pl.position !== pos)); setQrSwapPosition(null) }} className="p-1 text-red-400 hover:text-red-600">
+                                    <X className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  onClick={() => { setQrSelectingPosition(pos); setQrSwapPosition(null); setQrSearchQuery(''); setQrSearchResults([]) }}
+                                  className={`flex-1 flex items-center justify-center gap-1 p-2 rounded-lg border-2 border-dashed transition-colors ${qrSelectingPosition === pos ? 'border-green-400 bg-green-50' : 'border-gray-300 hover:border-green-400'}`}
+                                >
+                                  <Plus className="w-3.5 h-3.5 text-gray-400" />
+                                  <span className="text-xs text-gray-500">{t.common.player} {pos}</span>
+                                </button>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Player search */}
+                  {qrSelectingPosition !== null && (
+                    <div className="border border-green-200 rounded-xl p-3 bg-green-50/50">
+                      <p className="text-xs font-semibold text-green-700 mb-2">{t.common.addPlayer} - {t.common.player} {qrSelectingPosition}</p>
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                        <input
+                          type="text"
+                          placeholder={t.common.searchPlayer}
+                          value={qrSearchQuery}
+                          onChange={e => setQrSearchQuery(e.target.value)}
+                          className="w-full py-2 pl-9 pr-4 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                          autoFocus
+                        />
+                      </div>
+                      {qrSearching && (
+                        <div className="text-center py-2">
+                          <div className="animate-spin w-4 h-4 border-2 border-green-600 border-t-transparent rounded-full mx-auto" />
+                        </div>
+                      )}
+                      {qrSearchResults.length > 0 && (
+                        <div className="mt-2 max-h-36 overflow-y-auto space-y-1">
+                          {qrSearchResults.map(p => (
+                            <button
+                              key={p.id}
+                              onClick={() => {
+                                setQrPlayers(prev => [...prev, {
+                                  position: qrSelectingPosition!,
+                                  id: p.id,
+                                  name: p.name,
+                                  avatar_url: p.avatar_url || null,
+                                  level: p.level ?? null,
+                                }])
+                                setQrSelectingPosition(null)
+                                setQrSearchQuery('')
+                                setQrSearchResults([])
+                              }}
+                              className="w-full flex items-center gap-2 p-2 rounded-lg hover:bg-white transition-colors"
+                            >
+                              <div className="w-7 h-7 rounded-full overflow-hidden bg-gray-200 flex items-center justify-center flex-shrink-0">
+                                {p.avatar_url ? (
+                                  <img src={p.avatar_url} className="w-full h-full object-cover" />
+                                ) : (
+                                  <span className="text-[10px] font-bold text-gray-600">{(p.name || '?').charAt(0).toUpperCase()}</span>
+                                )}
+                              </div>
+                              <span className="text-sm text-gray-900">{p.name}</span>
+                              {p.level && <span className="text-[10px] text-gray-400 ml-auto">Nv. {p.level}</span>}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      {!qrSearching && qrSearchQuery.length >= 2 && qrSearchResults.length === 0 && (
+                        <p className="text-xs text-gray-400 text-center mt-2">{t.common.noPlayersFound}</p>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setQrStep(1)}
+                      className="flex-1 py-3 bg-gray-100 text-gray-700 rounded-xl text-sm font-semibold hover:bg-gray-200 transition-colors"
+                    >
+                      ← {t.common.previous}
+                    </button>
+                    <button
+                      disabled={qrPlayers.length !== 4}
+                      onClick={() => setQrStep(3)}
+                      className="flex-1 py-3 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {t.common.next} →
+                    </button>
+                  </div>
+                </>
+              )}
+
+              {/* === STEP 3: Scores === */}
+              {qrStep === 3 && (
+                <>
+                  {/* Summary */}
+                  <div className="bg-gray-50 rounded-xl p-3">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Building2 className="w-4 h-4 text-gray-400" />
+                      <span className="text-sm font-medium text-gray-700">{qrClubName}</span>
+                      <span className="text-xs text-gray-400 ml-auto">{new Date(qrDate).toLocaleDateString('pt-PT')}</span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="flex-1 text-center">
+                        <p className="text-[10px] font-bold text-blue-600">{t.common.team1}</p>
+                        {qrPlayers.filter(p => p.position <= 2).map(p => (
+                          <p key={p.id} className="text-xs text-gray-700 truncate">{p.name.split(' ')[0]}</p>
+                        ))}
+                      </div>
+                      <span className="text-gray-300 text-sm font-bold">VS</span>
+                      <div className="flex-1 text-center">
+                        <p className="text-[10px] font-bold text-red-600">{t.common.team2}</p>
+                        {qrPlayers.filter(p => p.position > 2).map(p => (
+                          <p key={p.id} className="text-xs text-gray-700 truncate">{p.name.split(' ')[0]}</p>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Score inputs */}
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-[auto_1fr_auto_1fr] gap-x-3 gap-y-2 items-center">
+                      <span className="text-xs text-transparent">.</span>
+                      <span className="text-[10px] font-bold text-blue-600 text-center">{t.common.team1}</span>
+                      <span className="text-xs text-transparent">.</span>
+                      <span className="text-[10px] font-bold text-red-600 text-center">{t.common.team2}</span>
+                    </div>
+                    {['Set 1', 'Set 2', 'Set 3'].map((label, idx) => (
+                      <div key={label} className="flex items-center gap-3">
+                        <span className={`text-sm font-medium w-12 ${idx === 2 ? 'text-gray-400' : 'text-gray-700'}`}>{label}</span>
+                        <input
+                          type="number"
+                          min="0"
+                          max="7"
+                          placeholder="0"
+                          value={idx === 0 ? qrScores.t1s1 : idx === 1 ? qrScores.t1s2 : qrScores.t1s3}
+                          onChange={e => {
+                            const key = idx === 0 ? 't1s1' : idx === 1 ? 't1s2' : 't1s3'
+                            setQrScores(prev => ({ ...prev, [key]: e.target.value }))
+                          }}
+                          className="flex-1 text-center py-2.5 border border-gray-200 rounded-lg text-sm font-bold focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                        />
+                        <span className="text-gray-300 font-bold">-</span>
+                        <input
+                          type="number"
+                          min="0"
+                          max="7"
+                          placeholder="0"
+                          value={idx === 0 ? qrScores.t2s1 : idx === 1 ? qrScores.t2s2 : qrScores.t2s3}
+                          onChange={e => {
+                            const key = idx === 0 ? 't2s1' : idx === 1 ? 't2s2' : 't2s3'
+                            setQrScores(prev => ({ ...prev, [key]: e.target.value }))
+                          }}
+                          className="flex-1 text-center py-2.5 border border-gray-200 rounded-lg text-sm font-bold focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-xs text-gray-400 text-center">O 3° set é opcional</p>
+
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setQrStep(2)}
+                      className="flex-1 py-3 bg-gray-100 text-gray-700 rounded-xl text-sm font-semibold hover:bg-gray-200 transition-colors"
+                    >
+                      ← {t.common.previous}
+                    </button>
+                    <button
+                      disabled={qrSubmitting || !qrScores.t1s1 || !qrScores.t2s1 || !qrScores.t1s2 || !qrScores.t2s2}
+                      onClick={handleQuickResultSubmit}
+                      className="flex-1 py-3 bg-green-600 text-white rounded-xl text-sm font-semibold hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {qrSubmitting ? 'A gravar...' : `✓ ${t.common.confirmResult}`}
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </div>
