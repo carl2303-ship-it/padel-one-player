@@ -1,3 +1,5 @@
+import { useState, useEffect } from 'react'
+import { supabase } from '../lib/supabase'
 import {
   Trophy,
   Calendar,
@@ -104,7 +106,7 @@ const benefits = [
   },
 ]
 
-const plans = [
+const defaultPlans = [
   {
     name: 'Bronze',
     price: 29.99,
@@ -180,6 +182,34 @@ const aiChannels = [
 ]
 
 export default function ClubLandingPage() {
+  const [plans, setPlans] = useState(defaultPlans);
+
+  useEffect(() => {
+    const loadPlans = async () => {
+      const { data } = await supabase
+        .from('platform_plans')
+        .select('name, price_monthly, price_annual, features')
+        .eq('target_type', 'club')
+        .eq('is_active', true)
+        .order('price_monthly', { ascending: true });
+
+      if (data && data.length > 0) {
+        setPlans(defaultPlans.map(dp => {
+          const dbPlan = data.find(d => d.name.toLowerCase() === dp.name.toLowerCase());
+          if (dbPlan) {
+            return {
+              ...dp,
+              price: Number(dbPlan.price_monthly) || dp.price,
+              priceAnnual: Number(dbPlan.price_annual) || dp.priceAnnual,
+            };
+          }
+          return dp;
+        }));
+      }
+    };
+    loadPlans();
+  }, []);
+
   return (
     <div className="min-h-screen bg-white">
       {/* Header */}
