@@ -15,6 +15,12 @@ import {
   GraduationCap,
   ShoppingBag,
   MessageCircle,
+  Check,
+  Bot,
+  Zap,
+  Instagram,
+  Globe,
+  Star,
 } from 'lucide-react'
 
 const apps = [
@@ -96,6 +102,81 @@ const benefits = [
     title: 'Gestão de bar',
     desc: 'Cria contas, adiciona itens, controla consumos e gera relatórios do bar do clube.',
   },
+]
+
+const plans = [
+  {
+    name: 'Bronze',
+    price: 29.99,
+    priceAnnual: 329.99,
+    color: 'from-amber-600 to-yellow-500',
+    popular: false,
+    features: [
+      'Até 4 campos',
+      'Gestão de reservas',
+      'Módulo de bar',
+      'Licença Tour (torneios)',
+      'Analytics avançado',
+      'App Player integrada',
+      'Staff e permissões',
+      'Precário público online',
+    ],
+    notIncluded: [
+      'Suporte prioritário',
+      'AI Agent',
+    ],
+  },
+  {
+    name: 'Silver',
+    price: 69.99,
+    priceAnnual: 789.99,
+    color: 'from-gray-400 to-gray-300',
+    popular: true,
+    features: [
+      'Até 8 campos',
+      'Gestão de reservas',
+      'Módulo de bar',
+      'Licença Tour (torneios)',
+      'Analytics avançado',
+      'App Player integrada',
+      'Staff e permissões',
+      'Precário público online',
+      'Suporte prioritário',
+      'Academia integrada',
+    ],
+    notIncluded: [
+      'AI Agent',
+    ],
+  },
+  {
+    name: 'Gold',
+    price: 99.99,
+    priceAnnual: 999.99,
+    color: 'from-yellow-400 to-amber-500',
+    popular: false,
+    features: [
+      'Até 30 campos',
+      'Gestão de reservas',
+      'Módulo de bar',
+      'Licença Tour (torneios)',
+      'Analytics avançado',
+      'App Player integrada',
+      'Staff e permissões',
+      'Precário público online',
+      'Suporte prioritário',
+      'Academia integrada',
+      'AI Agent incluído',
+    ],
+    notIncluded: [],
+  },
+]
+
+const aiChannels = [
+  { icon: MessageCircle, name: 'WhatsApp', desc: 'Responde automaticamente a mensagens dos clientes' },
+  { icon: Instagram, name: 'Instagram', desc: 'Responde a DMs e comentários no Instagram do clube' },
+  { icon: Globe, name: 'Facebook', desc: 'Gere mensagens no Messenger do clube' },
+  { icon: Mail, name: 'Email', desc: 'Responde a emails de reservas e dúvidas' },
+  { icon: Globe, name: 'Website', desc: 'Chat ao vivo no site do clube' },
 ]
 
 export default function ClubLandingPage() {
@@ -245,6 +326,154 @@ export default function ClubLandingPage() {
               </div>
             ))}
           </div>
+        </div>
+      </section>
+
+      {/* AI Agent */}
+      <section className="py-20 bg-white">
+        <div className="max-w-6xl mx-auto px-4">
+          <div className="text-center mb-14">
+            <div className="inline-flex items-center gap-2 bg-purple-50 rounded-full px-4 py-1.5 mb-4 border border-purple-100">
+              <Bot className="w-4 h-4 text-purple-500" />
+              <span className="text-sm font-medium text-purple-700">Novo</span>
+            </div>
+            <h2 className="text-3xl md:text-4xl font-black text-gray-900 mb-4">
+              AI Agent para o teu clube
+            </h2>
+            <p className="text-lg text-gray-500 max-w-2xl mx-auto">
+              Um assistente inteligente que responde automaticamente a todas as questões dos teus clientes, 24/7. Simplifica a vida do gerente do clube.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
+            <div>
+              <div className="space-y-4">
+                {aiChannels.map((ch) => (
+                  <div
+                    key={ch.name}
+                    className="flex items-start gap-4 p-4 bg-gray-50 rounded-2xl border border-gray-100 hover:border-purple-200 hover:shadow-md transition-all"
+                  >
+                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-indigo-500 flex items-center justify-center shrink-0">
+                      <ch.icon className="w-5 h-5 text-white" />
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-gray-900 text-sm">{ch.name}</h4>
+                      <p className="text-xs text-gray-500">{ch.desc}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="bg-gradient-to-br from-purple-50 to-indigo-50 rounded-3xl p-8 border border-purple-100">
+              <div className="flex items-center gap-3 mb-6">
+                <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center shadow-lg">
+                  <Bot className="w-7 h-7 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-gray-900">Padel One AI</h3>
+                  <p className="text-sm text-gray-500">O teu assistente virtual</p>
+                </div>
+              </div>
+              <ul className="space-y-3">
+                {[
+                  'Responde a perguntas sobre horários e disponibilidade',
+                  'Informa sobre preços, aulas e torneios',
+                  'Ajuda jogadores a fazer reservas',
+                  'Disponível 24 horas por dia, 7 dias por semana',
+                  'Aprende com os dados do teu clube',
+                  'Reduz o trabalho manual do gerente em 80%',
+                ].map((f) => (
+                  <li key={f} className="flex items-start gap-2 text-sm text-gray-700">
+                    <Zap className="w-4 h-4 text-purple-500 mt-0.5 shrink-0" />
+                    {f}
+                  </li>
+                ))}
+              </ul>
+              <div className="mt-6 p-3 bg-white/60 rounded-xl border border-purple-100">
+                <p className="text-xs text-purple-600 font-semibold text-center">
+                  Incluído no plano Gold — ou disponível como add-on para outros planos
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Pricing */}
+      <section className="py-20 bg-gray-50">
+        <div className="max-w-6xl mx-auto px-4">
+          <div className="text-center mb-14">
+            <h2 className="text-3xl md:text-4xl font-black text-gray-900 mb-4">
+              Planos e Preços
+            </h2>
+            <p className="text-lg text-gray-500 max-w-xl mx-auto">
+              Escolhe o plano ideal para o teu clube. Todos incluem as 3 apps integradas.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-5xl mx-auto">
+            {plans.map((plan) => (
+              <div
+                key={plan.name}
+                className={`relative rounded-3xl bg-white border-2 overflow-hidden transition-all hover:shadow-xl ${
+                  plan.popular ? 'border-blue-500 shadow-lg scale-105' : 'border-gray-100'
+                }`}
+              >
+                {plan.popular && (
+                  <div className="absolute top-0 left-0 right-0 bg-gradient-to-r from-blue-500 to-indigo-600 text-white text-center text-xs font-bold py-1.5">
+                    Mais Popular
+                  </div>
+                )}
+                <div className={`p-6 ${plan.popular ? 'pt-10' : ''}`}>
+                  <div className={`inline-flex items-center gap-2 bg-gradient-to-r ${plan.color} rounded-full px-3 py-1 mb-4`}>
+                    <Star className="w-3.5 h-3.5 text-white" />
+                    <span className="text-sm font-bold text-white">{plan.name}</span>
+                  </div>
+
+                  <div className="mb-6">
+                    <div className="flex items-end gap-1">
+                      <span className="text-4xl font-black text-gray-900">{plan.price}€</span>
+                      <span className="text-sm text-gray-400 mb-1">/mês</span>
+                    </div>
+                    <p className="text-xs text-gray-400 mt-1">
+                      ou {plan.priceAnnual}€/ano <span className="text-green-600 font-semibold">({Math.round((1 - plan.priceAnnual / (plan.price * 12)) * 100)}% desc.)</span>
+                    </p>
+                  </div>
+
+                  <ul className="space-y-2.5 mb-6">
+                    {plan.features.map((f) => (
+                      <li key={f} className="flex items-start gap-2 text-sm text-gray-700">
+                        <Check className="w-4 h-4 text-green-500 mt-0.5 shrink-0" />
+                        {f}
+                      </li>
+                    ))}
+                    {plan.notIncluded.map((f) => (
+                      <li key={f} className="flex items-start gap-2 text-sm text-gray-400 line-through">
+                        <Check className="w-4 h-4 text-gray-300 mt-0.5 shrink-0" />
+                        {f}
+                      </li>
+                    ))}
+                  </ul>
+
+                  <a
+                    href="mailto:info@boostpadel.store"
+                    className={`block text-center py-3 rounded-xl text-sm font-bold transition-all ${
+                      plan.popular
+                        ? 'bg-gradient-to-r from-blue-500 to-indigo-600 text-white hover:shadow-lg hover:shadow-blue-200'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                  >
+                    Contactar
+                  </a>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <p className="text-center text-sm text-gray-400 mt-8">
+            Todos os preços são sem IVA. Pagamento mensal ou anual via Stripe.
+          </p>
         </div>
       </section>
 
