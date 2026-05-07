@@ -17,13 +17,21 @@ export interface ClubDetail {
   owner_id?: string | null
   is_managed?: boolean
   plan_type?: string | null
+  photo_url_1?: string | null
+  photo_url_2?: string | null
+  latitude?: number | null
+  longitude?: number | null
+  cover_image_url?: string | null
+  photos?: string[] | null
+  num_courts?: number | null
+  amenities?: string[] | null
 }
 
 /** Lista todos os clubes geridos pela Padel One (para o jogador escolher no perfil). */
 export async function fetchAllClubs(): Promise<ClubDetail[]> {
   const { data } = await supabase
     .from('clubs')
-    .select('id, name, description, logo_url, address, city, country, phone, email, website, owner_id, is_managed, plan_type')
+    .select('id, name, description, logo_url, photo_url_1, photo_url_2, address, city, country, phone, email, website, owner_id, is_managed, plan_type, latitude, longitude, cover_image_url, photos, num_courts, amenities')
     .order('name', { ascending: true })
   return (data || []) as ClubDetail[]
 }
@@ -32,7 +40,7 @@ export async function fetchAllClubs(): Promise<ClubDetail[]> {
 export async function fetchClubById(clubId: string): Promise<ClubDetail | null> {
   const { data } = await supabase
     .from('clubs')
-    .select('id, name, description, logo_url, address, city, country, phone, email, website, plan_type')
+    .select('id, name, description, logo_url, photo_url_1, photo_url_2, address, city, country, phone, email, website, plan_type, latitude, longitude, cover_image_url, photos, num_courts, amenities')
     .eq('id', clubId)
     .maybeSingle()
   return data as ClubDetail | null
@@ -252,6 +260,7 @@ export interface TournamentFullDetail {
   end_date: string
   status: string
   format: string
+  round_robin_type?: string | null
   image_url: string | null
   number_of_courts: number
   match_duration_minutes: number
@@ -326,6 +335,7 @@ export async function fetchTournamentFullDetail(tournamentId: string, playerAcco
   const totalMax = (categories || []).reduce((sum, c) => c.max_teams ? sum + c.max_teams : sum, 0)
   const is_full = totalMax > 0 && total_enrolled >= totalMax
 
+  console.log('[fetchTournamentFullDetail] RAW tournament data:', { format: t.format, round_robin_type: t.round_robin_type, name: t.name })
   return {
     id: t.id,
     name: t.name,
@@ -334,6 +344,7 @@ export async function fetchTournamentFullDetail(tournamentId: string, playerAcco
     end_date: t.end_date,
     status: t.status,
     format: t.format,
+    round_robin_type: t.round_robin_type || null,
     image_url: t.image_url,
     number_of_courts: t.number_of_courts ?? 1,
     match_duration_minutes: t.match_duration_minutes ?? 90,

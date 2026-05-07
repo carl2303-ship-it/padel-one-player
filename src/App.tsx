@@ -61,7 +61,8 @@ import {
   CheckCircle,
   AlertCircle,
   Star,
-  Check
+  Check,
+  Navigation
 } from 'lucide-react'
 import {
   followUser,
@@ -128,7 +129,7 @@ import {
   type PartnerMatchRequesterSummary,
 } from './lib/partnerMatch'
 
-type Screen = 'home' | 'games' | 'profile-view' | 'profile-edit' | 'club' | 'club-detail' | 'compete' | 'community' | 'player-profile' | 'follows-list' | 'learn' | 'find-game' | 'rewards' | 'booking' | 'payments' | 'group-detail'
+type Screen = 'home' | 'games' | 'profile-view' | 'profile-edit' | 'club' | 'club-detail' | 'clubs-list' | 'compete' | 'community' | 'player-profile' | 'follows-list' | 'learn' | 'find-game' | 'rewards' | 'booking' | 'payments' | 'group-detail'
 
 function App() {
   const { t, language, setLanguage, languageNames, languageFlags } = useI18n()
@@ -778,6 +779,8 @@ function App() {
                 await handleSaveFavoriteClub(updated.length > 0 ? updated[0] : null)
               }
             }}
+            onOpenClubsList={() => setCurrentScreen('clubs-list')}
+            onOpenClubDetail={(clubId: string) => { setSelectedClubId(clubId); setCurrentScreen('club-detail') }}
           />
         )}
         {currentScreen === 'booking' && (
@@ -838,8 +841,43 @@ function App() {
             groupId={createGameForGroupId}
           />
         )}
+        {currentScreen === 'clubs-list' && (
+          <ClubsListScreen
+            playerClubIds={player?.club_ids ?? []}
+            favoriteClubId={player?.favorite_club_id ?? null}
+            onBack={() => setCurrentScreen('home')}
+            onOpenClubDetail={(clubId: string) => { setSelectedClubId(clubId); setCurrentScreen('club-detail') }}
+            onSaveFavoriteClub={handleSaveFavoriteClub}
+            onToggleClub={async (clubId, add) => {
+              if (!player?.id) return
+              const updated = await togglePlayerClub(player.id, clubId, add)
+              setPlayer(prev => prev ? { ...prev, club_ids: updated } as any : prev)
+              if (add && !player.favorite_club_id) {
+                await handleSaveFavoriteClub(clubId)
+              } else if (!add && player.favorite_club_id === clubId) {
+                await handleSaveFavoriteClub(updated.length > 0 ? updated[0] : null)
+              }
+            }}
+          />
+        )}
         {currentScreen === 'club-detail' && selectedClubId && (
-          <ClubScreen favoriteClubId={selectedClubId} onBack={() => setCurrentScreen('learn')} />
+          <ClubDetailScreen
+            clubId={selectedClubId}
+            onBack={() => setCurrentScreen('clubs-list')}
+            isSelected={(player?.club_ids ?? []).includes(selectedClubId)}
+            isFavorite={player?.favorite_club_id === selectedClubId}
+            onToggleClub={async (cId, add) => {
+              if (!player?.id) return
+              const updated = await togglePlayerClub(player.id, cId, add)
+              setPlayer(prev => prev ? { ...prev, club_ids: updated } as any : prev)
+              if (add && !player.favorite_club_id) {
+                await handleSaveFavoriteClub(cId)
+              } else if (!add && player.favorite_club_id === cId) {
+                await handleSaveFavoriteClub(updated.length > 0 ? updated[0] : null)
+              }
+            }}
+            onSaveFavoriteClub={handleSaveFavoriteClub}
+          />
         )}
         {currentScreen === 'profile-view' && (
           <ProfileViewScreen
@@ -2651,6 +2689,8 @@ function HomeScreen({
   onOpenTournamentDetail,
   onSaveFavoriteClub,
   onToggleClub,
+  onOpenClubsList,
+  onOpenClubDetail,
 }: {
   player: PlayerAccount | null
   dashboardData: PlayerDashboardData | null
@@ -2668,6 +2708,8 @@ function HomeScreen({
   onOpenBooking: () => void
   onSaveFavoriteClub: (clubId: string | null) => Promise<void>
   onToggleClub: (clubId: string, add: boolean) => Promise<void>
+  onOpenClubsList: () => void
+  onOpenClubDetail: (clubId: string) => void
 }) {
   const { t } = useI18n()
   const [followingCount, setFollowingCount] = useState(0)
@@ -2677,33 +2719,6 @@ function HomeScreen({
     getFollowingCount(userId).then(setFollowingCount)
     getFollowersCount(userId).then(setFollowersCount)
   }, [userId])
-
-  // Clubs state
-  const [homeClubs, setHomeClubs] = useState<ClubDetail[]>([])
-  const [homeClubsLoading, setHomeClubsLoading] = useState(true)
-  const [homeTogglingClub, setHomeTogglingClub] = useState<string | null>(null)
-  const [showClubsModal, setShowClubsModal] = useState(false)
-  const playerClubIds = player?.club_ids ?? []
-  const favoriteClubId = player?.favorite_club_id ?? localStorage.getItem('padel_one_player_favorite_club_id')
-
-  useEffect(() => {
-    fetchAllClubs().then(list => {
-      setHomeClubs(list)
-      setHomeClubsLoading(false)
-    }).catch(() => setHomeClubsLoading(false))
-  }, [])
-
-  const sortedClubs = useMemo(() => {
-    const fav: ClubDetail[] = []
-    const selected: ClubDetail[] = []
-    const rest: ClubDetail[] = []
-    homeClubs.forEach(c => {
-      if (c.id === favoriteClubId) fav.push(c)
-      else if (playerClubIds.includes(c.id)) selected.push(c)
-      else rest.push(c)
-    })
-    return [...fav, ...selected, ...rest]
-  }, [homeClubs, favoriteClubId, playerClubIds])
 
   // Pending results state
   const [pendingResultGames, setPendingResultGames] = useState<(import('./lib/openGames').OpenGame & { _resultStatus?: string | null; _submittedByTeam?: number })[]>([])
@@ -2975,7 +2990,7 @@ function HomeScreen({
       {/* Quick Actions */}
       <div className="grid grid-cols-5 gap-3">
         <ActionButton icon={Calendar} label={t.home.book} color="lime" onClick={onOpenBooking} />
-        <ActionButton icon={Building2} label="Clubes" color="blue" onClick={() => setShowClubsModal(true)} />
+        <ActionButton icon={Building2} label="Clubes" color="blue" onClick={onOpenClubsList} />
         <ActionButton icon={Trophy} label={t.home.compete} color="amber" onClick={onOpenCompete} />
         <ActionButton icon={Gamepad2} label={t.home.findGame} color="purple" emoji="🎾" onClick={onOpenFindGame} />
         <ActionButton icon={GraduationCap} label={t.home.learn} color="emerald" onClick={onOpenLearn} />
@@ -3098,91 +3113,6 @@ function HomeScreen({
           🎁 {t.home.spendPoints}
         </button>
       </div>
-
-      {/* Modal Clubes — renderizado via portal para ficar acima de tudo */}
-      {showClubsModal && createPortal(
-        <div className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center" onClick={() => setShowClubsModal(false)}>
-          <div className="absolute inset-0 bg-black/40" />
-          <div className="relative bg-white rounded-t-2xl sm:rounded-2xl w-full max-w-lg max-h-[80vh] flex flex-col animate-fade-in" onClick={e => e.stopPropagation()}>
-            <div className="p-4 border-b border-gray-100 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Building2 className="w-5 h-5 text-red-600" />
-                <h3 className="font-bold text-lg text-gray-900">Clubes</h3>
-              </div>
-              <button onClick={() => setShowClubsModal(false)} className="p-1.5 rounded-full hover:bg-gray-100">
-                <X className="w-5 h-5 text-gray-500" />
-              </button>
-            </div>
-            <div className="divide-y divide-gray-100 overflow-y-auto flex-1">
-              {homeClubsLoading ? (
-                <div className="p-6 text-center text-gray-500">{t.settings.loadingClubs}</div>
-              ) : sortedClubs.length === 0 ? (
-                <div className="p-6 text-center text-gray-500">{t.settings.noClubsAvailable}</div>
-              ) : (
-                sortedClubs.map(club => {
-                  const isSelected = playerClubIds.includes(club.id)
-                  const isFavorite = favoriteClubId === club.id
-                  const isToggling = homeTogglingClub === club.id
-                  return (
-                    <div
-                      key={club.id}
-                      className={`w-full p-3.5 flex items-center gap-3 transition-colors ${isFavorite ? 'bg-amber-50' : isSelected ? 'bg-red-50/50' : 'hover:bg-gray-50'} ${isToggling ? 'opacity-50' : ''}`}
-                    >
-                      <button
-                        onClick={async (e) => {
-                          e.stopPropagation()
-                          if (isSelected && !isFavorite) {
-                            await onSaveFavoriteClub(club.id)
-                          } else if (isFavorite && playerClubIds.length > 1) {
-                            await onSaveFavoriteClub(null)
-                          }
-                        }}
-                        className="shrink-0"
-                        title={isFavorite ? 'Clube favorito' : isSelected ? 'Definir como favorito' : ''}
-                        disabled={!isSelected}
-                      >
-                        <Star className={`w-5 h-5 transition-colors ${isFavorite ? 'text-amber-500 fill-amber-500' : isSelected ? 'text-gray-300 hover:text-amber-400' : 'text-gray-200'}`} />
-                      </button>
-                      <button
-                        disabled={isToggling}
-                        onClick={async () => {
-                          setHomeTogglingClub(club.id)
-                          try {
-                            await onToggleClub(club.id, !isSelected)
-                          } catch {}
-                          setHomeTogglingClub(null)
-                        }}
-                        className="flex items-center gap-3 flex-1 min-w-0 text-left"
-                      >
-                        {club.logo_url ? (
-                          <img src={club.logo_url} alt="" className="w-10 h-10 rounded-lg object-cover shrink-0" />
-                        ) : (
-                          <div className="w-10 h-10 rounded-lg bg-gray-200 flex items-center justify-center shrink-0">
-                            <Building2 className="w-5 h-5 text-gray-400" />
-                          </div>
-                        )}
-                        <div className="flex-1 min-w-0">
-                          <span className="font-medium text-gray-900 text-sm truncate block">{club.name}</span>
-                          {isFavorite && <span className="text-[10px] text-amber-600 font-medium">Clube favorito</span>}
-                        </div>
-                        <div className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition-colors ${isSelected ? 'bg-red-600 border-red-600' : 'border-gray-300'}`}>
-                          {isSelected && <Check className="w-3 h-3 text-white" />}
-                        </div>
-                      </button>
-                    </div>
-                  )
-                })
-              )}
-            </div>
-            {playerClubIds.length > 0 && (
-              <div className="p-3 border-t border-gray-100 bg-gray-50 rounded-b-2xl">
-                <p className="text-xs text-gray-500 text-center">{playerClubIds.length} {playerClubIds.length === 1 ? 'clube seleccionado' : 'clubes seleccionados'}</p>
-              </div>
-            )}
-          </div>
-        </div>,
-        document.body
-      )}
 
       {/* Próximos Jogos – lista horizontal ao estilo Playtomic */}
       <div>
@@ -4619,6 +4549,430 @@ function CommunityScreen({ userId, playerAccountId, playerAvatar, playerName, on
   )
 }
 
+// ---------- Lista de Clubes (ecrã inteiro com cards) ----------
+function ClubsListScreen({
+  playerClubIds, favoriteClubId, onBack, onOpenClubDetail, onSaveFavoriteClub, onToggleClub,
+}: {
+  playerClubIds: string[]
+  favoriteClubId: string | null
+  onBack: () => void
+  onOpenClubDetail: (clubId: string) => void
+  onSaveFavoriteClub: (clubId: string | null) => Promise<void>
+  onToggleClub: (clubId: string, add: boolean) => Promise<void>
+}) {
+  const { t } = useI18n()
+  const [clubs, setClubs] = useState<ClubDetail[]>([])
+  const [loading, setLoading] = useState(true)
+  const [searchQuery, setSearchQuery] = useState('')
+
+  useEffect(() => {
+    fetchAllClubs().then(list => { setClubs(list); setLoading(false) }).catch(() => setLoading(false))
+  }, [])
+
+  const sortedClubs = useMemo(() => {
+    const fav: ClubDetail[] = []
+    const selected: ClubDetail[] = []
+    const rest: ClubDetail[] = []
+    clubs.forEach(c => {
+      if (c.id === favoriteClubId) fav.push(c)
+      else if (playerClubIds.includes(c.id)) selected.push(c)
+      else rest.push(c)
+    })
+    return [...fav, ...selected, ...rest]
+  }, [clubs, favoriteClubId, playerClubIds])
+
+  const filtered = useMemo(() => {
+    if (!searchQuery.trim()) return sortedClubs
+    const q = searchQuery.toLowerCase()
+    return sortedClubs.filter(c =>
+      c.name.toLowerCase().includes(q) ||
+      (c.city && c.city.toLowerCase().includes(q)) ||
+      (c.address && c.address.toLowerCase().includes(q))
+    )
+  }, [sortedClubs, searchQuery])
+
+  return (
+    <div className="space-y-4 animate-fade-in">
+      <div className="flex items-center gap-3">
+        <button onClick={onBack} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
+          <ArrowLeft className="w-5 h-5 text-gray-700" />
+        </button>
+        <h1 className="text-xl font-bold text-gray-900 flex-1">Clubes</h1>
+      </div>
+
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+        <input
+          type="text"
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+          placeholder="Pesquisar clubes..."
+          className="w-full pl-10 pr-4 py-2.5 bg-gray-100 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+        />
+      </div>
+
+      {loading ? (
+        <div className="flex items-center justify-center py-16">
+          <div className="w-10 h-10 border-2 border-red-600 border-t-transparent rounded-full animate-spin" />
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="text-center py-16">
+          <Building2 className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+          <p className="text-gray-500">{searchQuery ? 'Nenhum clube encontrado' : t.settings.noClubsAvailable}</p>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {filtered.map(club => {
+            const isSelected = playerClubIds.includes(club.id)
+            const isFavorite = favoriteClubId === club.id
+            const coverImg = club.photo_url_1 || club.cover_image_url || club.logo_url
+            return (
+              <div
+                key={club.id}
+                className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition-shadow cursor-pointer"
+                onClick={() => onOpenClubDetail(club.id)}
+              >
+                <div className="relative h-44 bg-gradient-to-br from-gray-100 to-gray-200">
+                  {coverImg ? (
+                    <img src={coverImg} alt={club.name} className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center">
+                      <Building2 className="w-16 h-16 text-gray-300" />
+                    </div>
+                  )}
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
+                  {isFavorite && (
+                    <div className="absolute top-3 left-3 flex items-center gap-1 bg-amber-500 text-white text-xs font-bold px-2.5 py-1 rounded-full">
+                      <Star className="w-3 h-3 fill-white" /> Favorito
+                    </div>
+                  )}
+                  {isSelected && !isFavorite && (
+                    <div className="absolute top-3 left-3 flex items-center gap-1 bg-red-600 text-white text-xs font-bold px-2.5 py-1 rounded-full">
+                      <Check className="w-3 h-3" /> Selecionado
+                    </div>
+                  )}
+                  {club.logo_url && coverImg !== club.logo_url && (
+                    <div className="absolute bottom-3 left-4 w-12 h-12 rounded-xl bg-white shadow-lg overflow-hidden border-2 border-white">
+                      <img src={club.logo_url} alt="" className="w-full h-full object-cover" />
+                    </div>
+                  )}
+                  <div className="absolute bottom-3 left-4" style={club.logo_url && coverImg !== club.logo_url ? { left: '4.5rem' } : {}}>
+                    <h3 className="text-white font-bold text-lg drop-shadow-md leading-tight">{club.name}</h3>
+                  </div>
+                </div>
+                <div className="p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex-1 min-w-0 space-y-1.5">
+                      {club.address && (
+                        <div className="flex items-start gap-2 text-sm text-gray-600">
+                          <MapPin className="w-4 h-4 mt-0.5 shrink-0 text-gray-400" />
+                          <span className="truncate">{club.address}{club.city ? `, ${club.city}` : ''}</span>
+                        </div>
+                      )}
+                      <div className="flex items-center gap-4 text-xs text-gray-500">
+                        {club.num_courts && (
+                          <span className="flex items-center gap-1">
+                            <span className="font-semibold text-gray-700">{club.num_courts}</span> campos
+                          </span>
+                        )}
+                        {club.phone && (
+                          <span className="flex items-center gap-1">
+                            <Phone className="w-3 h-3" /> {club.phone}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <button
+                      onClick={e => {
+                        e.stopPropagation()
+                        if (isSelected && !isFavorite) {
+                          onSaveFavoriteClub(club.id)
+                        } else if (!isSelected) {
+                          onToggleClub(club.id, true)
+                        }
+                      }}
+                      className={`shrink-0 p-2 rounded-full transition-colors ${isFavorite ? 'text-amber-500' : isSelected ? 'text-red-500 hover:text-amber-500' : 'text-gray-300 hover:text-red-500'}`}
+                    >
+                      <Star className={`w-5 h-5 ${isFavorite ? 'fill-amber-500' : ''}`} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---------- Detalhe do Clube (página inteira) ----------
+function ClubDetailScreen({ clubId, onBack, isSelected, isFavorite, onToggleClub, onSaveFavoriteClub }: {
+  clubId: string
+  onBack: () => void
+  isSelected?: boolean
+  isFavorite?: boolean
+  onToggleClub?: (clubId: string, add: boolean) => Promise<void>
+  onSaveFavoriteClub?: (clubId: string | null) => Promise<void>
+}) {
+  const { t } = useI18n()
+  const [club, setClub] = useState<ClubDetail | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [activePhotoIdx, setActivePhotoIdx] = useState(0)
+  const [toggling, setToggling] = useState(false)
+
+  useEffect(() => {
+    setLoading(true)
+    fetchClubById(clubId).then(data => {
+      setClub(data ?? null)
+      setLoading(false)
+    }).catch(() => setLoading(false))
+  }, [clubId])
+
+  const allPhotos = useMemo(() => {
+    if (!club) return []
+    const photos: string[] = []
+    if (club.photo_url_1) photos.push(club.photo_url_1)
+    if (club.photo_url_2 && !photos.includes(club.photo_url_2)) photos.push(club.photo_url_2)
+    if (club.cover_image_url && !photos.includes(club.cover_image_url)) photos.push(club.cover_image_url)
+    if (club.photos?.length) {
+      club.photos.forEach(p => { if (!photos.includes(p)) photos.push(p) })
+    }
+    if (club.logo_url && !photos.includes(club.logo_url)) photos.push(club.logo_url)
+    return photos
+  }, [club])
+
+  if (loading) {
+    return (
+      <div className="space-y-4 animate-fade-in">
+        <button onClick={onBack} className="flex items-center gap-2 text-gray-600 hover:text-gray-900">
+          <ArrowLeft className="w-5 h-5" /> {t.common.back}
+        </button>
+        <div className="flex items-center justify-center py-16">
+          <div className="w-10 h-10 border-2 border-red-600 border-t-transparent rounded-full animate-spin" />
+        </div>
+      </div>
+    )
+  }
+
+  if (!club) {
+    return (
+      <div className="space-y-4 animate-fade-in">
+        <button onClick={onBack} className="flex items-center gap-2 text-gray-600 hover:text-gray-900">
+          <ArrowLeft className="w-5 h-5" /> {t.common.back}
+        </button>
+        <div className="text-center py-16">
+          <Building2 className="w-16 h-16 text-gray-300 mx-auto mb-3" />
+          <p className="text-gray-500">Clube não encontrado</p>
+        </div>
+      </div>
+    )
+  }
+
+  const hasCoordinates = club.latitude && club.longitude
+  const mapsUrl = hasCoordinates
+    ? `https://www.google.com/maps?q=${club.latitude},${club.longitude}`
+    : club.address
+      ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(club.address + (club.city ? `, ${club.city}` : '') + (club.country ? `, ${club.country}` : ''))}`
+      : null
+  const mapsEmbedUrl = hasCoordinates
+    ? `https://maps.google.com/maps?q=${club.latitude},${club.longitude}&z=15&output=embed`
+    : club.address
+      ? `https://maps.google.com/maps?q=${encodeURIComponent(club.address + (club.city ? `, ${club.city}` : ''))}&z=15&output=embed`
+      : null
+
+  const amenityIcons: Record<string, string> = {
+    parking: '🅿️', bar: '🍺', restaurant: '🍽️', showers: '🚿',
+    locker_room: '🔒', shop: '🛒', wifi: '📶', gym: '💪',
+    pool: '🏊', kids: '👶', physiotherapy: '💆',
+  }
+
+  return (
+    <div className="animate-fade-in -mx-4 -mt-4">
+      {/* Hero photo gallery */}
+      <div className="relative h-72 sm:h-80 bg-gradient-to-br from-gray-200 to-gray-300">
+        {allPhotos.length > 0 ? (
+          <img src={allPhotos[activePhotoIdx]} alt={club.name} className="w-full h-full object-cover" />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center">
+            <Building2 className="w-20 h-20 text-gray-300" />
+          </div>
+        )}
+        {/* Gradient overlay - pointer-events-none so buttons work */}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/10 to-transparent pointer-events-none" />
+        {/* Navigation arrows */}
+        {allPhotos.length > 1 && (
+          <>
+            <button onClick={(e) => { e.stopPropagation(); setActivePhotoIdx(i => (i - 1 + allPhotos.length) % allPhotos.length) }} className="absolute left-3 top-1/2 -translate-y-1/2 z-10 w-10 h-10 bg-black/40 backdrop-blur-sm rounded-full flex items-center justify-center text-white hover:bg-black/60 transition-colors">
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+            <button onClick={(e) => { e.stopPropagation(); setActivePhotoIdx(i => (i + 1) % allPhotos.length) }} className="absolute right-3 top-1/2 -translate-y-1/2 z-10 w-10 h-10 bg-black/40 backdrop-blur-sm rounded-full flex items-center justify-center text-white hover:bg-black/60 transition-colors">
+              <ChevronRight className="w-5 h-5" />
+            </button>
+            <div className="absolute bottom-14 left-1/2 -translate-x-1/2 z-10 flex gap-2">
+              {allPhotos.map((_, i) => (
+                <button key={i} onClick={(e) => { e.stopPropagation(); setActivePhotoIdx(i) }} className={`rounded-full transition-all ${i === activePhotoIdx ? 'bg-white w-5 h-2.5' : 'bg-white/50 w-2.5 h-2.5'}`} />
+              ))}
+            </div>
+          </>
+        )}
+        {/* Photo counter */}
+        {allPhotos.length > 1 && (
+          <div className="absolute top-4 right-4 z-10 bg-black/50 backdrop-blur-sm text-white text-xs font-semibold px-2.5 py-1 rounded-full">
+            {activePhotoIdx + 1} / {allPhotos.length}
+          </div>
+        )}
+        {/* Back button */}
+        <button onClick={onBack} className="absolute top-4 left-4 z-10 w-10 h-10 bg-black/40 backdrop-blur-sm rounded-full flex items-center justify-center text-white hover:bg-black/60 transition-colors">
+          <ArrowLeft className="w-5 h-5" />
+        </button>
+        {/* Club name over photo */}
+        <div className="absolute bottom-3 left-4 right-4 z-10">
+          <div className="flex items-end gap-3">
+            {club.logo_url && (
+              <div className="w-14 h-14 rounded-xl bg-white shadow-lg overflow-hidden border-2 border-white shrink-0">
+                <img src={club.logo_url} alt="" className="w-full h-full object-cover" />
+              </div>
+            )}
+            <div className="flex-1 min-w-0">
+              <h1 className="text-white text-2xl font-bold drop-shadow-lg leading-tight">{club.name}</h1>
+              {club.city && <p className="text-white/80 text-sm drop-shadow-sm">{club.city}{club.country ? `, ${club.country}` : ''}</p>}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="px-4 py-5 space-y-5">
+        {/* Action buttons: Jogo aqui / Favorito */}
+        {onToggleClub && (
+          <div className="flex gap-3">
+            <button
+              disabled={toggling}
+              onClick={async () => {
+                setToggling(true)
+                try { await onToggleClub(clubId, !isSelected) } catch {}
+                setToggling(false)
+              }}
+              className={`flex-1 py-3 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 transition-all ${
+                isSelected
+                  ? 'bg-red-50 text-red-600 border-2 border-red-200'
+                  : 'bg-red-600 text-white hover:bg-red-700'
+              } ${toggling ? 'opacity-50' : ''}`}
+            >
+              {isSelected ? (
+                <><Check className="w-4 h-4" /> Jogo aqui</>
+              ) : (
+                <><Plus className="w-4 h-4" /> Adicionar aos meus clubes</>
+              )}
+            </button>
+            {isSelected && onSaveFavoriteClub && (
+              <button
+                onClick={async () => {
+                  setToggling(true)
+                  try { await onSaveFavoriteClub(isFavorite ? null : clubId) } catch {}
+                  setToggling(false)
+                }}
+                className={`px-4 py-3 rounded-xl font-semibold text-sm flex items-center gap-2 transition-all border-2 ${
+                  isFavorite
+                    ? 'bg-amber-50 text-amber-600 border-amber-200'
+                    : 'bg-white text-gray-600 border-gray-200 hover:border-amber-300 hover:text-amber-500'
+                }`}
+              >
+                <Star className={`w-5 h-5 ${isFavorite ? 'fill-amber-500 text-amber-500' : ''}`} />
+              </button>
+            )}
+          </div>
+        )}
+
+        {club.plan_type === 'preview' && (
+          <div className="p-3 rounded-xl bg-amber-50 border border-amber-200">
+            <p className="text-sm text-amber-800 font-medium">
+              Este clube ainda não está ativo na Padel One. Entre em contacto com o seu clube!
+            </p>
+          </div>
+        )}
+
+        {club.description && (
+          <p className="text-gray-600 text-sm leading-relaxed">{club.description}</p>
+        )}
+
+        {/* Quick info badges */}
+        <div className="flex flex-wrap gap-2">
+          {club.num_courts && (
+            <div className="flex items-center gap-1.5 bg-blue-50 text-blue-700 text-xs font-semibold px-3 py-1.5 rounded-full">
+              🏟️ {club.num_courts} {club.num_courts === 1 ? 'campo' : 'campos'}
+            </div>
+          )}
+          {club.amenities && club.amenities.length > 0 && club.amenities.map(a => (
+            <div key={a} className="flex items-center gap-1 bg-gray-100 text-gray-700 text-xs font-medium px-3 py-1.5 rounded-full">
+              {amenityIcons[a] || '✨'} {a.charAt(0).toUpperCase() + a.slice(1).replace('_', ' ')}
+            </div>
+          ))}
+        </div>
+
+        {/* Contact info */}
+        <div className="bg-white rounded-2xl border border-gray-100 divide-y divide-gray-100 overflow-hidden">
+          {club.address && (
+            <a href={mapsUrl || '#'} target="_blank" rel="noopener noreferrer" className="flex items-start gap-3 p-4 hover:bg-gray-50 transition-colors">
+              <MapPin className="w-5 h-5 text-red-500 mt-0.5 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-gray-900">{club.address}</p>
+                <p className="text-xs text-gray-500">{club.city}{club.country ? `, ${club.country}` : ''}</p>
+              </div>
+              <ExternalLink className="w-4 h-4 text-gray-400 shrink-0 mt-1" />
+            </a>
+          )}
+          {club.phone && (
+            <a href={`tel:${club.phone}`} className="flex items-center gap-3 p-4 hover:bg-gray-50 transition-colors">
+              <Phone className="w-5 h-5 text-green-600 shrink-0" />
+              <span className="text-sm font-medium text-gray-900">{club.phone}</span>
+            </a>
+          )}
+          {club.email && (
+            <a href={`mailto:${club.email}`} className="flex items-center gap-3 p-4 hover:bg-gray-50 transition-colors">
+              <Mail className="w-5 h-5 text-blue-600 shrink-0" />
+              <span className="text-sm font-medium text-gray-900">{club.email}</span>
+            </a>
+          )}
+          {club.website && (
+            <a href={club.website.startsWith('http') ? club.website : `https://${club.website}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 p-4 hover:bg-gray-50 transition-colors">
+              <Globe className="w-5 h-5 text-purple-600 shrink-0" />
+              <span className="text-sm font-medium text-gray-900 truncate">{club.website}</span>
+              <ExternalLink className="w-4 h-4 text-gray-400 shrink-0" />
+            </a>
+          )}
+        </div>
+
+        {/* Google Maps embed */}
+        {mapsEmbedUrl && (
+          <div className="space-y-2">
+            <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+              <MapPin className="w-4 h-4 text-red-500" /> Localização
+            </h3>
+            <div className="rounded-2xl overflow-hidden border border-gray-200 shadow-sm">
+              <iframe
+                src={mapsEmbedUrl}
+                width="100%"
+                height="220"
+                style={{ border: 0 }}
+                allowFullScreen
+                loading="lazy"
+                referrerPolicy="no-referrer-when-downgrade"
+                title={`Localização de ${club.name}`}
+              />
+            </div>
+            {mapsUrl && (
+              <a href={mapsUrl} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-2 text-sm text-red-600 font-medium hover:underline py-1">
+                <Navigation className="w-4 h-4" /> Abrir no Google Maps
+              </a>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ---------- Clube Favorito (detalhes do clube escolhido no perfil) ----------
 function ClubScreen({ favoriteClubId, onBack }: { favoriteClubId: string | null; onBack: () => void }) {
   const { t } = useI18n()
@@ -5193,6 +5547,7 @@ function CompeteScreen({
     setPendingInviteForTournament(null)
     try {
       const detail = await fetchTournamentFullDetail(tournamentId, player?.id)
+      console.log('[CompeteScreen] DETAIL LOADED:', { format: detail?.format, round_robin_type: detail?.round_robin_type, name: detail?.name })
       setSelectedTournamentDetail(detail)
       if (player?.id) {
         const invites = await fetchMyTournamentInvites(player.id)
@@ -5200,18 +5555,21 @@ function CompeteScreen({
         if (pending) setPendingInviteForTournament(tournamentId)
       }
       if (detail) {
-        setCategoryDetailsLoading(true)
-        try {
-          const { fetchTournamentCategoryDetails } = await import('./lib/clubAndTournaments')
-          const catDetails = await fetchTournamentCategoryDetails(tournamentId)
-          setCategoryDetails(catDetails)
-          const autoExpand = new Set<string>()
-          catDetails.forEach(cd => { if (cd.hasData) autoExpand.add(cd.category_id) })
-          if (autoExpand.size > 0) setExpandedDetailCats(autoExpand)
-        } catch (err) {
-          console.error('[CompeteScreen] Error loading category details:', err)
+        const isAmericano = ['mixed_american', 'crossed_playoffs', 'mixed_gender', 'individual_groups_knockout', 'round_robin'].includes(detail.format)
+        if (!isAmericano) {
+          setCategoryDetailsLoading(true)
+          try {
+            const { fetchTournamentCategoryDetails } = await import('./lib/clubAndTournaments')
+            const catDetails = await fetchTournamentCategoryDetails(tournamentId)
+            setCategoryDetails(catDetails)
+            const autoExpand = new Set<string>()
+            catDetails.forEach(cd => { if (cd.hasData) autoExpand.add(cd.category_id) })
+            if (autoExpand.size > 0) setExpandedDetailCats(autoExpand)
+          } catch (err) {
+            console.error('[CompeteScreen] Error loading category details:', err)
+          }
+          setCategoryDetailsLoading(false)
         }
-        setCategoryDetailsLoading(false)
       }
     } catch (err) {
       console.error('[CompeteScreen] Error loading tournament detail:', err)
@@ -5698,10 +6056,11 @@ function CompeteScreen({
                       if (r.includes('round_of_16')) return 'Oitavos-de-final'
                       return round
                     }
+                    const isAmericanoFormat = ['mixed_american', 'crossed_playoffs', 'mixed_gender', 'individual_groups_knockout', 'round_robin'].includes(td.format)
                     return td.enrolled.map((cat) => {
                       let catDetail = catDetailsMap.get(cat.category_id)
                       if (!catDetail && categoryDetails.length === 1) catDetail = categoryDetails[0]
-                      const hasGroupsOrMatches = catDetail?.hasData
+                      const hasGroupsOrMatches = !isAmericanoFormat && catDetail?.hasData
                       const isExpanded = expandedDetailCats.has(cat.category_id)
                       const sortedKnockout = catDetail ? [...catDetail.knockoutMatches].sort((a, b) => getKOOrder(a.round) - getKOOrder(b.round)) : []
 
