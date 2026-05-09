@@ -1340,7 +1340,7 @@ function GameCardPlaytomic({
           <div 
             className="mt-0.5 px-2 py-0.5 rounded-full text-[9px] font-bold text-white"
             style={{ backgroundColor: colors?.hex || '#9ca3af' }}
-            title={`Nível ${level.toFixed(2)}${category ? ` - ${category}` : ''}`}
+            title={`Nível ${level.toFixed(2)}`}
           >
             {level.toFixed(2)}
           </div>
@@ -3043,13 +3043,6 @@ function HomeScreen({
                   <span>📊</span> {t.home.reliability} {player?.level_reliability_percent?.toFixed(0) ?? '85'}%
                 </p>
               </div>
-              {colors && hasGradient && (
-                <div className="px-4 py-2 rounded-lg shadow-sm self-start border-2 bg-white" style={{ borderColor: colors.hex }}>
-                  <span className="text-sm font-bold" style={{ color: colors.hex }}>
-                    Nv {(player?.level ?? 0).toFixed(2)}
-                  </span>
-                </div>
-              )}
             </div>
           </div>
         )
@@ -12256,11 +12249,6 @@ function OtherPlayerProfileScreen({
                 </p>
               </div>
               <div className="flex flex-col gap-2 self-start">
-                {hasGradient && (
-                  <div className="px-4 py-2 rounded-lg shadow-sm border-2 bg-white" style={{ borderColor: colors.hex }}>
-                    <span className="text-sm font-bold" style={{ color: colors.hex }}>Nv {profile.level?.toFixed(2) || '3.00'}</span>
-                  </div>
-                )}
                 {ageCategory && (
                   <div className="px-4 py-2 bg-amber-500 rounded-lg shadow-sm">
                     <span className="text-sm font-bold text-white">{ageCategory}</span>
@@ -12698,13 +12686,6 @@ function ProfileViewScreen({
                 </p>
               </div>
               <div className="flex flex-col gap-2 self-start">
-                {colors && hasGradient && (
-                  <div className="px-4 py-2 rounded-lg shadow-sm border-2 bg-white" style={{ borderColor: colors.hex }}>
-                    <span className="text-sm font-bold" style={{ color: colors.hex }}>
-                      Nv {(player?.level ?? 0).toFixed(2)}
-                    </span>
-                  </div>
-                )}
                 {ageCategory && (
                   <div className="px-4 py-2 bg-amber-500 rounded-lg shadow-sm">
                     <span className="text-sm font-bold text-white">{ageCategory}</span>
@@ -13185,12 +13166,6 @@ function ProfileEditScreen({
         <h2 className="text-xl font-bold text-gray-900 mt-3">{player?.name || t.settings.player}</h2>
         <p className="text-gray-500 text-sm">{player?.phone_number || player?.phone}</p>
         
-        {/* Level Badge */}
-        <div className="flex items-center justify-center gap-2 mt-3">
-          <span className="px-3 py-1.5 bg-blue-50 text-blue-700 rounded-full text-sm font-bold">
-            Nv {(player?.level ?? 0).toFixed(2)}
-          </span>
-        </div>
       </div>
 
       {/* Success/Error Message */}
