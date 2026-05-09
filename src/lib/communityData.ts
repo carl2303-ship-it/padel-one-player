@@ -1066,6 +1066,46 @@ export async function getPlayerProfile(targetUserId: string, myUserId: string): 
     }
   }
 
+  // Count open game wins/losses (same logic as playerDashboardData.ts)
+  try {
+    const ogQueries = [
+      supabase.from('open_game_players').select('game_id, position').eq('player_account_id', pa.id).eq('status', 'confirmed'),
+    ]
+    if (pa.user_id) {
+      ogQueries.push(supabase.from('open_game_players').select('game_id, position').eq('user_id', pa.user_id).eq('status', 'confirmed'))
+    }
+    const ogResults = await Promise.all(ogQueries)
+    const ogMap = new Map<string, number>()
+    ogResults.forEach(r => {
+      (r.data || []).forEach((p: any) => { if (!ogMap.has(p.game_id)) ogMap.set(p.game_id, p.position) })
+    })
+    const ogGameIds = Array.from(ogMap.keys())
+    if (ogGameIds.length > 0) {
+      const { data: confirmedOgResults } = await supabase
+        .from('open_game_results')
+        .select('game_id, team1_score_set1, team2_score_set1, team1_score_set2, team2_score_set2, team1_score_set3, team2_score_set3')
+        .in('game_id', ogGameIds)
+        .eq('status', 'confirmed')
+      if (confirmedOgResults) {
+        for (const r of confirmedOgResults) {
+          const pos = ogMap.get(r.game_id) ?? 0
+          const myTeam = pos <= 2 ? 1 : 2
+          const sets1 = ((r.team1_score_set1 || 0) > (r.team2_score_set1 || 0) ? 1 : 0) +
+            ((r.team1_score_set2 || 0) > (r.team2_score_set2 || 0) ? 1 : 0) +
+            ((r.team1_score_set3 || 0) > (r.team2_score_set3 || 0) ? 1 : 0)
+          const sets2 = ((r.team2_score_set1 || 0) > (r.team1_score_set1 || 0) ? 1 : 0) +
+            ((r.team2_score_set2 || 0) > (r.team1_score_set2 || 0) ? 1 : 0) +
+            ((r.team2_score_set3 || 0) > (r.team1_score_set3 || 0) ? 1 : 0)
+          const won = myTeam === 1 ? sets1 > sets2 : sets2 > sets1
+          if (won) computedWins++
+          else computedLosses++
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[Community] Error counting open game results:', err)
+  }
+
   // Build topPlayers
   const topPlayers: TopPlayer[] = Array.from(topPlayersMap.entries())
     .sort((a, b) => b[1] - a[1])

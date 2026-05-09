@@ -8987,7 +8987,7 @@ function FindGameScreen({
                                   </div>
                                   <div className="min-w-0 flex-1">
                                     <p className="text-xs font-semibold text-gray-900 truncate">{p.name.split(' ')[0]}</p>
-                                    {p.level && <p className="text-[10px] text-gray-500">Nv. {p.level}</p>}
+                                    {p.level && <p className="text-[10px] text-gray-500">Nv. {Number(p.level).toFixed(2)}</p>}
                                   </div>
                                   {p.id !== player?.id && (
                                     <button onClick={e => { e.stopPropagation(); setQrPlayers(prev => prev.filter(pl => pl.position !== pos)); setQrSwapPosition(null) }} className="p-1 text-red-400 hover:text-red-600">
@@ -9056,7 +9056,7 @@ function FindGameScreen({
                                   </div>
                                   <div className="min-w-0 flex-1">
                                     <p className="text-xs font-semibold text-gray-900 truncate">{p.name.split(' ')[0]}</p>
-                                    {p.level && <p className="text-[10px] text-gray-500">Nv. {p.level}</p>}
+                                    {p.level && <p className="text-[10px] text-gray-500">Nv. {Number(p.level).toFixed(2)}</p>}
                                   </div>
                                   <button onClick={e => { e.stopPropagation(); setQrPlayers(prev => prev.filter(pl => pl.position !== pos)); setQrSwapPosition(null) }} className="p-1 text-red-400 hover:text-red-600">
                                     <X className="w-3.5 h-3.5" />
@@ -9125,7 +9125,7 @@ function FindGameScreen({
                                 )}
                               </div>
                               <span className="text-sm text-gray-900">{p.name}</span>
-                              {p.level && <span className="text-[10px] text-gray-400 ml-auto">Nv. {p.level}</span>}
+                              {p.level && <span className="text-[10px] text-gray-400 ml-auto">Nv. {Number(p.level).toFixed(2)}</span>}
                             </button>
                           ))}
                         </div>
@@ -11861,7 +11861,7 @@ function GroupDetailScreen({
                       </div>
                       {m.level != null && (
                         <div className="flex items-center gap-1.5 mt-0.5">
-                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${colors?.bg || 'bg-gray-100'} ${colors?.text || 'text-gray-600'}`}>Nv {m.level.toFixed(1)}</span>
+                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${colors?.bg || 'bg-gray-100'} ${colors?.text || 'text-gray-600'}`}>Nv {m.level.toFixed(2)}</span>
                           {m.player_category && <span className="text-[10px] text-gray-500">{m.player_category}</span>}
                         </div>
                       )}
@@ -12543,9 +12543,9 @@ function ProfileViewScreen({
 }) {
   const { t } = useI18n()
   const d = dashboardData
-  const totalMatches = d?.stats?.totalMatches ?? (player?.wins || 0) + (player?.losses || 0)
-  const wins = d?.stats?.wins ?? player?.wins ?? 0
-  const winRate = d?.stats?.winRate ?? (totalMatches > 0 ? Math.round(((player?.wins || 0) / totalMatches) * 100) : 0)
+  const totalMatches = d?.stats?.totalMatches ?? 0
+  const wins = d?.stats?.wins ?? 0
+  const winRate = d?.stats?.winRate ?? 0
   const bio = player?.bio || ''
   const [followingCount, setFollowingCount] = useState(0)
   const [followersCount, setFollowersCount] = useState(0)
@@ -12656,52 +12656,76 @@ function ProfileViewScreen({
 
   const levelChartData = useMemo(() => {
     const currentLevel = player?.level ?? 3.0
+    const TARGET = 5
 
-    if (levelHistory.length > 0) {
-      const sorted = [...levelHistory].sort((a, b) =>
-        new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-      )
-      return sorted.slice(-5).map((h, i) => ({
-        index: i,
-        level: h.level_after,
-        levelBefore: h.level_before,
-        delta: h.delta,
-        won: h.match_won,
-        date: new Date(h.created_at),
-        matchType: h.match_type,
-      }))
+    const completedMatches = [...recentMatches]
+      .filter(m => m.status === 'completed' && m.is_winner !== undefined)
+      .sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())
+
+    const lastMatches = completedMatches.slice(-TARGET)
+    if (lastMatches.length === 0) {
+      return [{ index: 0, level: currentLevel, levelBefore: currentLevel, delta: 0, won: null as boolean | null, date: new Date(), matchType: 'tournament' }]
     }
 
-    const matches = [...recentMatches].reverse()
-    if (matches.length === 0) return [{ index: 0, level: currentLevel, levelBefore: currentLevel, delta: 0, won: null as boolean | null, date: new Date(), matchType: 'tournament' }]
+    // Sort history chronologically; group by day+type for ordered matching
+    const sortedHistory = [...levelHistory].sort((a, b) =>
+      new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+    )
+    const historyQueues = new Map<string, typeof levelHistory>()
+    for (const h of sortedHistory) {
+      const dayKey = new Date(h.created_at).toISOString().slice(0, 10)
+      const key = dayKey + '_' + h.match_type
+      const q = historyQueues.get(key) || []
+      q.push(h)
+      historyQueues.set(key, q)
+    }
+    const historyIndexes = new Map<string, number>()
 
     const totalRated = (player?.wins ?? 0) + (player?.losses ?? 0)
     const K = totalRated < 5 ? 0.50 : totalRated < 10 ? 0.35 : totalRated < 20 ? 0.25 : totalRated < 40 ? 0.15 : totalRated < 60 ? 0.10 : 0.06
     const baseDelta = K * 0.4
 
-    const deltas: number[] = matches.map(m => m.is_winner ? baseDelta : -baseDelta)
+    const deltas = lastMatches.map(m => m.is_winner ? baseDelta : -baseDelta)
+    let runLvl = currentLevel
+    for (let i = deltas.length - 1; i >= 0; i--) runLvl = Math.max(0.5, runLvl - deltas[i])
 
-    let startLvl = currentLevel
-    for (let i = deltas.length - 1; i >= 0; i--) startLvl = Math.max(0.5, startLvl - deltas[i])
+    return lastMatches.map((m, i) => {
+      const matchDate = new Date(m.start_time)
+      const dayKey = matchDate.toISOString().slice(0, 10)
+      const matchType = m.is_open_game ? 'open_game' : 'tournament'
+      const queueKey = dayKey + '_' + matchType
+      const queue = historyQueues.get(queueKey)
+      const idx = historyIndexes.get(queueKey) || 0
+      const historyEntry = queue?.[idx]
+      if (historyEntry) historyIndexes.set(queueKey, idx + 1)
 
-    const points: typeof levelChartData = []
-    let runLvl = startLvl
-    for (let i = 0; i < matches.length; i++) {
+      // ALWAYS use is_winner from recentMatches — it's the source of truth
+      const won = m.is_winner ?? null
+
+      if (historyEntry) {
+        return {
+          index: i,
+          level: historyEntry.level_after,
+          levelBefore: historyEntry.level_before,
+          delta: historyEntry.delta,
+          won,
+          date: matchDate,
+          matchType,
+        }
+      }
+
       const before = runLvl
       runLvl = Math.max(0.5, parseFloat((runLvl + deltas[i]).toFixed(2)))
-      points.push({
+      return {
         index: i,
         level: runLvl,
         levelBefore: parseFloat(before.toFixed(2)),
         delta: parseFloat(deltas[i].toFixed(4)),
-        won: matches[i].is_winner ?? null,
-        date: new Date(matches[i].start_time),
-        matchType: matches[i].is_open_game ? 'open_game' : 'tournament',
-      })
-    }
-
-    const filtered = points.slice(-5)
-    return filtered.length > 0 ? filtered : [{ index: 0, level: currentLevel, levelBefore: currentLevel, delta: 0, won: null as boolean | null, date: new Date(), matchType: 'tournament' }]
+        won,
+        date: matchDate,
+        matchType,
+      }
+    })
   }, [levelHistory, recentMatches, player?.level, player?.wins, player?.losses])
 
   const getHandLabel = (h?: string) => ({ right: 'Direita', left: 'Esquerda', ambidextrous: 'Ambidestro' }[h || ''] || '—')
