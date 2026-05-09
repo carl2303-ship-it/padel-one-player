@@ -923,19 +923,22 @@ export async function getPlayerProfile(targetUserId: string, myUserId: string): 
     getFollowingIds(myUserId),
   ])
 
-  // 3) Find this player's entries in the 'players' table by phone OR name
-  //    (same approach as playerDashboardData.ts)
-  const [playersByPhone, playersByName] = await Promise.all([
+  // 3) Find this player's entries in the 'players' table
+  //    Same approach as playerDashboardData.ts: account_id first, then fallbacks for unlinked records
+  const [playersByAccountId, playersByPhone, playersByName] = await Promise.all([
+    pa.id
+      ? supabase.from('players').select('id, tournament_id').eq('player_account_id', pa.id)
+      : { data: [] },
     phone
-      ? supabase.from('players').select('id, tournament_id').eq('phone_number', phone)
+      ? supabase.from('players').select('id, tournament_id').eq('phone_number', phone).is('player_account_id', null)
       : { data: [] },
     playerName
-      ? supabase.from('players').select('id, tournament_id').ilike('name', playerName)
+      ? supabase.from('players').select('id, tournament_id').ilike('name', playerName).is('player_account_id', null)
       : { data: [] },
   ])
 
   const allPlayersMap = new Map<string, { id: string; tournament_id: string | null }>()
-  ;[...(playersByPhone.data || []), ...(playersByName.data || [])].forEach((p: any) => {
+  ;[...(playersByAccountId.data || []), ...(playersByPhone.data || []), ...(playersByName.data || [])].forEach((p: any) => {
     allPlayersMap.set(p.id, p)
   })
   const allPlayerEntries = Array.from(allPlayersMap.values())
