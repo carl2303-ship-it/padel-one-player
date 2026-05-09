@@ -5171,8 +5171,16 @@ function CompeteScreen({
           invitedIds = new Set(invites.map(i => i.tournament_id))
         }
 
+        const pg = player?.gender as string | undefined
         const filtered = list
-          .filter(t => t.visibility !== 'invite_only' || invitedIds.has(t.id))
+          .filter(t => {
+            if (t.visibility === 'invite_only' && !invitedIds.has(t.id)) return false
+            if (t.gender && pg) {
+              if (t.gender === 'male' && pg !== 'male') return false
+              if (t.gender === 'female' && pg !== 'female') return false
+            }
+            return true
+          })
           .map(t => ({ ...t, is_invited: invitedIds.has(t.id) }))
 
         const tourIds = new Set(filtered.map(t => t.id))
@@ -5221,8 +5229,18 @@ function CompeteScreen({
         }
 
         const enrolledIds = new Set((d?.upcomingTournaments ?? []).map((t) => t.id))
+        const playerGender = player?.gender as string | undefined
         const activeNotEnrolled = list
-          .filter((t) => t.status === 'active' && !enrolledIds.has(t.id) && (t.visibility !== 'invite_only' || invitedIds.has(t.id)))
+          .filter((t) => {
+            if (t.status !== 'active' || enrolledIds.has(t.id)) return false
+            if (t.visibility === 'invite_only' && !invitedIds.has(t.id)) return false
+            // Filter by gender: hide male-only tournaments from female players and vice versa
+            if (t.gender && playerGender) {
+              if (t.gender === 'male' && playerGender !== 'male') return false
+              if (t.gender === 'female' && playerGender !== 'female') return false
+            }
+            return true
+          })
           .map(t => ({ ...t, is_invited: invitedIds.has(t.id) }))
 
         const { supabase } = await import('./lib/supabase')

@@ -84,6 +84,7 @@ export interface UpcomingTournamentFromTour {
   visibility?: 'public' | 'invite_only'
   format?: string | null
   round_robin_type?: string | null
+  gender?: string | null
   is_full?: boolean
   is_invited?: boolean
 }
@@ -364,7 +365,7 @@ export async function fetchUpcomingTournaments(clubIds?: string[] | string | nul
   const today = new Date().toISOString().split('T')[0]
   let query = supabase
     .from('tournaments')
-    .select('id, name, start_date, end_date, status, image_url, club_id, description, allow_public_registration, visibility, format, round_robin_type')
+    .select('id, name, start_date, end_date, status, image_url, club_id, description, allow_public_registration, visibility, format, round_robin_type, gender')
     .gte('end_date', today)
     .in('status', ['draft', 'active', 'in_progress'])
     .order('start_date', { ascending: true })
@@ -413,7 +414,7 @@ export async function fetchTournamentsByIds(ids: string[]): Promise<UpcomingTour
   if (ids.length === 0) return []
   const { data } = await supabase
     .from('tournaments')
-    .select('id, name, start_date, end_date, status, image_url, club_id, description, allow_public_registration, visibility, format, round_robin_type')
+    .select('id, name, start_date, end_date, status, image_url, club_id, description, allow_public_registration, visibility, format, round_robin_type, gender')
     .in('id', ids)
   return (data || []) as UpcomingTournamentFromTour[]
 }
