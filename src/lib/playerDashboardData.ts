@@ -645,6 +645,18 @@ export async function fetchPlayerDashboardData(
     result.stats.wins = wins
     result.stats.losses = losses
     result.stats.winRate = totalMatches > 0 ? Math.round((wins / totalMatches) * 100) : 0
+
+    // Persist computed stats to player_accounts so all profile views are consistent
+    if (totalMatches > 0 && playerAccount.id) {
+      supabase
+        .from('player_accounts')
+        .update({ wins, losses })
+        .eq('id', playerAccount.id)
+        .then(({ error }) => {
+          if (error) console.warn('[PlayerDashboard] Failed to persist stats:', error.message)
+          else console.log('[PlayerDashboard] Persisted stats: wins=', wins, 'losses=', losses)
+        })
+    }
   } catch (err) {
     console.error('[PlayerDashboard] Error fetching matches:', err)
     // Fallback: continue with empty matches but still fetch league standings
