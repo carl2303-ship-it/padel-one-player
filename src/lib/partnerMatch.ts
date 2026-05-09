@@ -74,6 +74,8 @@ export async function requestPartnerMatch(params: {
   categoryId?: string | null;
   sidePreference: "right" | "left" | "both";
   targetMode: "any" | "following" | "direct";
+  minLevel?: number;
+  maxLevel?: number;
   inviteePhone?: string;
 }) {
   return callFn("request-partner-match", params);

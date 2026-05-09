@@ -77,8 +77,7 @@ import {
   getPlayerProfile,
   getFollowingList,
   getFollowersList,
-  categoryToLevel,
-  categoryColors,
+  levelColors,
   getInitials,
   type CommunityPlayer,
   type PlayerProfile,
@@ -1319,9 +1318,8 @@ function GameCardPlaytomic({
   const renderPlayer = (name: string, bgClass: string, textClass: string) => {
     const firstName = getFirstName(name)
     const cached = getCachedPlayerData(name)
-    const level = cached?.level ?? (cached?.player_category ? categoryToLevel(cached.player_category) : undefined)
-    const category = cached?.player_category ?? undefined
-    const colors = category ? categoryColors(category) : null
+    const level = cached?.level ?? undefined
+    const colors = levelColors(level)
     // Usar avatar do cache, senão usar currentPlayerAvatar se for o jogador atual
     const avatarUrl = cached?.avatar_url ?? (isCurrentPlayer(name, currentPlayerName) ? currentPlayerAvatar : null)
     
@@ -1772,7 +1770,7 @@ function OpenGameCard({
             {[0, 1].map(i => {
               const p = confirmedPlayers[i]
               if (p) {
-                const pColors = p.player_category ? categoryColors(p.player_category) : null
+                const pColors = levelColors(p.level)
                 const isMe = p.user_id === userId || p.player_account_id === playerAccountId
                 const canRemove = isCreator && !isMe && !actionLoading
                 return (
@@ -1826,7 +1824,7 @@ function OpenGameCard({
             {[2, 3].map(i => {
               const p = confirmedPlayers[i]
               if (p) {
-                const pColors = p.player_category ? categoryColors(p.player_category) : null
+                const pColors = levelColors(p.level)
                 const isMe = p.user_id === userId || p.player_account_id === playerAccountId
                 const canRemove = isCreator && !isMe && !actionLoading
                 return (
@@ -1903,7 +1901,7 @@ function OpenGameCard({
           {addPlayerResults.length > 0 && (
             <div className="mt-2 max-h-[150px] overflow-y-auto space-y-1">
               {addPlayerResults.map(r => {
-                const rColors = r.player_category ? categoryColors(r.player_category) : null
+                const rColors = levelColors(r.level)
                 return (
                   <button
                     key={r.id}
@@ -3025,7 +3023,7 @@ function HomeScreen({
 
       {/* Nível + Fiabilidade + Categoria */}
       {(() => {
-        const colors = player?.player_category ? categoryColors(player.player_category) : null
+        const colors = levelColors(player?.level)
         const hasGradient = colors && colors.hex !== '#e5e7eb'
         const bgStyle = hasGradient 
           ? { background: `linear-gradient(135deg, ${colors.hex} 0%, ${colors.hexTo} 100%)` }
@@ -3045,10 +3043,10 @@ function HomeScreen({
                   <span>📊</span> {t.home.reliability} {player?.level_reliability_percent?.toFixed(0) ?? '85'}%
                 </p>
               </div>
-              {player?.player_category && colors && hasGradient && (
+              {colors && hasGradient && (
                 <div className="px-4 py-2 rounded-lg shadow-sm self-start border-2 bg-white" style={{ borderColor: colors.hex }}>
                   <span className="text-sm font-bold" style={{ color: colors.hex }}>
-                    {player.player_category}
+                    Nv {(player?.level ?? 0).toFixed(2)}
                   </span>
                 </div>
               )}
@@ -3240,7 +3238,7 @@ function HomeScreen({
                               {positions.map(position => {
                                 const p = confirmedPlayers.find(pl => pl.position === position)
                                 if (p) {
-                                  const pColors = p.player_category ? categoryColors(p.player_category) : null
+                                  const pColors = levelColors(p.level)
                                   return (
                                     <div key={p.id} className="flex flex-col items-center">
                                       <div className="w-12 h-12 rounded-full overflow-hidden bg-gray-200 flex items-center justify-center">
@@ -4163,8 +4161,8 @@ function CommunityScreen({ userId, playerAccountId, playerAvatar, playerName, on
             ) : playerSearchResults.length > 0 ? (
               <div className="divide-y divide-gray-50">
                 {playerSearchResults.map(p => {
-                  const lvl = categoryToLevel(p.player_category) ?? p.level
-                  const colors = categoryColors(p.player_category)
+                  const lvl = p.level
+                  const colors = levelColors(p.level)
                   return (
                   <div key={p.id} className="flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors cursor-pointer" onClick={() => onOpenPlayerProfile(p.user_id)}>
                     <div className="flex items-center gap-3">
@@ -4175,7 +4173,6 @@ function CommunityScreen({ userId, playerAccountId, playerAvatar, playerName, on
                         <p className="text-sm font-semibold text-gray-900">{p.name}</p>
                         <div className="flex items-center gap-1.5 mt-0.5">
                           {lvl && <span className={`text-xs font-black px-2 py-0.5 rounded-full ${colors.bg} ${colors.text}`}>Nv {lvl}</span>}
-                          {p.player_category && <span className="text-xs text-gray-500 font-medium">{p.player_category}</span>}
                           {p.location && <span className="text-xs text-gray-400">{p.location}</span>}
                         </div>
                       </div>
@@ -4325,8 +4322,8 @@ function CommunityScreen({ userId, playerAccountId, playerAvatar, playerName, on
                   <h3 className="text-sm font-semibold text-gray-700 mb-2 px-1">{t.learn.suggestedPlayers}</h3>
                   <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
                     {suggestions.map((player, idx) => {
-                      const lvl = categoryToLevel(player.player_category) ?? player.level
-                      const colors = categoryColors(player.player_category)
+                      const lvl = player.level
+                      const colors = levelColors(player.level)
                       return (
                       <div key={`sug-${player.id}-${idx}`} className="flex-shrink-0 w-36 bg-white rounded-2xl shadow-sm border border-gray-100 p-4 text-center cursor-pointer hover:shadow-md transition-shadow" onClick={() => onOpenPlayerProfile(player.user_id)}>
                         <div className="w-16 h-16 mx-auto rounded-full bg-gray-900 flex items-center justify-center text-white font-bold text-lg mb-2.5 overflow-hidden">
@@ -4338,9 +4335,6 @@ function CommunityScreen({ userId, playerAccountId, playerAvatar, playerName, on
                         <p className="text-sm font-semibold text-gray-900 truncate">{player.name}</p>
                         {lvl && (
                           <span className={`inline-block mt-1.5 text-xl font-black px-3 py-0.5 rounded-full ${colors.bg} ${colors.text}`}>Nv {lvl}</span>
-                        )}
-                        {player.player_category && (
-                          <p className="mt-1 text-xs font-semibold text-gray-500">{player.player_category}</p>
                         )}
                         <button
                           onClick={(e) => { e.stopPropagation(); handleFollow(player.user_id) }}
@@ -5139,7 +5133,8 @@ function CompeteScreen({
   const [partnerInviteeLookup, setPartnerInviteeLookup] = useState<{ found: boolean; name: string | null; position: string | null } | null>(null)
   const [partnerInviteeLooking, setPartnerInviteeLooking] = useState(false)
   const partnerPhoneLookupRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const [partnerCategoryId, setPartnerCategoryId] = useState<string | null>(null)
+  const [partnerMinLevel, setPartnerMinLevel] = useState<number>(1.0)
+  const [partnerMaxLevel, setPartnerMaxLevel] = useState<number>(7.0)
   const [partnerLoading, setPartnerLoading] = useState(false)
   const [pendingPartnerInvites, setPendingPartnerInvites] = useState<PartnerInvite[]>([])
   const [partnerInvitesLoading, setPartnerInvitesLoading] = useState(false)
@@ -5213,101 +5208,17 @@ function CompeteScreen({
     return () => { active = false }
   }, [clubIds, favoriteClubId, player?.id, d?.upcomingTournaments])
 
-  // Extrair género e nível do player_category (ex: "M6" → { gender: 'M', level: 6 })
-  const getPlayerCategoryInfo = (): { gender: 'M' | 'F'; level: number } | null => {
-    if (!player?.player_category) return null
-    const cat = player.player_category.toUpperCase().trim()
-    // Formato esperado: M1-M6, F1-F6
-    const match = cat.match(/^([MF])(\d+)$/)
-    if (match) {
-      return { gender: match[1] as 'M' | 'F', level: parseInt(match[2]) }
-    }
-    return null
-  }
-
-  // Verificar se uma categoria de torneio é compatível com a categoria do jogador
-  const isCategoryCompatible = (categoryName: string, playerGender: 'M' | 'F', playerLevel: number): boolean => {
-    const catUpper = categoryName.toUpperCase().trim()
-
-    // Extrair todos os números de nível da categoria (ex: "M4/M5" → [4,5], "F6" → [6], "Mx3/Mx4" → [3,4])
-    const levelMatches = catUpper.match(/\d+/g)
-    const levels = levelMatches ? levelMatches.map(Number).filter(n => n >= 1 && n <= 7) : []
-
-    // Determinar se é misto (Mx), masculino ou feminino
-    const isMixed = catUpper.startsWith('MX') || catUpper.includes('MIST') || catUpper.includes('MIX')
-    const hasMaleRef = !isMixed && (catUpper.match(/^M\d/) || catUpper.match(/\/M\d/) || catUpper.includes('MASC') || catUpper.includes('MASCULINO'))
-    const hasFemaleRef = catUpper.startsWith('F') || catUpper.includes('FEM') || catUpper.includes('FEMININO')
-
-    // Se não tem referência a género nem a nível → incluir para todos
-    if (!hasMaleRef && !hasFemaleRef && !isMixed && levels.length === 0) return true
-
-    // Verificar género
-    if (hasMaleRef && playerGender !== 'M') return false
-    if (hasFemaleRef && playerGender !== 'F') return false
-    // Se é misto (Mx), qualquer género pode participar
-
-    // Verificar nível
-    if (levels.length > 0) {
-      return levels.includes(playerLevel)
-    }
-
-    // Se tem género mas não tem nível explícito → incluir
-    return true
-  }
 
   // Buscar torneios disponíveis filtrados por género e nível
   useEffect(() => {
     if (activeTab !== 'upcoming') return
-    const playerInfo = getPlayerCategoryInfo()
-    if (!playerInfo) {
-      let active = true
-      const effIds = clubIds.length > 0 ? clubIds : (favoriteClubId ? [favoriteClubId] : [])
-      setLoadingAvailable(true)
-      fetchUpcomingTournaments(effIds.length > 0 ? effIds : undefined).then(async (list) => {
-        if (!active) return
-        let invitedIds = new Set<string>()
-        if (player?.id) {
-          const invites = await fetchMyTournamentInvites(player.id)
-          invitedIds = new Set(invites.map(i => i.tournament_id))
-        }
-        const enrolledIds = new Set((d?.upcomingTournaments ?? []).map((t) => t.id))
-        const available = list
-          .filter((t) => t.status === 'active' && !enrolledIds.has(t.id) && (t.visibility !== 'invite_only' || invitedIds.has(t.id)))
-          .map(t => ({ ...t, is_invited: invitedIds.has(t.id) }))
-          .slice(0, 10)
-        const { supabase } = await import('./lib/supabase')
-        const withFullStatus = await Promise.all(available.map(async (tour) => {
-          const { data: cats } = await supabase
-            .from('tournament_categories')
-            .select('id, max_teams')
-            .eq('tournament_id', tour.id)
-          const totalMax = (cats || []).reduce((sum, c) => c.max_teams ? sum + c.max_teams : sum, 0)
-          if (totalMax > 0) {
-            const isIndiv = tour.format === 'individual_groups_knockout' || tour.format === 'mixed_american' || tour.format === 'crossed_playoffs' || tour.format === 'mixed_gender' || (tour.format === 'round_robin' && tour.round_robin_type === 'individual')
-            const table = isIndiv ? 'players' : 'teams'
-            const { count } = await supabase
-              .from(table)
-              .select('id', { count: 'exact', head: true })
-              .eq('tournament_id', tour.id)
-            return { ...tour, is_full: (count ?? 0) >= totalMax }
-          }
-          return tour
-        }))
-        if (active) {
-          setAvailableTournaments(withFullStatus)
-          setLoadingAvailable(false)
-        }
-      }).catch(() => { if (active) setLoadingAvailable(false) })
-      return () => { active = false }
-    }
-
     let active = true
-    const effIds2 = clubIds.length > 0 ? clubIds : (favoriteClubId ? [favoriteClubId] : [])
+    const effIds = clubIds.length > 0 ? clubIds : (favoriteClubId ? [favoriteClubId] : [])
     setLoadingAvailable(true)
 
     ;(async () => {
       try {
-        const list = await fetchUpcomingTournaments(effIds2.length > 0 ? effIds2 : undefined)
+        const list = await fetchUpcomingTournaments(effIds.length > 0 ? effIds : undefined)
         if (!active) return
 
         let invitedIds = new Set<string>()
@@ -5321,33 +5232,26 @@ function CompeteScreen({
           .filter((t) => t.status === 'active' && !enrolledIds.has(t.id) && (t.visibility !== 'invite_only' || invitedIds.has(t.id)))
           .map(t => ({ ...t, is_invited: invitedIds.has(t.id) }))
 
-        // Filtrar por género E nível: buscar categorias de cada torneio
         const { supabase } = await import('./lib/supabase')
         const filtered: UpcomingTournamentFromTour[] = []
 
         for (const tournament of activeNotEnrolled) {
           const { data: categories } = await supabase
             .from('tournament_categories')
-            .select('id, name, accepted_levels, min_level, max_level, max_teams')
+            .select('id, name, min_level, max_level, max_teams')
             .eq('tournament_id', tournament.id)
 
           if (categories && categories.length > 0) {
             const hasCompatibleCategory = categories.some(cat => {
-              const hasAcceptedLevels = cat.accepted_levels && cat.accepted_levels.length > 0
               const hasLevelRange = cat.min_level != null || cat.max_level != null
 
-              if (hasAcceptedLevels || hasLevelRange) {
-                if (hasAcceptedLevels && !cat.accepted_levels!.includes(player?.player_category || '')) {
-                  return false
-                }
-                if (hasLevelRange && player?.level != null) {
-                  if (cat.min_level != null && player.level < cat.min_level) return false
-                  if (cat.max_level != null && player.level > cat.max_level) return false
-                }
+              if (hasLevelRange) {
+                if (cat.min_level != null && (player?.level ?? 0) < cat.min_level) return false
+                if (cat.max_level != null && (player?.level ?? 0) > cat.max_level) return false
                 return true
               }
 
-              return isCategoryCompatible(cat.name, playerInfo.gender, playerInfo.level)
+              return true
             })
             if (hasCompatibleCategory) {
               const totalMax = categories.reduce((sum, c) => c.max_teams ? sum + c.max_teams : sum, 0)
@@ -5379,7 +5283,7 @@ function CompeteScreen({
     })()
 
     return () => { active = false }
-  }, [activeTab, favoriteClubId, d?.upcomingTournaments, player?.player_category, player?.level])
+  }, [activeTab, favoriteClubId, d?.upcomingTournaments, player?.level])
 
   // Buscar ligas quando abre o tab Ligas (via Edge Function - bypass RLS)
   useEffect(() => {
@@ -5715,9 +5619,11 @@ function CompeteScreen({
     try {
       const result = await requestPartnerMatch({
         tournamentId: tournament.id,
-        categoryId: partnerCategoryId,
+        categoryId: null,
         sidePreference: partnerSide,
         targetMode: partnerTargetMode,
+        minLevel: partnerMinLevel,
+        maxLevel: partnerMaxLevel,
         ...(partnerTargetMode === 'direct' && partnerInviteePhone ? { inviteePhone: partnerInviteePhone } : {}),
       })
       if (partnerTargetMode === 'direct' && result?.invitesSent > 0) {
@@ -6009,8 +5915,9 @@ function CompeteScreen({
                     {isPartnerMatchingEligible(td.format, (td as any).round_robin_type || null) && (
                       <button
                         onClick={() => {
-                          const preferredCat = td.categories.find((c) => (player?.player_category ? c.name.toUpperCase().includes(player.player_category) : false))
-                          setPartnerCategoryId(preferredCat?.id || td.categories[0]?.id || null)
+                          const lvl = player?.level ?? 3.0
+                          setPartnerMinLevel(Math.max(1, parseFloat((lvl - 1).toFixed(1))))
+                          setPartnerMaxLevel(Math.min(7, parseFloat((lvl + 1).toFixed(1))))
                           setShowFindPartnerModal(true)
                         }}
                         className="flex items-center justify-center gap-2 w-full py-3.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl transition-colors"
@@ -6295,21 +6202,39 @@ function CompeteScreen({
                 </div>
               )}
               <div>
-                <p className="text-sm font-medium text-gray-700 mb-2">{(t as any).partner?.category || 'Categoria'}</p>
-                <select
-                  value={partnerCategoryId || ''}
-                  onChange={(e) => setPartnerCategoryId(e.target.value || null)}
-                  className="w-full p-2.5 border border-gray-200 rounded-lg text-sm"
-                >
-                  <option value="">{(t as any).partner?.selectCategory || 'Selecionar categoria'}</option>
-                  {td.categories.map((c) => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
-                </select>
+                <p className="text-sm font-medium text-gray-700 mb-2">Intervalo de nível</p>
+                <div className="flex items-center gap-3">
+                  <div className="flex-1">
+                    <label className="text-xs text-gray-500 mb-1 block">Mín</label>
+                    <input
+                      type="number"
+                      step="0.5"
+                      min="1"
+                      max="7"
+                      value={partnerMinLevel}
+                      onChange={(e) => setPartnerMinLevel(Math.max(1, Math.min(7, parseFloat(e.target.value) || 1)))}
+                      className="w-full p-2.5 border border-gray-200 rounded-lg text-sm text-center"
+                    />
+                  </div>
+                  <span className="text-gray-400 mt-5">—</span>
+                  <div className="flex-1">
+                    <label className="text-xs text-gray-500 mb-1 block">Máx</label>
+                    <input
+                      type="number"
+                      step="0.5"
+                      min="1"
+                      max="7"
+                      value={partnerMaxLevel}
+                      onChange={(e) => setPartnerMaxLevel(Math.max(1, Math.min(7, parseFloat(e.target.value) || 7)))}
+                      className="w-full p-2.5 border border-gray-200 rounded-lg text-sm text-center"
+                    />
+                  </div>
+                </div>
+                <p className="text-xs text-gray-400 mt-1">O teu nível: {player?.level?.toFixed(2) || '—'}</p>
               </div>
               <button
                 onClick={() => handleRequestPartner(td)}
-                disabled={partnerLoading || !partnerCategoryId || (partnerTargetMode === 'direct' && (!partnerInviteeLookup?.found || partnerInviteePhone.replace(/\s+/g, '').length < 6))}
+                disabled={partnerLoading || partnerMinLevel > partnerMaxLevel || (partnerTargetMode === 'direct' && (!partnerInviteeLookup?.found || partnerInviteePhone.replace(/\s+/g, '').length < 6))}
                 className="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 text-white font-semibold"
               >
                 {partnerLoading
@@ -6481,8 +6406,6 @@ function CompeteScreen({
 
                 {/* Torneios Disponíveis */}
                 {(() => {
-                  const playerInfo = getPlayerCategoryInfo()
-
                   return (
                     <div>
                       <div className="flex items-center justify-between mb-3">
@@ -6503,8 +6426,8 @@ function CompeteScreen({
                           <div className="card p-6 text-center">
                             <span className="text-4xl mb-2 block">🎯</span>
                             <p className="text-gray-700 font-medium">
-                              {playerInfo
-                                ? `Nenhum torneio disponível para o teu nível (${player?.player_category})`
+                              {player?.level != null
+                                ? `Nenhum torneio disponível para o teu nível (${(player?.level ?? 0).toFixed(2)})`
                                 : 'Nenhum torneio disponível'}
                             </p>
                             <p className="text-sm text-gray-500 mt-1">{t.common.checkTourApp}</p>
@@ -7794,7 +7717,7 @@ function FindGameScreen({
     const emptySlots = game.max_players - confirmedPlayers.length
     const isInGame = isPlayerInGame(game)
     const isCreator = isGameCreator(game)
-    const levelColors = categoryColors(player?.player_category)
+    const lvlColors = levelColors(player?.level)
     const myPlayer = game.players.find(p => p.user_id === userId || (player?.id && p.player_account_id === player.id))
 
     return (
@@ -7841,7 +7764,7 @@ function FindGameScreen({
               {[1, 2].map(position => {
                 const p = confirmedPlayers.find(pl => pl.position === position)
                 if (p) {
-                  const pColors = p.player_category ? categoryColors(p.player_category) : null
+                  const pColors = levelColors(p.level)
                   const isMe = p.user_id === userId || (player?.id && p.player_account_id === player.id)
                   const canRemove = isCreator && !isMe
                   return (
@@ -7912,7 +7835,7 @@ function FindGameScreen({
               {[3, 4].map(position => {
                 const p = confirmedPlayers.find(pl => pl.position === position)
                 if (p) {
-                  const pColors = p.player_category ? categoryColors(p.player_category) : null
+                  const pColors = levelColors(p.level)
                   const isMe = p.user_id === userId || (player?.id && p.player_account_id === player.id)
                   const canRemove = isCreator && !isMe
                   return (
@@ -8020,7 +7943,7 @@ function FindGameScreen({
                     </p>
                     <div className="space-y-2">
                       {pendingPlayers.map(pp => {
-                        const ppColors = pp.player_category ? categoryColors(pp.player_category) : null
+                        const ppColors = levelColors(pp.level)
                         return (
                           <div key={pp.id} className="flex items-center gap-2 bg-white rounded-lg p-2 border border-amber-100">
                             <div className="w-9 h-9 rounded-full overflow-hidden bg-gray-200 flex items-center justify-center flex-shrink-0">
@@ -8038,7 +7961,6 @@ function FindGameScreen({
                                     {pp.level.toFixed(2)}
                                   </span>
                                 )}
-                                {pp.player_category && <span className="text-[9px] text-gray-500">{pp.player_category}</span>}
                               </div>
                             </div>
                             <div className="flex items-center gap-1.5 flex-shrink-0">
@@ -9588,7 +9510,7 @@ function FindGameScreen({
                 <div className="text-center py-8 text-gray-400 text-sm">Escreve pelo menos 2 letras para pesquisar</div>
               )}
               {playerSearchResults.map(pr => {
-                const prColors = pr.player_category ? categoryColors(pr.player_category) : null
+                const prColors = levelColors(pr.level)
                 // Check if already in game
                 const currentGame = games.find(g => g.id === addPlayerModal.gameId)
                 const alreadyInGame = currentGame?.players.some(p => p.player_account_id === pr.id)
@@ -9619,9 +9541,6 @@ function FindGameScreen({
                           <span className="px-2 py-0.5 rounded-full text-[10px] font-bold text-white" style={{ backgroundColor: prColors?.hex || '#9ca3af' }}>
                             {pr.level.toFixed(2)}
                           </span>
-                        )}
-                        {pr.player_category && (
-                          <span className="text-[10px] text-gray-500 font-medium">{pr.player_category}</span>
                         )}
                       </div>
                     </div>
@@ -10596,7 +10515,7 @@ function BookingScreen({
   // Render player slot
   const renderSlot = (slotNum: number, team: 'A' | 'B') => {
     const p = players.find(x => x.slot === slotNum)
-    const pColors = p?.player_category ? categoryColors(p.player_category) : null
+    const pColors = levelColors(p?.level)
     if (p) {
       return (
         <div key={slotNum} className="flex flex-col items-center relative group">
@@ -11078,7 +10997,7 @@ function BookingScreen({
                 {searchResults.length > 0 && (
                   <div className="max-h-48 overflow-y-auto space-y-1">
                     {searchResults.map(r => {
-                      const rColors = r.player_category ? categoryColors(r.player_category) : null
+                      const rColors = levelColors(r.level)
                       return (
                         <button
                           key={r.id}
@@ -11100,7 +11019,6 @@ function BookingScreen({
                                   {r.level.toFixed(2)}
                                 </span>
                               )}
-                              {r.player_category && <span className="text-[10px] text-gray-500">{r.player_category}</span>}
                             </div>
                           </div>
                           <Plus className="w-4 h-4 text-indigo-500 flex-shrink-0" />
@@ -11848,7 +11766,7 @@ function GroupDetailScreen({
           ) : (
             <div className="space-y-1">
               {members.map(m => {
-                const colors = m.player_category ? categoryColors(m.player_category) : null
+                const colors = levelColors(m.level)
                 return (
                   <div key={m.id} className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-gray-50 transition-colors">
                     <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden flex-shrink-0 cursor-pointer" onClick={() => onOpenPlayerProfile(m.user_id)}>
@@ -11862,7 +11780,6 @@ function GroupDetailScreen({
                       {m.level != null && (
                         <div className="flex items-center gap-1.5 mt-0.5">
                           <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${colors?.bg || 'bg-gray-100'} ${colors?.text || 'text-gray-600'}`}>Nv {m.level.toFixed(2)}</span>
-                          {m.player_category && <span className="text-[10px] text-gray-500">{m.player_category}</span>}
                         </div>
                       )}
                     </div>
@@ -11957,7 +11874,6 @@ function GroupDetailScreen({
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-semibold text-gray-900 truncate">{p.name}</p>
-                        {p.player_category && <p className="text-[10px] text-gray-500">{p.player_category}</p>}
                       </div>
                       <button
                         onClick={() => handleInvite(p.user_id)}
@@ -12096,7 +12012,7 @@ function FollowsListScreen({
       ) : (
         <div className="space-y-2">
           {currentList.map((p) => {
-            const colors = categoryColors(p.player_category)
+            const colors = levelColors(p.level)
             const lvl = p.level
             return (
               <div key={p.id} className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
@@ -12111,7 +12027,6 @@ function FollowsListScreen({
                     <p className="text-sm font-semibold text-gray-900">{p.name}</p>
                     <div className="flex items-center gap-1.5 mt-0.5">
                       {lvl && <span className={`text-xs font-black px-2 py-0.5 rounded-full ${colors.bg} ${colors.text}`}>Nv {lvl}</span>}
-                      {p.player_category && <span className="text-xs text-gray-500 font-medium">{p.player_category}</span>}
                       {p.location && <span className="text-xs text-gray-400">{p.location}</span>}
                     </div>
                   </div>
@@ -12273,7 +12188,7 @@ function OtherPlayerProfileScreen({
     )
   }
 
-  const colors = categoryColors(profile.player_category)
+  const colors = levelColors(profile.level)
   const lvl = profile.level
   const ageCategory = getAgeCategory()
   const totalMatches = (profile.wins ?? 0) + (profile.losses ?? 0)
@@ -12341,9 +12256,9 @@ function OtherPlayerProfileScreen({
                 </p>
               </div>
               <div className="flex flex-col gap-2 self-start">
-                {profile.player_category && hasGradient && (
+                {hasGradient && (
                   <div className="px-4 py-2 rounded-lg shadow-sm border-2 bg-white" style={{ borderColor: colors.hex }}>
-                    <span className="text-sm font-bold" style={{ color: colors.hex }}>{profile.player_category}</span>
+                    <span className="text-sm font-bold" style={{ color: colors.hex }}>Nv {profile.level?.toFixed(2) || '3.00'}</span>
                   </div>
                 )}
                 {ageCategory && (
@@ -12762,7 +12677,7 @@ function ProfileViewScreen({
 
       {/* Nível + Fiabilidade + Categoria + Idade */}
       {(() => {
-        const colors = player?.player_category ? categoryColors(player.player_category) : null
+        const colors = levelColors(player?.level)
         const hasGradient = colors && colors.hex !== '#e5e7eb'
         const bgStyle = hasGradient 
           ? { background: `linear-gradient(135deg, ${colors.hex} 0%, ${colors.hexTo} 100%)` }
@@ -12783,10 +12698,10 @@ function ProfileViewScreen({
                 </p>
               </div>
               <div className="flex flex-col gap-2 self-start">
-                {player?.player_category && colors && hasGradient && (
+                {colors && hasGradient && (
                   <div className="px-4 py-2 rounded-lg shadow-sm border-2 bg-white" style={{ borderColor: colors.hex }}>
                     <span className="text-sm font-bold" style={{ color: colors.hex }}>
-                      {player.player_category}
+                      Nv {(player?.level ?? 0).toFixed(2)}
                     </span>
                   </div>
                 )}
@@ -13270,14 +13185,12 @@ function ProfileEditScreen({
         <h2 className="text-xl font-bold text-gray-900 mt-3">{player?.name || t.settings.player}</h2>
         <p className="text-gray-500 text-sm">{player?.phone_number || player?.phone}</p>
         
-        {/* Category Badge apenas */}
-        {player?.player_category && (
-          <div className="flex items-center justify-center gap-2 mt-3">
-            <span className="px-3 py-1.5 bg-blue-50 text-blue-700 rounded-full text-sm font-bold">
-              {player.player_category}
-            </span>
-          </div>
-        )}
+        {/* Level Badge */}
+        <div className="flex items-center justify-center gap-2 mt-3">
+          <span className="px-3 py-1.5 bg-blue-50 text-blue-700 rounded-full text-sm font-bold">
+            Nv {(player?.level ?? 0).toFixed(2)}
+          </span>
+        </div>
       </div>
 
       {/* Success/Error Message */}
@@ -13697,16 +13610,6 @@ function RegisterScreen({ onBack, onSuccess }: {
     return Math.max(1.0, Math.min(7.0, Math.round(level * 2) / 2))
   }
 
-  const getCategoryFromLevel = (level: number): string => {
-    const prefix = gender === 'F' ? 'F' : 'M'
-    if (level >= 6.5) return `${prefix}1`
-    if (level >= 5.5) return `${prefix}2`
-    if (level >= 4.5) return `${prefix}3`
-    if (level >= 3.5) return `${prefix}4`
-    if (level >= 2.5) return `${prefix}5`
-    return `${prefix}6`
-  }
-
   const handleRegister = async () => {
     setError('')
     setSaving(true)
@@ -13790,7 +13693,6 @@ function RegisterScreen({ onBack, onSuccess }: {
 
       // 2. Calcular nível
       const level = calculateLevel()
-      const category = getCategoryFromLevel(level)
 
       // 3. Criar player_account
       const { data: pa, error: paError } = await supabase
@@ -13802,7 +13704,6 @@ function RegisterScreen({ onBack, onSuccess }: {
           email: email.trim(),
           level,
           level_reliability_percent: 10,
-          player_category: category,
           wins: 0,
           losses: 0,
           rated_matches: 0,
@@ -14089,10 +13990,6 @@ function RegisterScreen({ onBack, onSuccess }: {
                 <div>
                   <p className="text-gray-500">{t.register.estimatedLevel}</p>
                   <p className="font-bold text-red-600 text-lg">{calculateLevel().toFixed(2)}</p>
-                </div>
-                <div>
-                  <p className="text-gray-500">{t.register.category}</p>
-                  <p className="font-medium">{getCategoryFromLevel(calculateLevel())}</p>
                 </div>
                 <div>
                   <p className="text-gray-500">{t.register.reliability}</p>

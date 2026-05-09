@@ -5,22 +5,11 @@ const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYm
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
-export const PLAYER_CATEGORIES = [
-  { value: 'M6', label: 'M6', gender: 'M' },
-  { value: 'M5', label: 'M5', gender: 'M' },
-  { value: 'M4', label: 'M4', gender: 'M' },
-  { value: 'M3', label: 'M3', gender: 'M' },
-  { value: 'M2', label: 'M2', gender: 'M' },
-  { value: 'M1', label: 'M1', gender: 'M' },
-  { value: 'F6', label: 'F6', gender: 'F' },
-  { value: 'F5', label: 'F5', gender: 'F' },
-  { value: 'F4', label: 'F4', gender: 'F' },
-  { value: 'F3', label: 'F3', gender: 'F' },
-  { value: 'F2', label: 'F2', gender: 'F' },
-  { value: 'F1', label: 'F1', gender: 'F' },
-] as const
+/** @deprecated Categories removed — use numeric level instead */
+export const PLAYER_CATEGORIES = [] as const
 
-export type PlayerCategory = typeof PLAYER_CATEGORIES[number]['value'] | null
+/** @deprecated Use numeric level instead */
+export type PlayerCategory = string | null
 
 export interface PlayerAccount {
   id: string
