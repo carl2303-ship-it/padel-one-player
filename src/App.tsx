@@ -1496,30 +1496,35 @@ function OpenGameCard({
           .eq('status', 'confirmed')
           .order('position')
 
-        // Fetch player account details
+        // Fetch player account details — buscar por user_id E por player_account_id
         const userIds = [...new Set((playersData || []).map((p: any) => p.user_id).filter(Boolean))]
         const playerAccountIds = [...new Set((playersData || []).map((p: any) => p.player_account_id).filter(Boolean))]
         let playerAccountsMap: { [key: string]: any } = {}
 
         if (userIds.length > 0 || playerAccountIds.length > 0) {
-          let query = supabase
-            .from('player_accounts')
-            .select('id, user_id, name, avatar_url, level, player_category')
+          const allIds = [...new Set([...playerAccountIds])]
+          const queries: Promise<any>[] = []
 
+          if (allIds.length > 0) {
+            queries.push(
+              supabase.from('player_accounts').select('id, user_id, name, avatar_url, level, player_category').in('id', allIds)
+            )
+          }
           if (userIds.length > 0) {
-            query = query.in('user_id', userIds)
-          } else if (playerAccountIds.length > 0) {
-            query = query.in('id', playerAccountIds)
+            queries.push(
+              supabase.from('player_accounts').select('id, user_id, name, avatar_url, level, player_category').in('user_id', userIds)
+            )
           }
 
-          const { data: accounts } = await query
-
-          if (accounts) {
-            accounts.forEach((a: any) => {
-              if (a.user_id) playerAccountsMap[a.user_id] = a
-              playerAccountsMap[a.id] = a
-            })
-          }
+          const results = await Promise.all(queries)
+          results.forEach(({ data: accounts }) => {
+            if (accounts) {
+              accounts.forEach((a: any) => {
+                if (a.user_id) playerAccountsMap[a.user_id] = a
+                playerAccountsMap[a.id] = a
+              })
+            }
+          })
         }
 
         // Enrich players data
@@ -1608,11 +1613,11 @@ function OpenGameCard({
       const paIds = [...new Set((playersData || []).map((p2: any) => p2.player_account_id).filter(Boolean))]
       let acctMap: { [key: string]: any } = {}
       if (uIds.length > 0 || paIds.length > 0) {
-        let q = supabase.from('player_accounts').select('id, user_id, name, avatar_url, level, player_category')
-        if (uIds.length > 0) q = q.in('user_id', uIds)
-        else if (paIds.length > 0) q = q.in('id', paIds)
-        const { data: accts } = await q
-        if (accts) accts.forEach((a: any) => { if (a.user_id) acctMap[a.user_id] = a; acctMap[a.id] = a })
+        const rQueries: Promise<any>[] = []
+        if (paIds.length > 0) rQueries.push(supabase.from('player_accounts').select('id, user_id, name, avatar_url, level, player_category').in('id', paIds))
+        if (uIds.length > 0) rQueries.push(supabase.from('player_accounts').select('id, user_id, name, avatar_url, level, player_category').in('user_id', uIds))
+        const rResults = await Promise.all(rQueries)
+        rResults.forEach(({ data: accts }) => { if (accts) accts.forEach((a: any) => { if (a.user_id) acctMap[a.user_id] = a; acctMap[a.id] = a }) })
       }
       const enriched = (playersData || []).map((p2: any) => {
         const acct = acctMap[p2.user_id] || acctMap[p2.player_account_id]

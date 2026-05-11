@@ -173,7 +173,7 @@ export async function fetchOpenGames(filters?: {
     .in('status', ['confirmed', 'pending'])
 
   // Fetch player account details for all players
-  const userIds = [...new Set((playersData || []).map((p: any) => p.user_id))]
+  const userIds = [...new Set((playersData || []).map((p: any) => p.user_id).filter(Boolean))]
   const playerAccountIds = [...new Set((playersData || []).map((p: any) => p.player_account_id).filter(Boolean))]
   let playerAccountsMap: { [key: string]: { name: string; avatar_url: string | null; level: number | null; player_category: string | null } } = {}
   
@@ -1708,22 +1708,26 @@ export async function fetchMyGamesPendingRequests(userId: string): Promise<{
   if (!pendingData || pendingData.length === 0) return []
 
   // 3. Get player details
-  const userIds = [...new Set(pendingData.map(p => p.user_id))]
+  const userIds = [...new Set(pendingData.map(p => p.user_id).filter(Boolean))]
   const accountIds = [...new Set(pendingData.map(p => p.player_account_id).filter(Boolean))]
   let detailsMap: Record<string, { name: string; avatar_url: string | null; level: number | null; player_category: string | null }> = {}
 
+  const detailQueries: Promise<any>[] = []
   if (userIds.length > 0) {
-    const { data: accounts } = await supabase
-      .from('player_accounts')
-      .select('id, user_id, name, avatar_url, level, player_category')
-      .in('user_id', userIds)
+    detailQueries.push(supabase.from('player_accounts').select('id, user_id, name, avatar_url, level, player_category').in('user_id', userIds))
+  }
+  if (accountIds.length > 0) {
+    detailQueries.push(supabase.from('player_accounts').select('id, user_id, name, avatar_url, level, player_category').in('id', accountIds))
+  }
+  const detailResults = await Promise.all(detailQueries)
+  detailResults.forEach(({ data: accounts }) => {
     if (accounts) {
-      accounts.forEach(a => {
-        detailsMap[a.user_id] = { name: a.name, avatar_url: a.avatar_url, level: a.level, player_category: a.player_category }
-        detailsMap['pa_' + a.id] = detailsMap[a.user_id]
+      accounts.forEach((a: any) => {
+        if (a.user_id) detailsMap[a.user_id] = { name: a.name, avatar_url: a.avatar_url, level: a.level, player_category: a.player_category }
+        detailsMap['pa_' + a.id] = { name: a.name, avatar_url: a.avatar_url, level: a.level, player_category: a.player_category }
       })
     }
-  }
+  })
 
   // 4. Get my votes
   const pendingIds = pendingData.map(p => p.id)
@@ -3054,22 +3058,26 @@ export async function fetchGamesAwaitingResult(userId: string, playerAccountId?:
     .in('game_id', gameIdsForFetch)
     .eq('status', 'confirmed')
 
-  const userIds = [...new Set((playersData || []).map((p: any) => p.user_id))]
+  const userIds = [...new Set((playersData || []).map((p: any) => p.user_id).filter(Boolean))]
+  const paIdsForPast = [...new Set((playersData || []).map((p: any) => p.player_account_id).filter(Boolean))]
   let playerAccountsMap: { [key: string]: { name: string; avatar_url: string | null; level: number | null; player_category: string | null } } = {}
   
+  const pastQueries: Promise<any>[] = []
   if (userIds.length > 0) {
-    const { data: accounts } = await supabase
-      .from('player_accounts')
-      .select('id, user_id, name, avatar_url, level, player_category')
-      .in('user_id', userIds)
-    
+    pastQueries.push(supabase.from('player_accounts').select('id, user_id, name, avatar_url, level, player_category').in('user_id', userIds))
+  }
+  if (paIdsForPast.length > 0) {
+    pastQueries.push(supabase.from('player_accounts').select('id, user_id, name, avatar_url, level, player_category').in('id', paIdsForPast))
+  }
+  const pastResults = await Promise.all(pastQueries)
+  pastResults.forEach(({ data: accounts }) => {
     if (accounts) {
       accounts.forEach((a: any) => {
-        playerAccountsMap[a.user_id] = { name: a.name, avatar_url: a.avatar_url, level: a.level, player_category: a.player_category }
-        playerAccountsMap['pa_' + a.id] = playerAccountsMap[a.user_id]
+        if (a.user_id) playerAccountsMap[a.user_id] = { name: a.name, avatar_url: a.avatar_url, level: a.level, player_category: a.player_category }
+        playerAccountsMap['pa_' + a.id] = { name: a.name, avatar_url: a.avatar_url, level: a.level, player_category: a.player_category }
       })
     }
-  }
+  })
 
   const clubIds = [...new Set(pastGames.map(g => g.club_id))]
   let clubsMap: { [id: string]: { name: string; logo_url: string | null; city: string | null } } = {}
