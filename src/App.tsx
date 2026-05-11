@@ -1371,10 +1371,10 @@ function GameCardPlaytomic({
               {renderPlayer(p2, 'bg-orange-400', 'text-2xl font-bold text-white')}
             </div>
             {match.status === 'completed' && (hasSets || match.score1 != null) && (
-              <div className="flex items-center gap-1.5 flex-shrink-0">
-                {team1Won && (
-                  <span className="w-7 h-7 rounded-full bg-sky-100 flex items-center justify-center text-sm flex-shrink-0" title={t.games.winnerTeam}>🏆</span>
-                )}
+              <div className="flex items-center gap-1.5 flex-shrink-0 w-[80px] justify-end">
+                <span className="w-7 h-7 flex-shrink-0 flex items-center justify-center">
+                  {team1Won && <span className="w-7 h-7 rounded-full bg-sky-100 flex items-center justify-center text-sm" title={t.games.winnerTeam}>🏆</span>}
+                </span>
                 <span className={team1Won ? 'text-2xl font-bold text-gray-900' : 'text-2xl font-medium text-gray-400'}>
                   {hasSets ? team1Scores.join(' ') : match.score1}
                 </span>
@@ -1392,10 +1392,10 @@ function GameCardPlaytomic({
               {renderPlayer(p4, 'bg-sky-200', 'text-2xl font-bold text-sky-800')}
             </div>
             {match.status === 'completed' && (hasSets || match.score1 != null) && (
-              <div className="flex items-center gap-1.5 flex-shrink-0">
-                {team2Won && (
-                  <span className="w-7 h-7 rounded-full bg-sky-100 flex items-center justify-center text-sm flex-shrink-0" title={t.games.winnerTeam}>🏆</span>
-                )}
+              <div className="flex items-center gap-1.5 flex-shrink-0 w-[80px] justify-end">
+                <span className="w-7 h-7 flex-shrink-0 flex items-center justify-center">
+                  {team2Won && <span className="w-7 h-7 rounded-full bg-sky-100 flex items-center justify-center text-sm" title={t.games.winnerTeam}>🏆</span>}
+                </span>
                 <span className={team2Won ? 'text-2xl font-bold text-gray-900' : 'text-2xl font-medium text-gray-400'}>
                   {hasSets ? team2Scores.join(' ') : match.score2}
                 </span>
@@ -1576,13 +1576,13 @@ function OpenGameCard({
 
   if (loading || !game) {
     return (
-      <div className="border border-gray-200 rounded-2xl overflow-hidden bg-white shadow-sm w-[280px]">
-        <div className="p-4 animate-pulse">
+      <div className="border border-gray-200 rounded-2xl overflow-hidden bg-white shadow-sm w-[320px] sm:w-[360px]">
+        <div className="p-5 animate-pulse">
           <div className="h-4 bg-gray-200 rounded w-3/4 mb-2"></div>
           <div className="h-3 bg-gray-200 rounded w-1/2 mb-3"></div>
           <div className="flex gap-3 justify-center mb-3">
             {[1, 2, 3, 4].map(i => (
-              <div key={i} className="w-14 h-14 bg-gray-200 rounded-full"></div>
+              <div key={i} className="w-16 h-16 bg-gray-200 rounded-full"></div>
             ))}
           </div>
         </div>
@@ -1739,8 +1739,8 @@ function OpenGameCard({
   }
 
   return (
-    <div className="border border-gray-200 rounded-2xl overflow-hidden bg-white shadow-sm w-[280px]">
-      <div className="p-4">
+    <div className="border border-gray-200 rounded-2xl overflow-hidden bg-white shadow-sm w-[320px] sm:w-[360px]">
+      <div className="p-5">
         {/* Date & Time */}
         <p className="font-bold text-gray-900 text-sm mb-1">
           {formatGameDate(game.scheduled_at)}
@@ -1757,9 +1757,9 @@ function OpenGameCard({
         </div>
 
         {/* Player circles */}
-        <div className="flex items-start gap-2 mb-3">
+        <div className="flex items-start gap-3 mb-3">
           {/* Left team */}
-          <div className="flex gap-2 flex-1 justify-center">
+          <div className="flex gap-3 flex-1 justify-center">
             {[0, 1].map(i => {
               const p = confirmedPlayers[i]
               if (p) {
@@ -1768,11 +1768,11 @@ function OpenGameCard({
                 const canRemove = isCreator && !isMe && !actionLoading
                 return (
                   <div key={p.id} className="flex flex-col items-center relative group">
-                    <div className="w-12 h-12 rounded-full overflow-hidden bg-gray-200 flex items-center justify-center">
+                    <div className="w-16 h-16 rounded-full overflow-hidden bg-gray-200 flex items-center justify-center">
                       {p.avatar_url ? (
                         <img src={p.avatar_url} alt={p.name} className="w-full h-full object-cover" />
                       ) : (
-                        <span className="text-sm font-bold text-gray-600">{(p.name || '?').charAt(0).toUpperCase()}</span>
+                        <span className="text-lg font-bold text-gray-600">{(p.name || '?').charAt(0).toUpperCase()}</span>
                       )}
                     </div>
                     {canRemove && (
@@ -1784,9 +1784,9 @@ function OpenGameCard({
                         ✕
                       </button>
                     )}
-                    <span className="text-[9px] text-gray-700 font-medium mt-1 truncate max-w-[50px] text-center">{(p.name || '').split(' ')[0]}</span>
+                    <span className="text-[11px] text-gray-700 font-medium mt-1.5 truncate max-w-[70px] text-center leading-tight" title={p.name}>{p.name || ''}</span>
                     {p.level != null && (
-                      <div className="mt-0.5 px-1.5 py-0.5 rounded-full text-[8px] font-bold text-white" style={{ backgroundColor: pColors?.hex || '#9ca3af' }}>
+                      <div className="mt-0.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold text-white" style={{ backgroundColor: pColors?.hex || '#9ca3af' }}>
                         {p.level.toFixed(2)}
                       </div>
                     )}
@@ -1799,10 +1799,10 @@ function OpenGameCard({
                     className={`flex flex-col items-center ${isInGame ? 'cursor-pointer' : ''}`}
                     onClick={isInGame ? () => setShowAddPlayer(true) : undefined}
                   >
-                    <div className={`w-12 h-12 rounded-full border-2 border-dashed flex items-center justify-center transition-colors ${isInGame ? 'border-blue-400 hover:border-blue-500 hover:bg-blue-50' : 'border-gray-300'}`}>
-                      <UserPlus className={`w-5 h-5 ${isInGame ? 'text-blue-500' : 'text-gray-400'}`} />
+                    <div className={`w-16 h-16 rounded-full border-2 border-dashed flex items-center justify-center transition-colors ${isInGame ? 'border-blue-400 hover:border-blue-500 hover:bg-blue-50' : 'border-gray-300'}`}>
+                      <UserPlus className={`w-6 h-6 ${isInGame ? 'text-blue-500' : 'text-gray-400'}`} />
                     </div>
-                    <span className={`text-[9px] font-medium mt-1 ${isInGame ? 'text-blue-600' : 'text-gray-400'}`}>{isInGame ? t.common.add : t.common.free}</span>
+                    <span className={`text-[10px] font-medium mt-1.5 ${isInGame ? 'text-blue-600' : 'text-gray-400'}`}>{isInGame ? t.common.add : t.common.free}</span>
                   </div>
                 )
               }
@@ -1810,10 +1810,10 @@ function OpenGameCard({
           </div>
           
           {/* Divider */}
-          <div className="w-px h-16 bg-gray-200 self-center" />
+          <div className="w-px h-20 bg-gray-200 self-center" />
           
           {/* Right team */}
-          <div className="flex gap-2 flex-1 justify-center">
+          <div className="flex gap-3 flex-1 justify-center">
             {[2, 3].map(i => {
               const p = confirmedPlayers[i]
               if (p) {
@@ -1822,11 +1822,11 @@ function OpenGameCard({
                 const canRemove = isCreator && !isMe && !actionLoading
                 return (
                   <div key={p.id} className="flex flex-col items-center relative group">
-                    <div className="w-12 h-12 rounded-full overflow-hidden bg-gray-200 flex items-center justify-center">
+                    <div className="w-16 h-16 rounded-full overflow-hidden bg-gray-200 flex items-center justify-center">
                       {p.avatar_url ? (
                         <img src={p.avatar_url} alt={p.name} className="w-full h-full object-cover" />
                       ) : (
-                        <span className="text-sm font-bold text-gray-600">{(p.name || '?').charAt(0).toUpperCase()}</span>
+                        <span className="text-lg font-bold text-gray-600">{(p.name || '?').charAt(0).toUpperCase()}</span>
                       )}
                     </div>
                     {canRemove && (
@@ -1838,9 +1838,9 @@ function OpenGameCard({
                         ✕
                       </button>
                     )}
-                    <span className="text-[9px] text-gray-700 font-medium mt-1 truncate max-w-[50px] text-center">{(p.name || '').split(' ')[0]}</span>
+                    <span className="text-[11px] text-gray-700 font-medium mt-1.5 truncate max-w-[70px] text-center leading-tight" title={p.name}>{p.name || ''}</span>
                     {p.level != null && (
-                      <div className="mt-0.5 px-1.5 py-0.5 rounded-full text-[8px] font-bold text-white" style={{ backgroundColor: pColors?.hex || '#9ca3af' }}>
+                      <div className="mt-0.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold text-white" style={{ backgroundColor: pColors?.hex || '#9ca3af' }}>
                         {p.level.toFixed(2)}
                       </div>
                     )}
@@ -1853,10 +1853,10 @@ function OpenGameCard({
                     className={`flex flex-col items-center ${isInGame ? 'cursor-pointer' : ''}`}
                     onClick={isInGame ? () => setShowAddPlayer(true) : undefined}
                   >
-                    <div className={`w-12 h-12 rounded-full border-2 border-dashed flex items-center justify-center transition-colors ${isInGame ? 'border-blue-400 hover:border-blue-500 hover:bg-blue-50' : 'border-gray-300'}`}>
-                      <UserPlus className={`w-5 h-5 ${isInGame ? 'text-blue-500' : 'text-gray-400'}`} />
+                    <div className={`w-16 h-16 rounded-full border-2 border-dashed flex items-center justify-center transition-colors ${isInGame ? 'border-blue-400 hover:border-blue-500 hover:bg-blue-50' : 'border-gray-300'}`}>
+                      <UserPlus className={`w-6 h-6 ${isInGame ? 'text-blue-500' : 'text-gray-400'}`} />
                     </div>
-                    <span className={`text-[9px] font-medium mt-1 ${isInGame ? 'text-blue-600' : 'text-gray-400'}`}>{isInGame ? t.common.add : t.common.free}</span>
+                    <span className={`text-[10px] font-medium mt-1.5 ${isInGame ? 'text-blue-600' : 'text-gray-400'}`}>{isInGame ? t.common.add : t.common.free}</span>
                   </div>
                 )
               }
