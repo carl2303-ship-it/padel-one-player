@@ -13584,9 +13584,9 @@ function RegisterScreen({ onBack, onSuccess }: {
   }
 
   // Calcular nível baseado nas 12 respostas
-  // Fórmula: Nível = 0.5 + (totalScore * 0.11)
-  // 0 pts → 0.50 | 18 pts → 2.48 | 30 pts → 3.80 | 36 pts → 4.46
-  // Ninguém pode ser > 4.5 via questionário
+  // Fórmula: Nível = 0.5 + (score * 5.0 / 36)
+  // 0 pts → 0.50 | 18 pts → 3.00 | 30 pts → 4.67 | 36 pts → 5.50
+  // Ninguém pode ser > 5.50 via questionário
   const calculateLevel = (): number => {
     const totalScore = Object.values(answers).reduce((sum, v) => sum + v, 0)
     const answeredCount = Object.keys(answers).length
@@ -13597,8 +13597,8 @@ function RegisterScreen({ onBack, onSuccess }: {
       ? (totalScore / answeredCount) * 12
       : totalScore
 
-    const level = 0.5 + (normalizedScore * 0.11)
-    return Math.round(Math.min(4.5, Math.max(0.5, level)) * 100) / 100
+    const level = 0.5 + (normalizedScore * 5.0 / 36)
+    return Math.round(Math.min(5.5, Math.max(0.5, level)) * 100) / 100
   }
 
   const handleRegister = async () => {
