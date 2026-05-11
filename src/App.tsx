@@ -14197,6 +14197,8 @@ function InfoModal({ type, onClose }: { type: 'help' | 'howItWorks' | 'privacy';
       title: t.help.title,
       icon: HelpCircle,
       sections: [
+        { title: t.help.quickResult, text: t.help.quickResultText },
+        { title: t.help.swapTeams, text: t.help.swapTeamsText },
         { title: t.help.installApp, text: t.help.installAppText },
         { title: t.help.contact, text: t.help.contactText },
         { title: t.help.accountProblems, text: t.help.accountProblemsText },
@@ -14213,6 +14215,8 @@ function InfoModal({ type, onClose }: { type: 'help' | 'howItWorks' | 'privacy';
         { title: t.howItWorks.leagues, text: t.howItWorks.leaguesText },
         { title: t.howItWorks.community, text: t.howItWorks.communityText },
         { title: t.howItWorks.openGames, text: t.howItWorks.openGamesText },
+        { title: t.howItWorks.quickResult, text: t.howItWorks.quickResultText },
+        { title: t.howItWorks.swapTeams, text: t.howItWorks.swapTeamsText },
       ]
     },
     privacy: {
