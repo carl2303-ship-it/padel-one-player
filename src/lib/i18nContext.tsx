@@ -13,14 +13,25 @@ interface I18nContextType {
 
 const I18nContext = createContext<I18nContextType | undefined>(undefined)
 
+function detectBrowserLanguage(): Language {
+  const navLangs = navigator.languages ?? [navigator.language]
+  for (const lang of navLangs) {
+    const code = lang.toLowerCase().split('-')[0]
+    if (code === 'pt') return 'pt'
+    if (code === 'en') return 'en'
+    if (code === 'es') return 'es'
+    if (code === 'fr') return 'fr'
+  }
+  return 'pt'
+}
+
 export function I18nProvider({ children }: { children: ReactNode }) {
   const [language, setLanguageState] = useState<Language>(() => {
-    // Load from localStorage or default to Portuguese
     const saved = localStorage.getItem('padel1_language') as Language | null
     if (saved && (saved === 'pt' || saved === 'en' || saved === 'es' || saved === 'fr')) {
       return saved
     }
-    return 'pt'
+    return detectBrowserLanguage()
   })
 
   const setLanguage = (lang: Language) => {

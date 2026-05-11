@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react'
 import {
   Calendar,
   Search,
@@ -10,68 +11,108 @@ import {
   HelpCircle,
   Mail,
   ArrowRight,
+  Download,
+  X,
+  Globe,
 } from 'lucide-react'
-
-const features = [
-  {
-    icon: Calendar,
-    title: 'Reservar Campo',
-    desc: 'Reserva campos no teu clube favorito em 5 passos simples. Escolhe data, hora, campo e jogadores.',
-    color: 'from-blue-500 to-blue-600',
-  },
-  {
-    icon: Search,
-    title: 'Encontrar Jogo',
-    desc: 'Procura jogos abertos compatíveis com o teu nível ou cria o teu próprio jogo público.',
-    color: 'from-emerald-500 to-emerald-600',
-  },
-  {
-    icon: Trophy,
-    title: 'Competir',
-    desc: 'Inscreve-te em torneios e ligas. Acompanha a tua classificação e sobe no ranking.',
-    color: 'from-amber-500 to-amber-600',
-  },
-  {
-    icon: Users,
-    title: 'Comunidade',
-    desc: 'Segue jogadores, partilha publicações e descobre parceiros para os teus jogos.',
-    color: 'from-purple-500 to-purple-600',
-  },
-  {
-    icon: GraduationCap,
-    title: 'Aprender',
-    desc: 'Encontra aulas de padel no teu clube. Evolui a tua técnica com os melhores treinadores.',
-    color: 'from-rose-500 to-rose-600',
-  },
-  {
-    icon: Gift,
-    title: 'Recompensas',
-    desc: 'Ganha pontos a cada jogo, torneio e consumo no bar. Troca por prémios reais no teu clube.',
-    color: 'from-orange-500 to-orange-600',
-  },
-]
-
-const steps = [
-  {
-    num: '1',
-    title: 'Cria a tua conta',
-    desc: 'Regista-te em 2 minutos. Responde ao questionário de nível para o sistema calcular o teu ponto de partida.',
-  },
-  {
-    num: '2',
-    title: 'Encontra jogos e reserva',
-    desc: 'Procura jogos abertos compatíveis com o teu nível ou reserva um campo e convida os teus amigos.',
-  },
-  {
-    num: '3',
-    title: 'Compete e evolui',
-    desc: 'Joga torneios, sobe nas ligas e vê o teu nível ELO evoluir automaticamente com cada resultado.',
-  },
-]
+import { useI18n } from '../lib/i18nContext'
 
 export default function PlayerLandingPage({ onLogin, onRegister }: { onLogin: () => void; onRegister: () => void }) {
+  const { t, language, setLanguage, languageFlags } = useI18n()
+  const l = t.landing as Record<string, string>
+
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null)
+  const [showInstallBanner, setShowInstallBanner] = useState(false)
+  const [showLangPicker, setShowLangPicker] = useState(false)
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      e.preventDefault()
+      setDeferredPrompt(e)
+      const dismissed = sessionStorage.getItem('pwa_install_dismissed')
+      if (!dismissed) {
+        setTimeout(() => setShowInstallBanner(true), 2000)
+      }
+    }
+    window.addEventListener('beforeinstallprompt', handler)
+    return () => window.removeEventListener('beforeinstallprompt', handler)
+  }, [])
+
+  const handleInstall = async () => {
+    if (!deferredPrompt) return
+    deferredPrompt.prompt()
+    const { outcome } = await deferredPrompt.userChoice
+    if (outcome === 'accepted') {
+      setShowInstallBanner(false)
+    }
+    setDeferredPrompt(null)
+  }
+
+  const dismissInstall = () => {
+    setShowInstallBanner(false)
+    sessionStorage.setItem('pwa_install_dismissed', '1')
+  }
+
+  const featureIcons = [Calendar, Search, Trophy, Users, GraduationCap, Gift]
+  const featureColors = [
+    'from-blue-500 to-blue-600',
+    'from-emerald-500 to-emerald-600',
+    'from-amber-500 to-amber-600',
+    'from-purple-500 to-purple-600',
+    'from-rose-500 to-rose-600',
+    'from-orange-500 to-orange-600',
+  ]
+  const features = Array.from({ length: 6 }, (_, i) => ({
+    icon: featureIcons[i],
+    title: l[`feat${i + 1}Title`],
+    desc: l[`feat${i + 1}Desc`],
+    color: featureColors[i],
+  }))
+
+  const steps = [
+    { num: '1', title: l.step1Title, desc: l.step1Desc },
+    { num: '2', title: l.step2Title, desc: l.step2Desc },
+    { num: '3', title: l.step3Title, desc: l.step3Desc },
+  ]
+
   return (
     <div className="min-h-screen bg-white">
+      {/* PWA Install Banner */}
+      {showInstallBanner && (
+        <div className="fixed bottom-0 left-0 right-0 z-[60] animate-slide-up">
+          <div className="max-w-lg mx-auto p-4">
+            <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 p-5">
+              <div className="flex items-start gap-4">
+                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-red-500 to-orange-500 flex items-center justify-center flex-shrink-0">
+                  <Download className="w-6 h-6 text-white" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="font-bold text-gray-900">{l.installTitle}</h3>
+                  <p className="text-sm text-gray-500 mt-1 leading-relaxed">{l.installDesc}</p>
+                  <div className="flex gap-2 mt-3">
+                    <button
+                      onClick={handleInstall}
+                      className="px-5 py-2 bg-red-600 text-white text-sm font-bold rounded-xl hover:bg-red-700 transition"
+                    >
+                      {l.installButton}
+                    </button>
+                    <button
+                      onClick={dismissInstall}
+                      className="px-4 py-2 text-sm font-medium text-gray-500 hover:text-gray-700 transition"
+                    >
+                      {l.installLater}
+                    </button>
+                  </div>
+                </div>
+                <button onClick={dismissInstall} className="text-gray-400 hover:text-gray-600">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-lg border-b border-gray-100">
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
@@ -80,17 +121,41 @@ export default function PlayerLandingPage({ onLogin, onRegister }: { onLogin: ()
             <span className="font-bold text-lg text-gray-900">PADEL ONE</span>
           </div>
           <div className="flex items-center gap-2">
+            {/* Language picker */}
+            <div className="relative">
+              <button
+                onClick={() => setShowLangPicker(!showLangPicker)}
+                className="flex items-center gap-1.5 px-3 py-2 text-sm text-gray-600 hover:text-gray-900 transition rounded-lg hover:bg-gray-100"
+              >
+                <Globe className="w-4 h-4" />
+                <span>{languageFlags[language]}</span>
+              </button>
+              {showLangPicker && (
+                <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded-xl shadow-lg py-1 min-w-[120px] z-50">
+                  {(['pt', 'en', 'es', 'fr'] as const).map((lang) => (
+                    <button
+                      key={lang}
+                      onClick={() => { setLanguage(lang); setShowLangPicker(false) }}
+                      className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-50 flex items-center gap-2 ${language === lang ? 'font-bold text-red-600' : 'text-gray-700'}`}
+                    >
+                      <span>{languageFlags[lang]}</span>
+                      <span>{lang.toUpperCase()}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
             <button
               onClick={onLogin}
               className="px-4 py-2 text-sm font-semibold text-gray-700 hover:text-gray-900 transition"
             >
-              Entrar
+              {l.footerLogin}
             </button>
             <button
               onClick={onRegister}
               className="px-5 py-2 text-sm font-bold text-white bg-gradient-to-r from-red-500 to-red-600 rounded-xl hover:shadow-lg hover:shadow-red-200 transition-all"
             >
-              Criar Conta
+              {l.footerCreateAccount}
             </button>
           </div>
         </div>
@@ -105,32 +170,32 @@ export default function PlayerLandingPage({ onLogin, onRegister }: { onLogin: ()
         <div className="relative max-w-6xl mx-auto px-4 py-20 md:py-28 text-center">
           <div className="inline-flex items-center gap-2 bg-white/80 backdrop-blur rounded-full px-4 py-1.5 mb-6 border border-red-100">
             <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
-            <span className="text-sm font-medium text-gray-700">A tua app de Padel</span>
+            <span className="text-sm font-medium text-gray-700">{l.badge}</span>
           </div>
           <h1 className="text-4xl md:text-6xl font-black text-gray-900 leading-tight mb-6">
-            Tudo sobre o teu{' '}
+            {l.heroTitle1}{' '}
             <span className="bg-gradient-to-r from-red-500 to-orange-500 bg-clip-text text-transparent">
-              Padel
+              {l.heroTitle2}
             </span>
             <br />
-            numa só app
+            {l.heroTitle3}
           </h1>
           <p className="text-lg md:text-xl text-gray-600 max-w-2xl mx-auto mb-10 leading-relaxed">
-            Reserva campos, encontra jogos, compete em torneios e ligas, acompanha o teu nível e faz parte da maior comunidade de padel.
+            {l.heroDesc}
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <button
               onClick={onRegister}
               className="inline-flex items-center justify-center gap-2 px-8 py-4 text-lg font-bold text-white bg-gradient-to-r from-red-500 to-red-600 rounded-2xl hover:shadow-xl hover:shadow-red-200 transition-all hover:-translate-y-0.5"
             >
-              Começar Agora
+              {l.startNow}
               <ArrowRight className="w-5 h-5" />
             </button>
             <button
               onClick={onLogin}
               className="inline-flex items-center justify-center gap-2 px-8 py-4 text-lg font-semibold text-gray-700 bg-white rounded-2xl border-2 border-gray-200 hover:border-gray-300 hover:shadow-lg transition-all"
             >
-              Já tenho conta
+              {l.alreadyHaveAccount}
             </button>
           </div>
         </div>
@@ -141,10 +206,10 @@ export default function PlayerLandingPage({ onLogin, onRegister }: { onLogin: ()
         <div className="max-w-6xl mx-auto px-4">
           <div className="text-center mb-14">
             <h2 className="text-3xl md:text-4xl font-black text-gray-900 mb-4">
-              Tudo o que precisas para jogar
+              {l.featuresTitle}
             </h2>
             <p className="text-lg text-gray-500 max-w-xl mx-auto">
-              Uma plataforma completa para a tua vida de jogador de padel.
+              {l.featuresSubtitle}
             </p>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -169,10 +234,10 @@ export default function PlayerLandingPage({ onLogin, onRegister }: { onLogin: ()
         <div className="max-w-6xl mx-auto px-4">
           <div className="text-center mb-14">
             <h2 className="text-3xl md:text-4xl font-black text-gray-900 mb-4">
-              Como funciona
+              {l.howTitle}
             </h2>
             <p className="text-lg text-gray-500 max-w-xl mx-auto">
-              Em 3 passos simples, estás pronto para jogar.
+              {l.howSubtitle}
             </p>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
@@ -201,16 +266,16 @@ export default function PlayerLandingPage({ onLogin, onRegister }: { onLogin: ()
               <div className="flex-1">
                 <div className="inline-flex items-center gap-2 bg-white/10 rounded-full px-4 py-1.5 mb-5">
                   <TrendingUp className="w-4 h-4 text-red-400" />
-                  <span className="text-sm font-semibold text-red-300">Sistema ELO</span>
+                  <span className="text-sm font-semibold text-red-300">{l.eloSystem}</span>
                 </div>
                 <h2 className="text-3xl md:text-4xl font-black mb-4 leading-tight">
-                  O teu nível evolui<br />a cada jogo
+                  {l.eloTitle}<br />{l.eloTitle2}
                 </h2>
                 <p className="text-gray-300 leading-relaxed mb-6">
-                  O Padel One usa um sistema ELO para calcular o teu nível de 0.5 a 7.0. Começa com um questionário de avaliação e depois o sistema ajusta automaticamente com base nos teus resultados. Vitórias contra jogadores mais fortes fazem o teu nível subir mais rapidamente.
+                  {l.eloDesc}
                 </p>
                 <div className="flex flex-wrap gap-3">
-                  {['Nível 0.5 - 7.0', 'Ajuste automático', 'Jogos equilibrados'].map((tag) => (
+                  {[l.eloTag1, l.eloTag2, l.eloTag3].map((tag) => (
                     <span key={tag} className="px-3 py-1.5 bg-white/10 rounded-lg text-sm font-medium text-gray-200">
                       {tag}
                     </span>
@@ -220,7 +285,7 @@ export default function PlayerLandingPage({ onLogin, onRegister }: { onLogin: ()
               <div className="flex-shrink-0">
                 <div className="w-48 h-48 bg-gradient-to-br from-red-500 to-orange-500 rounded-3xl flex flex-col items-center justify-center shadow-2xl">
                   <span className="text-5xl font-black">4.5</span>
-                  <span className="text-sm font-semibold opacity-80 mt-1">Nível ELO</span>
+                  <span className="text-sm font-semibold opacity-80 mt-1">{l.eloLevel}</span>
                   <div className="flex items-center gap-1 mt-2 bg-white/20 rounded-full px-3 py-1">
                     <TrendingUp className="w-3 h-3" />
                     <span className="text-xs font-bold">+0.3</span>
@@ -236,16 +301,16 @@ export default function PlayerLandingPage({ onLogin, onRegister }: { onLogin: ()
       <section className="py-20 bg-gradient-to-br from-red-500 to-orange-500">
         <div className="max-w-4xl mx-auto px-4 text-center">
           <h2 className="text-3xl md:text-4xl font-black text-white mb-6">
-            Pronto para jogar?
+            {l.ctaTitle}
           </h2>
           <p className="text-lg text-white/80 max-w-xl mx-auto mb-10">
-            Junta-te à comunidade Padel One. Cria a tua conta grátis e começa a jogar hoje.
+            {l.ctaDesc}
           </p>
           <button
             onClick={onRegister}
             className="inline-flex items-center gap-2 px-10 py-4 text-lg font-bold text-red-600 bg-white rounded-2xl hover:shadow-xl transition-all hover:-translate-y-0.5"
           >
-            Criar Conta Grátis
+            {l.ctaButton}
             <ArrowRight className="w-5 h-5" />
           </button>
         </div>
@@ -261,28 +326,28 @@ export default function PlayerLandingPage({ onLogin, onRegister }: { onLogin: ()
                 <span className="font-bold text-white text-lg">PADEL ONE</span>
               </div>
               <p className="text-sm max-w-xs leading-relaxed">
-                A plataforma completa para jogadores de padel. Reservas, jogos, torneios, rankings e comunidade.
+                {l.footerDesc}
               </p>
             </div>
             <div className="flex flex-col sm:flex-row gap-8">
               <div>
-                <h4 className="font-semibold text-white text-sm mb-3">Links</h4>
+                <h4 className="font-semibold text-white text-sm mb-3">{l.footerLinks}</h4>
                 <ul className="space-y-2 text-sm">
                   <li>
                     <a href="https://padel1.app/help/" target="_blank" rel="noopener noreferrer" className="hover:text-white transition inline-flex items-center gap-1">
-                      <HelpCircle className="w-3.5 h-3.5" /> Centro de Ajuda
+                      <HelpCircle className="w-3.5 h-3.5" /> {l.footerHelpCenter}
                     </a>
                   </li>
                   <li>
-                    <button onClick={onLogin} className="hover:text-white transition">Entrar</button>
+                    <button onClick={onLogin} className="hover:text-white transition">{l.footerLogin}</button>
                   </li>
                   <li>
-                    <button onClick={onRegister} className="hover:text-white transition">Criar Conta</button>
+                    <button onClick={onRegister} className="hover:text-white transition">{l.footerCreateAccount}</button>
                   </li>
                 </ul>
               </div>
               <div>
-                <h4 className="font-semibold text-white text-sm mb-3">Contacto</h4>
+                <h4 className="font-semibold text-white text-sm mb-3">{l.footerContact}</h4>
                 <ul className="space-y-2 text-sm">
                   <li>
                     <a href="mailto:info@boostpadel.store" className="hover:text-white transition inline-flex items-center gap-1">
@@ -292,11 +357,11 @@ export default function PlayerLandingPage({ onLogin, onRegister }: { onLogin: ()
                 </ul>
               </div>
               <div>
-                <h4 className="font-semibold text-white text-sm mb-3">Para Clubes</h4>
+                <h4 className="font-semibold text-white text-sm mb-3">{l.footerForClubs}</h4>
                 <ul className="space-y-2 text-sm">
                   <li>
                     <a href="/clubs" className="hover:text-white transition inline-flex items-center gap-1">
-                      <ChevronRight className="w-3.5 h-3.5" /> Padel One para Clubes
+                      <ChevronRight className="w-3.5 h-3.5" /> {l.footerClubsLink}
                     </a>
                   </li>
                 </ul>
@@ -304,7 +369,7 @@ export default function PlayerLandingPage({ onLogin, onRegister }: { onLogin: ()
             </div>
           </div>
           <div className="border-t border-gray-800 pt-6 text-center text-xs text-gray-500">
-            &copy; {new Date().getFullYear()} Padel One. Todos os direitos reservados.
+            &copy; {new Date().getFullYear()} Padel One. {l.footerRights}
           </div>
         </div>
       </footer>
