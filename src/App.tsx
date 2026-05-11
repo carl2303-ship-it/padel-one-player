@@ -1267,7 +1267,7 @@ function PlayerCircle({ name, bgClass, textClass, avatarUrl, currentPlayerName, 
   const showAvatar = !!avatarUrl
   return (
     <div 
-      className={`w-11 h-11 rounded-full flex items-center justify-center shadow-sm flex-shrink-0 overflow-hidden ${!showAvatar ? bgClass : ''} ${onClick ? 'cursor-pointer hover:opacity-80 transition-opacity' : ''}`}
+      className={`w-16 h-16 rounded-full flex items-center justify-center shadow-sm flex-shrink-0 overflow-hidden ${!showAvatar ? bgClass : ''} ${onClick ? 'cursor-pointer hover:opacity-80 transition-opacity' : ''}`}
       title={name}
       onClick={onClick}
     >
@@ -1309,22 +1309,15 @@ function GameCardPlaytomic({
   const team1Won = match.status === 'completed' && match.score1 != null && match.score2 != null && match.score1 > match.score2
   const team2Won = match.status === 'completed' && match.score1 != null && match.score2 != null && match.score2 > match.score1
   
-  // Função para extrair primeiro nome
-  const getFirstName = (fullName: string) => {
-    return fullName.split(' ')[0]
-  }
-  
   // Função para renderizar jogador com nível (dados do cache global — sem queries)
   const renderPlayer = (name: string, bgClass: string, textClass: string) => {
-    const firstName = getFirstName(name)
     const cached = getCachedPlayerData(name)
     const level = cached?.level ?? undefined
     const colors = levelColors(level)
-    // Usar avatar do cache, senão usar currentPlayerAvatar se for o jogador atual
     const avatarUrl = cached?.avatar_url ?? (isCurrentPlayer(name, currentPlayerName) ? currentPlayerAvatar : null)
     
     return (
-      <div className="flex flex-col items-center min-h-[78px]">
+      <div className="flex flex-col items-center min-h-[96px]">
         <PlayerCircle 
           name={name} 
           bgClass={bgClass} 
@@ -1333,12 +1326,12 @@ function GameCardPlaytomic({
           currentPlayerName={currentPlayerName}
           onClick={onPlayerClick ? () => onPlayerClick(name) : undefined}
         />
-        <span className="text-[10px] text-gray-700 font-medium truncate max-w-[60px] mt-1 text-center" title={name}>
-          {firstName}
+        <span className="text-[11px] text-gray-700 font-medium truncate max-w-[90px] mt-1.5 text-center leading-tight" title={name}>
+          {name}
         </span>
         {level !== undefined && (
           <div 
-            className="mt-0.5 px-2 py-0.5 rounded-full text-[9px] font-bold text-white"
+            className="mt-0.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold text-white"
             style={{ backgroundColor: colors?.hex || '#9ca3af' }}
             title={`Nível ${level.toFixed(2)}`}
           >
@@ -1350,8 +1343,8 @@ function GameCardPlaytomic({
   }
 
   return (
-    <div className={`rounded-2xl bg-white border border-gray-100 shadow-md overflow-hidden ${fullWidth ? 'w-full' : 'flex-shrink-0 w-[280px] sm:w-[300px]'}`}>
-      <div className="p-4">
+    <div className={`rounded-2xl bg-white border border-gray-100 shadow-md overflow-hidden ${fullWidth ? 'w-full' : 'flex-shrink-0 w-[320px] sm:w-[360px]'}`}>
+      <div className="p-5">
         <div className="flex items-center justify-between gap-2 mb-3">
           <span className="text-xs font-medium text-gray-500">
             {match.start_time ? formatDateWithTime(match.start_time) : '-'}
@@ -1373,9 +1366,9 @@ function GameCardPlaytomic({
         <div className="flex flex-col">
           {/* Equipa 1 – laranja */}
           <div className="flex items-start justify-between gap-4">
-            <div className="grid grid-cols-2 gap-x-4 gap-y-0 w-[120px] flex-shrink-0 items-start">
-              {renderPlayer(p1, 'bg-orange-400', 'text-xl font-bold text-white')}
-              {renderPlayer(p2, 'bg-orange-400', 'text-xl font-bold text-white')}
+            <div className="grid grid-cols-2 gap-x-5 gap-y-0 flex-1 items-start">
+              {renderPlayer(p1, 'bg-orange-400', 'text-2xl font-bold text-white')}
+              {renderPlayer(p2, 'bg-orange-400', 'text-2xl font-bold text-white')}
             </div>
             {match.status === 'completed' && (hasSets || match.score1 != null) && (
               <div className="flex items-center gap-1.5 flex-shrink-0">
@@ -1394,9 +1387,9 @@ function GameCardPlaytomic({
 
           {/* Equipa 2 – azul claro (grid igual para alinhar com equipa 1) */}
           <div className="flex items-start justify-between gap-4">
-            <div className="grid grid-cols-2 gap-x-4 gap-y-0 w-[120px] flex-shrink-0 items-start">
-              {renderPlayer(p3, 'bg-sky-200', 'text-xl font-bold text-sky-800')}
-              {renderPlayer(p4, 'bg-sky-200', 'text-xl font-bold text-sky-800')}
+            <div className="grid grid-cols-2 gap-x-5 gap-y-0 flex-1 items-start">
+              {renderPlayer(p3, 'bg-sky-200', 'text-2xl font-bold text-sky-800')}
+              {renderPlayer(p4, 'bg-sky-200', 'text-2xl font-bold text-sky-800')}
             </div>
             {match.status === 'completed' && (hasSets || match.score1 != null) && (
               <div className="flex items-center gap-1.5 flex-shrink-0">
