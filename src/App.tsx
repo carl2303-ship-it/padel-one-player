@@ -13563,7 +13563,8 @@ function RegisterScreen({ onBack, onSuccess }: {
   onSuccess: (playerAccount: any) => void
 }) {
   const { t } = useI18n()
-  const [step, setStep] = useState<1 | 2 | 3>(1)
+  const [step, setStep] = useState<0 | 1 | 2 | 3>(0)
+  const [mode, setMode] = useState<'full' | 'bookOnly' | null>(null)
   const [quizPage, setQuizPage] = useState(0) // 0-3 for the 4 quiz sub-pages
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -13588,6 +13589,8 @@ function RegisterScreen({ onBack, onSuccess }: {
   // 0 pts → 0.50 | 18 pts → 3.00 | 30 pts → 4.67 | 36 pts → 5.50
   // Ninguém pode ser > 5.50 via questionário
   const calculateLevel = (): number => {
+    if (mode === 'bookOnly') return 1.0
+
     const totalScore = Object.values(answers).reduce((sum, v) => sum + v, 0)
     const answeredCount = Object.keys(answers).length
 
@@ -13722,9 +13725,9 @@ function RegisterScreen({ onBack, onSuccess }: {
     }
   }
 
-  // Progresso total: step 1 = 1/6, step 2 pages = 2-5/6, step 3 = 6/6
-  const totalSegments = 6
-  const currentSegment = step === 1 ? 1 : step === 2 ? 2 + quizPage : 6
+  // Progresso: bookOnly → 3 segmentos (escolha, dados, confirmação), full → 7 segmentos
+  const totalSegments = mode === 'bookOnly' ? 3 : 7
+  const currentSegment = step === 0 ? 0 : step === 1 ? 1 : step === 2 ? 2 + quizPage : (mode === 'bookOnly' ? 3 : 7)
 
   // Obter páginas do questionário com traduções
   const QUIZ_PAGES = getQuizPages(t)
@@ -13742,7 +13745,9 @@ function RegisterScreen({ onBack, onSuccess }: {
           <button onClick={() => {
             if (step === 2 && quizPage > 0) { setQuizPage(quizPage - 1); setError('') }
             else if (step === 2 && quizPage === 0) { setStep(1); setError('') }
+            else if (step === 3 && mode === 'bookOnly') { setStep(1); setError('') }
             else if (step === 3) { setStep(2); setQuizPage(3); setError('') }
+            else if (step === 1) { setStep(0); setMode(null); setError('') }
             else onBack()
           }} className="p-1 -ml-1"><ArrowLeft className="w-6 h-6 text-gray-700" /></button>
           <h1 className="text-2xl font-bold text-gray-900">{t.register.createAccount}</h1>
@@ -13758,6 +13763,49 @@ function RegisterScreen({ onBack, onSuccess }: {
         {error && (
           <div className="bg-red-50 border border-red-200 rounded-xl p-3 mb-4">
             <p className="text-red-600 text-sm text-center">{error}</p>
+          </div>
+        )}
+
+        {/* ========== STEP 0: ESCOLHA DO MODO ========== */}
+        {step === 0 && (
+          <div className="space-y-6 animate-fade-in">
+            <div className="text-center pt-4">
+              <div className="w-16 h-16 bg-gradient-padel rounded-2xl flex items-center justify-center mx-auto mb-4">
+                <span className="text-3xl">🎾</span>
+              </div>
+              <h2 className="text-xl font-bold text-gray-900">{t.register?.welcomeTitle || 'Bem-vindo ao Padel One!'}</h2>
+              <p className="text-gray-500 mt-1">{t.register?.welcomeSubtitle || 'O que pretendes fazer?'}</p>
+            </div>
+
+            <button
+              onClick={() => { setMode('full'); setStep(1); setError('') }}
+              className="w-full text-left p-5 rounded-2xl border-2 border-gray-200 hover:border-red-500 hover:bg-red-50/30 transition-all group"
+            >
+              <div className="flex items-start gap-4">
+                <div className="w-12 h-12 rounded-xl bg-red-100 flex items-center justify-center flex-shrink-0 group-hover:bg-red-200 transition-colors">
+                  <Trophy className="w-6 h-6 text-red-600" />
+                </div>
+                <div>
+                  <p className="font-bold text-gray-900 text-base">{t.register?.optionFullTitle || 'Quero fazer parte do universo Padel One'}</p>
+                  <p className="text-sm text-gray-500 mt-1 leading-relaxed">{t.register?.optionFullDesc || 'Jogos, torneios, comunidade, nível Elo e muito mais. Avaliação de nível incluída.'}</p>
+                </div>
+              </div>
+            </button>
+
+            <button
+              onClick={() => { setMode('bookOnly'); setStep(1); setError('') }}
+              className="w-full text-left p-5 rounded-2xl border-2 border-gray-200 hover:border-blue-500 hover:bg-blue-50/30 transition-all group"
+            >
+              <div className="flex items-start gap-4">
+                <div className="w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center flex-shrink-0 group-hover:bg-blue-200 transition-colors">
+                  <Calendar className="w-6 h-6 text-blue-600" />
+                </div>
+                <div>
+                  <p className="font-bold text-gray-900 text-base">{t.register?.optionBookTitle || 'Só quero reservar um campo'}</p>
+                  <p className="text-sm text-gray-500 mt-1 leading-relaxed">{t.register?.optionBookDesc || 'Acesso rápido à reserva de campos nos clubes parceiros. Sem questionário de nível.'}</p>
+                </div>
+              </div>
+            </button>
           </div>
         )}
 
@@ -13849,8 +13897,12 @@ function RegisterScreen({ onBack, onSuccess }: {
                   .maybeSingle()
                 if (dupPhone) { setError(t.register.phoneAlreadyRegistered); return }
 
-                setStep(2)
-                setQuizPage(0)
+                if (mode === 'bookOnly') {
+                  setStep(3)
+                } else {
+                  setStep(2)
+                  setQuizPage(0)
+                }
               }}
               className="w-full py-3 bg-red-600 text-white rounded-xl font-semibold hover:bg-red-700 transition-colors"
             >
@@ -13989,8 +14041,8 @@ function RegisterScreen({ onBack, onSuccess }: {
               </div>
             </div>
 
-            {/* Resumo visual do questionário */}
-            {Object.keys(answers).length > 0 && (
+            {/* Resumo visual do questionário (só no modo full) */}
+            {mode !== 'bookOnly' && Object.keys(answers).length > 0 && (
               <div className="card p-4">
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">{t.register.quizSummary}</p>
                 <div className="grid grid-cols-4 gap-2">
@@ -14018,12 +14070,27 @@ function RegisterScreen({ onBack, onSuccess }: {
               </div>
             )}
 
+            {mode === 'bookOnly' && (
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+                <div className="flex items-center gap-2 mb-1">
+                  <Calendar className="w-4 h-4 text-blue-600" />
+                  <p className="text-sm font-semibold text-blue-800">{t.register?.optionBookTitle || 'Só quero reservar um campo'}</p>
+                </div>
+                <p className="text-xs text-blue-700 leading-relaxed">
+                  {t.register?.bookOnlyNote || 'A tua conta será criada com acesso às funcionalidades de reserva. Podes completar a avaliação de nível mais tarde nas definições.'}
+                </p>
+              </div>
+            )}
+
             <p className="text-xs text-gray-500 text-center">
-              {t.register.levelAutoAdjust}
+              {mode === 'bookOnly'
+                ? (t.register?.bookOnlyLevelNote || 'Nível inicial atribuído: 1.0. Podes atualizar mais tarde.')
+                : t.register.levelAutoAdjust
+              }
             </p>
 
             <div className="flex gap-3">
-              <button onClick={() => { setStep(2); setQuizPage(3); setError('') }} className="flex-1 py-3 border border-gray-200 rounded-xl font-medium text-gray-700 hover:bg-gray-50">
+              <button onClick={() => { if (mode === 'bookOnly') { setStep(1); } else { setStep(2); setQuizPage(3); } setError('') }} className="flex-1 py-3 border border-gray-200 rounded-xl font-medium text-gray-700 hover:bg-gray-50">
                 {t.register.back}
               </button>
               <button 
