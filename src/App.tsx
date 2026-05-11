@@ -1343,7 +1343,7 @@ function GameCardPlaytomic({
   }
 
   return (
-    <div className={`rounded-2xl bg-white border border-gray-100 shadow-md overflow-hidden ${fullWidth ? 'w-full' : 'flex-shrink-0 w-[320px] sm:w-[360px]'}`}>
+    <div className={`rounded-2xl bg-white border border-gray-100 shadow-md overflow-hidden ${fullWidth ? 'w-full' : 'flex-shrink-0 w-[360px] sm:w-[400px]'}`}>
       <div className="p-5">
         <div className="flex items-center justify-between gap-2 mb-3">
           <span className="text-xs font-medium text-gray-500">
@@ -1576,7 +1576,7 @@ function OpenGameCard({
 
   if (loading || !game) {
     return (
-      <div className="border border-gray-200 rounded-2xl overflow-hidden bg-white shadow-sm w-[320px] sm:w-[360px]">
+      <div className="border border-gray-200 rounded-2xl overflow-hidden bg-white shadow-sm w-[360px] sm:w-[400px]">
         <div className="p-5 animate-pulse">
           <div className="h-4 bg-gray-200 rounded w-3/4 mb-2"></div>
           <div className="h-3 bg-gray-200 rounded w-1/2 mb-3"></div>
@@ -1739,7 +1739,7 @@ function OpenGameCard({
   }
 
   return (
-    <div className="border border-gray-200 rounded-2xl overflow-hidden bg-white shadow-sm w-[320px] sm:w-[360px]">
+    <div className="border border-gray-200 rounded-2xl overflow-hidden bg-white shadow-sm w-[360px] sm:w-[400px]">
       <div className="p-5">
         {/* Date & Time */}
         <p className="font-bold text-gray-900 text-sm mb-1">
