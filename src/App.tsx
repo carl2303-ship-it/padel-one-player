@@ -1460,13 +1460,15 @@ function OpenGameCard({
   match, 
   userId, 
   playerAccountId, 
-  onRefresh 
+  onRefresh,
+  fullWidth 
 }: { 
   gameId: string
   match: PlayerMatchForCard
   userId?: string | null
   playerAccountId?: string | null
   onRefresh: () => Promise<void>
+  fullWidth?: boolean
 }) {
   const { t } = useI18n()
   const [game, setGame] = useState<import('./lib/openGames').OpenGame | null>(null)
@@ -1581,7 +1583,7 @@ function OpenGameCard({
 
   if (loading || !game) {
     return (
-      <div className="border border-gray-200 rounded-2xl overflow-hidden bg-white shadow-sm w-[360px] sm:w-[400px]">
+      <div className={`border border-gray-200 rounded-2xl overflow-hidden bg-white shadow-sm ${fullWidth ? 'w-full' : 'flex-shrink-0 w-[360px] sm:w-[400px]'}`}>
         <div className="p-5 animate-pulse">
           <div className="h-4 bg-gray-200 rounded w-3/4 mb-2"></div>
           <div className="h-3 bg-gray-200 rounded w-1/2 mb-3"></div>
@@ -1744,7 +1746,7 @@ function OpenGameCard({
   }
 
   return (
-    <div className="border border-gray-200 rounded-2xl overflow-hidden bg-white shadow-sm w-[360px] sm:w-[400px]">
+    <div className={`border border-gray-200 rounded-2xl overflow-hidden bg-white shadow-sm ${fullWidth ? 'w-full' : 'flex-shrink-0 w-[360px] sm:w-[400px]'}`}>
       <div className="p-5">
         {/* Date & Time */}
         <p className="font-bold text-gray-900 text-sm mb-1">
@@ -11256,6 +11258,7 @@ function GamesScreen({
                   userId={player?.user_id}
                   playerAccountId={player?.id}
                   onRefresh={onRefresh}
+                  fullWidth
                 />
               ) : (
                 // Tournament matches
