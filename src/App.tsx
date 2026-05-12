@@ -4,6 +4,7 @@ import { supabase, PlayerAccount } from './lib/supabase'
 import { useI18n } from './lib/i18nContext'
 import PlayerLandingPage from './components/PlayerLandingPage'
 import ClubLandingPage from './components/ClubLandingPage'
+import PlayerLadderTournamentPanel from './components/PlayerLadderTournamentPanel'
 import {
   fetchPlayerDashboardData,
   enrichDashboardWithEdgeFunction,
@@ -5470,7 +5471,7 @@ function CompeteScreen({
         if (pending) setPendingInviteForTournament(tournamentId)
       }
       if (detail) {
-        const isAmericano = ['mixed_american', 'crossed_playoffs', 'mixed_gender', 'individual_groups_knockout', 'round_robin'].includes(detail.format)
+        const isAmericano = ['mixed_american', 'crossed_playoffs', 'mixed_gender', 'individual_groups_knockout', 'round_robin', 'ladder'].includes(detail.format)
         if (!isAmericano) {
           setCategoryDetailsLoading(true)
           try {
@@ -5580,6 +5581,7 @@ function CompeteScreen({
       'single_elimination': t.common.tournamentFormatSingleElimination,
       'groups_knockout': t.common.tournamentFormatGroupsKnockout,
       'individual_groups_knockout': t.common.tournamentFormatIndividualGroupsKnockout,
+      'ladder': t.common.tournamentFormatLadder,
       'super_teams': 'Super Equipas', // TODO: traduzir
     }
     return formatMap[format] || format
@@ -5974,7 +5976,7 @@ function CompeteScreen({
                       if (r.includes('round_of_16')) return 'Oitavos-de-final'
                       return round
                     }
-                    const isAmericanoFormat = ['mixed_american', 'crossed_playoffs', 'mixed_gender', 'individual_groups_knockout', 'round_robin'].includes(td.format)
+                    const isAmericanoFormat = ['mixed_american', 'crossed_playoffs', 'mixed_gender', 'individual_groups_knockout', 'round_robin', 'ladder'].includes(td.format)
                     return td.enrolled.map((cat) => {
                       let catDetail = catDetailsMap.get(cat.category_id)
                       if (!catDetail && categoryDetails.length === 1) catDetail = categoryDetails[0]
@@ -6003,6 +6005,13 @@ function CompeteScreen({
 
                           {isExpanded && (
                             <div className="mt-3 space-y-3">
+                              {td.format === 'ladder' && (
+                                <PlayerLadderTournamentPanel
+                                  tournamentId={td.id}
+                                  categoryId={cat.category_id}
+                                  authUserId={userId}
+                                />
+                              )}
                               {hasGroupsOrMatches && catDetail ? (
                                 <>
                                   {Object.keys(catDetail.groups).length > 0 && (

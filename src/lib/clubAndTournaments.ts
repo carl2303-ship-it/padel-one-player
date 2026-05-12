@@ -281,7 +281,7 @@ export async function fetchTournamentFullDetail(tournamentId: string, playerAcco
   let t: any = null
   const { data: directData } = await supabase
     .from('tournaments')
-    .select('id, name, description, start_date, end_date, status, format, image_url, number_of_courts, match_duration_minutes, daily_start_time, daily_end_time, club_id, round_robin_type')
+    .select('id, name, description, start_date, end_date, status, format, image_url, number_of_courts, match_duration_minutes, daily_start_time, daily_end_time, club_id, club_ids, round_robin_type')
     .eq('id', tournamentId)
     .maybeSingle()
 
@@ -303,18 +303,27 @@ export async function fetchTournamentFullDetail(tournamentId: string, playerAcco
 
   if (!t) return null
 
-  // 2) Dados do clube (se existir)
+  // 2) Clube(s) — torneio escada pode ter vários em club_ids
   let club_name: string | null = null
   let club_logo: string | null = null
-  if (t.club_id) {
-    const { data: club } = await supabase
+  const venueIds: string[] = []
+  if (Array.isArray(t.club_ids) && t.club_ids.length > 0) {
+    for (const id of t.club_ids) {
+      if (id && !venueIds.includes(id)) venueIds.push(id)
+    }
+  } else if (t.club_id) {
+    venueIds.push(t.club_id)
+  }
+  if (venueIds.length > 0) {
+    const { data: clubsRows } = await supabase
       .from('clubs')
-      .select('name, logo_url')
-      .eq('id', t.club_id)
-      .maybeSingle()
-    if (club) {
-      club_name = club.name
-      club_logo = club.logo_url
+      .select('id, name, logo_url')
+      .in('id', venueIds)
+    const byId = new Map((clubsRows || []).map((c: { id: string; name: string; logo_url?: string | null }) => [c.id, c]))
+    const names = venueIds.map((id) => byId.get(id)?.name).filter(Boolean) as string[]
+    if (names.length > 0) {
+      club_name = names.join(' · ')
+      club_logo = byId.get(venueIds[0])?.logo_url ?? null
     }
   }
 
@@ -365,17 +374,16 @@ export async function fetchUpcomingTournaments(clubIds?: string[] | string | nul
   const today = new Date().toISOString().split('T')[0]
   let query = supabase
     .from('tournaments')
-    .select('id, name, start_date, end_date, status, image_url, club_id, description, allow_public_registration, visibility, format, round_robin_type, gender')
+    .select('id, name, start_date, end_date, status, image_url, club_id, club_ids, description, allow_public_registration, visibility, format, round_robin_type, gender')
     .gte('end_date', today)
     .in('status', ['draft', 'active', 'in_progress'])
     .order('start_date', { ascending: true })
     .limit(30)
 
   const ids = Array.isArray(clubIds) ? clubIds : clubIds ? [clubIds] : []
-  if (ids.length === 1) {
-    query = query.eq('club_id', ids[0])
-  } else if (ids.length > 1) {
-    query = query.in('club_id', ids)
+  if (ids.length > 0) {
+    const orParts = ids.flatMap((id) => [`club_id.eq.${id}`, `club_ids.cs.{${id}}`])
+    query = query.or(orParts.join(','))
   }
 
   const { data } = await query
@@ -414,7 +422,7 @@ export async function fetchTournamentsByIds(ids: string[]): Promise<UpcomingTour
   if (ids.length === 0) return []
   const { data } = await supabase
     .from('tournaments')
-    .select('id, name, start_date, end_date, status, image_url, club_id, description, allow_public_registration, visibility, format, round_robin_type, gender')
+    .select('id, name, start_date, end_date, status, image_url, club_id, club_ids, description, allow_public_registration, visibility, format, round_robin_type, gender')
     .in('id', ids)
   return (data || []) as UpcomingTournamentFromTour[]
 }
