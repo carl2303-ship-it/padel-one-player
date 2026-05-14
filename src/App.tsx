@@ -814,7 +814,7 @@ function App() {
             dashboardData={effectiveDashboard}
             favoriteClubId={player?.favorite_club_id ?? null}
             clubIds={player?.club_ids ?? []}
-            userId={player?.user_id ?? null}
+            userId={authUserId || player?.user_id || null}
             playerAccountId={player?.id ?? null}
             player={player}
             onBack={() => setCurrentScreen('home')}
@@ -6010,6 +6010,7 @@ function CompeteScreen({
                                   tournamentId={td.id}
                                   categoryId={cat.category_id}
                                   authUserId={userId}
+                                  playerAccountId={playerAccountId}
                                 />
                               )}
                               {hasGroupsOrMatches && catDetail ? (
@@ -6372,6 +6373,12 @@ function CompeteScreen({
                           {count} inscritos
                         </p>
                       )}
+                      {t.host_clubs_label && (
+                        <p className="text-xs text-gray-600 flex items-center justify-center gap-1 px-4 text-center max-w-full">
+                          <MapPin className="w-3 h-3 shrink-0" />
+                          <span className="line-clamp-2">{t.host_clubs_label}</span>
+                        </p>
+                      )}
                     </div>
                   )}
                   <div className="absolute top-3 right-3 flex items-center gap-1.5">
@@ -6405,6 +6412,12 @@ function CompeteScreen({
                           </p>
                         )}
                       </div>
+                      {t.host_clubs_label && (
+                        <p className="text-xs text-white/75 flex items-center gap-1 mt-1">
+                          <MapPin className="w-3 h-3 shrink-0" />
+                          <span className="line-clamp-2">{t.host_clubs_label}</span>
+                        </p>
+                      )}
                     </div>
                   )}
                 </div>

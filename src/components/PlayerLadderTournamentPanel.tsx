@@ -16,18 +16,20 @@ type TeamRow = {
   name: string
   player1_id: string
   player2_id: string
-  player1?: { id: string; name: string; user_id?: string | null }
-  player2?: { id: string; name: string; user_id?: string | null }
+  player1?: { id: string; name: string; user_id?: string | null; player_account_id?: string | null }
+  player2?: { id: string; name: string; user_id?: string | null; player_account_id?: string | null }
 }
 
 export default function PlayerLadderTournamentPanel({
   tournamentId,
   categoryId,
   authUserId,
+  playerAccountId = null,
 }: {
   tournamentId: string
   categoryId: string
   authUserId: string | null
+  playerAccountId?: string | null
 }) {
   const { t } = useI18n()
   const L = t.ladder
@@ -50,7 +52,7 @@ export default function PlayerLadderTournamentPanel({
       supabase
         .from('teams')
         .select(
-          'id, name, player1_id, player2_id, player1:players!teams_player1_id_fkey(id, name, user_id), player2:players!teams_player2_id_fkey(id, name, user_id)'
+          'id, name, player1_id, player2_id, player1:players!teams_player1_id_fkey(id, name, user_id, player_account_id), player2:players!teams_player2_id_fkey(id, name, user_id, player_account_id)'
         )
         .eq('tournament_id', tournamentId)
         .eq('category_id', categoryId)
@@ -68,13 +70,17 @@ export default function PlayerLadderTournamentPanel({
 
   const myPlayerIds = useMemo(() => {
     const ids = new Set<string>()
-    if (!authUserId) return ids
+    const uid = authUserId
+    const pAcc = playerAccountId
+    if (!uid && !pAcc) return ids
     for (const tm of teams) {
-      if (tm.player1?.user_id === authUserId) ids.add(tm.player1_id)
-      if (tm.player2?.user_id === authUserId) ids.add(tm.player2_id)
+      const p1 = tm.player1
+      const p2 = tm.player2
+      if (p1 && (p1.user_id === uid || (!!pAcc && p1.player_account_id === pAcc))) ids.add(tm.player1_id)
+      if (p2 && (p2.user_id === uid || (!!pAcc && p2.player_account_id === pAcc))) ids.add(tm.player2_id)
     }
     return ids
-  }, [teams, authUserId])
+  }, [teams, authUserId, playerAccountId])
 
   const myTeamIds = useMemo(() => {
     return new Set(

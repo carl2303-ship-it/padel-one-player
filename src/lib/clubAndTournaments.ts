@@ -79,6 +79,8 @@ export interface UpcomingTournamentFromTour {
   status: string
   image_url?: string | null
   club_id?: string | null
+  /** Nomes dos clubes anfitriões (ex.: escada com vários), preenchido nas listagens. */
+  host_clubs_label?: string | null
   description?: string | null
   allow_public_registration?: boolean
   visibility?: 'public' | 'invite_only'
@@ -124,6 +126,36 @@ export function parseClubIds(clubIds: unknown, clubId?: string | null): string[]
   }
   push(clubId ?? undefined)
   return out
+}
+
+async function enrichTournamentsWithHostClubLabels(
+  rows: Record<string, unknown>[]
+): Promise<UpcomingTournamentFromTour[]> {
+  const allVenueIds = new Set<string>()
+  for (const r of rows) {
+    for (const id of parseClubIds(r.club_ids, r.club_id as string | null | undefined)) {
+      allVenueIds.add(id)
+    }
+  }
+  const clubNameById = new Map<string, string>()
+  if (allVenueIds.size > 0) {
+    const { data: clubsRows } = await supabase
+      .from('clubs')
+      .select('id, name')
+      .in('id', [...allVenueIds])
+    for (const c of clubsRows || []) {
+      const row = c as { id: string; name: string }
+      clubNameById.set(row.id, row.name)
+    }
+  }
+  return rows.map((r) => {
+    const ids = parseClubIds(r.club_ids, r.club_id as string | null | undefined)
+    const labels = ids.map((id) => clubNameById.get(id)).filter(Boolean) as string[]
+    return {
+      ...r,
+      host_clubs_label: labels.length > 0 ? labels.join(' · ') : null,
+    } as UpcomingTournamentFromTour
+  })
 }
 
 /** URL base da app Padel One Tour (para link de inscrição). Configurar VITE_TOUR_APP_URL no .env */
@@ -417,7 +449,7 @@ export async function fetchUpcomingTournaments(clubIds?: string[] | string | nul
   }
 
   const { data } = await query
-  return (data || []) as UpcomingTournamentFromTour[]
+  return enrichTournamentsWithHostClubLabels((data || []) as Record<string, unknown>[])
 }
 
 /** Busca contagem de inscritos para uma lista de torneios (teams + players). */
@@ -454,7 +486,7 @@ export async function fetchTournamentsByIds(ids: string[]): Promise<UpcomingTour
     .from('tournaments')
     .select('id, name, start_date, end_date, status, image_url, club_id, club_ids, description, allow_public_registration, visibility, format, round_robin_type, gender')
     .in('id', ids)
-  return (data || []) as UpcomingTournamentFromTour[]
+  return enrichTournamentsWithHostClubLabels((data || []) as Record<string, unknown>[])
 }
 
 /** Busca convites de torneio para o jogador actual.
