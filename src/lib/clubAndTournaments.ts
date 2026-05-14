@@ -89,6 +89,43 @@ export interface UpcomingTournamentFromTour {
   is_invited?: boolean
 }
 
+/** Normaliza `club_ids` (array JSON, string estilo Postgres `{uuid,uuid}` ou ausente) + `club_id` legacy. */
+export function parseClubIds(clubIds: unknown, clubId?: string | null): string[] {
+  const out: string[] = []
+  const push = (id: string | null | undefined) => {
+    if (id && typeof id === 'string' && !out.includes(id)) out.push(id)
+  }
+  if (clubIds == null) {
+    push(clubId ?? undefined)
+    return out
+  }
+  if (Array.isArray(clubIds)) {
+    for (const x of clubIds) {
+      if (typeof x === 'string') push(x)
+    }
+    if (out.length === 0) push(clubId ?? undefined)
+    return out
+  }
+  if (typeof clubIds === 'string') {
+    const s = clubIds.trim()
+    if (s.startsWith('{') && s.endsWith('}')) {
+      const inner = s.slice(1, -1).trim()
+      if (inner.length > 0) {
+        for (const part of inner.split(',')) {
+          const id = part.trim().replace(/^"|"$/g, '')
+          push(id || null)
+        }
+      }
+    } else if (/^[0-9a-f-]{36}$/i.test(s)) {
+      push(s)
+    }
+    if (out.length === 0) push(clubId ?? undefined)
+    return out
+  }
+  push(clubId ?? undefined)
+  return out
+}
+
 /** URL base da app Padel One Tour (para link de inscrição). Configurar VITE_TOUR_APP_URL no .env */
 const TOUR_APP_URL = import.meta.env.VITE_TOUR_APP_URL || 'https://padel-one-tour.netlify.app'
 
@@ -306,14 +343,7 @@ export async function fetchTournamentFullDetail(tournamentId: string, playerAcco
   // 2) Clube(s) — torneio escada pode ter vários em club_ids
   let club_name: string | null = null
   let club_logo: string | null = null
-  const venueIds: string[] = []
-  if (Array.isArray(t.club_ids) && t.club_ids.length > 0) {
-    for (const id of t.club_ids) {
-      if (id && !venueIds.includes(id)) venueIds.push(id)
-    }
-  } else if (t.club_id) {
-    venueIds.push(t.club_id)
-  }
+  const venueIds = parseClubIds(t.club_ids, t.club_id)
   if (venueIds.length > 0) {
     const { data: clubsRows } = await supabase
       .from('clubs')

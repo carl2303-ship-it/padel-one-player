@@ -3,11 +3,11 @@ import { supabase } from '../lib/supabase'
 import { useI18n } from '../lib/i18nContext'
 import {
   LadderRow,
-  parsePositions,
   validateChallenge,
   reorderAfterChallengerWin,
   parsePending,
   teamHasOpenChallenge,
+  mergePublishedPositionsWithTeams,
   type LadderChallenge,
 } from '../lib/ladderTournament'
 
@@ -82,21 +82,22 @@ export default function PlayerLadderTournamentPanel({
     )
   }, [teams, myPlayerIds])
 
-  const positions = useMemo(() => parsePositions(ladder?.positions), [ladder?.positions])
   const pending = useMemo(() => parsePending(ladder?.pending_challenges), [ladder?.pending_challenges])
 
   const teamById = useMemo(() => new Map(teams.map((x) => [x.id, x])), [teams])
 
+  const teamIdsInOrder = useMemo(() => teams.map((x) => x.id), [teams])
+
+  const orderedRows = useMemo(
+    () => mergePublishedPositionsWithTeams(ladder?.positions, teamIdsInOrder, ladder?.ladder_status),
+    [ladder?.positions, ladder?.ladder_status, teamIdsInOrder]
+  )
+
   const rankByTeamId = useMemo(() => {
     const m = new Map<string, number>()
-    for (const p of positions) m.set(p.team_id, p.rank)
+    for (const p of orderedRows) m.set(p.team_id, p.rank)
     return m
-  }, [positions])
-
-  const orderedRows = useMemo(() => {
-    if (positions.length > 0) return positions
-    return teams.map((x, i) => ({ rank: i + 1, team_id: x.id }))
-  }, [positions, teams])
+  }, [orderedRows])
 
   const showRanking =
     Boolean(ladder) && (ladder!.ladder_status === 'active' || ladder!.ladder_status === 'completed')
@@ -154,7 +155,7 @@ export default function PlayerLadderTournamentPanel({
     const updated = all.map((c) =>
       c.id === resultModal.id ? { ...c, status: 'completed' as const, winner_team_id: winnerTeamId } : c
     )
-    let newPositions = parsePositions(ladder.positions)
+    let newPositions = mergePublishedPositionsWithTeams(ladder.positions, teams.map((x) => x.id), ladder.ladder_status)
     if (winnerTeamId === resultModal.challenger_team_id) {
       newPositions = reorderAfterChallengerWin(
         newPositions,
