@@ -13,6 +13,7 @@ export type PartnerInvite = {
   expires_at: string;
   requester_player_account_id: string;
   requester_name?: string;
+  requester_avatar_url?: string | null;
   tournament_name?: string;
   category_name?: string;
 };
@@ -114,7 +115,7 @@ export async function fetchPendingPartnerInvites(playerAccountId: string): Promi
       expires_at,
       requester_player_account_id,
       invitee_player_account_id,
-      requester:player_accounts!partner_match_invites_requester_player_account_id_fkey(name),
+      requester:player_accounts!partner_match_invites_requester_player_account_id_fkey(name, avatar_url),
       tournament:tournaments(name),
       category:tournament_categories(name, accepted_levels, min_level, max_level)
     `)
@@ -189,6 +190,7 @@ export async function fetchPendingPartnerInvites(playerAccountId: string): Promi
     expires_at: row.expires_at,
     requester_player_account_id: row.requester_player_account_id,
     requester_name: row.requester?.name,
+    requester_avatar_url: row.requester?.avatar_url || null,
     tournament_name: row.tournament?.name,
     category_name: row.category?.name,
   }));

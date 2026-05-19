@@ -987,7 +987,7 @@ async function syncBookingPlayers(gameId: string) {
       .from('open_games')
       .select('club_id, price_per_player')
       .eq('id', gameId)
-      .single()
+      .maybeSingle()
 
     if (!game) return
 
@@ -995,7 +995,7 @@ async function syncBookingPlayers(gameId: string) {
       .from('clubs')
       .select('owner_id')
       .eq('id', game.club_id)
-      .single()
+      .maybeSingle()
 
     if (!club) return
 
@@ -1189,7 +1189,7 @@ export async function joinOpenGame(params: {
       .from('open_games')
       .select('max_players, club_id')
       .eq('id', params.gameId)
-      .single()
+      .maybeSingle()
 
     if (confirmedPlayers && game && confirmedPlayers.length >= game.max_players) {
       await supabase
@@ -1535,11 +1535,15 @@ export async function cancelOpenGame(gameId: string): Promise<boolean> {
 export async function addPlayerToOpenGame(params: {
   gameId: string
   playerAccountId: string
+  position?: number
 }): Promise<{ success: boolean; error?: string }> {
+  console.log('[addPlayerToOpenGame] calling RPC with:', { gameId: params.gameId, playerAccountId: params.playerAccountId, position: params.position })
   const { data, error } = await supabase.rpc('add_player_to_open_game', {
     p_game_id: params.gameId,
     p_player_account_id: params.playerAccountId,
   })
+
+  console.log('[addPlayerToOpenGame] RPC result:', { data, error })
 
   if (error) {
     console.error('[OpenGames] Error adding player to game:', error)
@@ -1551,8 +1555,7 @@ export async function addPlayerToOpenGame(params: {
     return { success: false, error: result?.error || 'Erro desconhecido' }
   }
 
-  // IMPORTANT: Always update user_id to ensure it's correct
-  // The SQL function may have used a fallback, so we need to fix it
+  // Fix user_id: the SQL function may have used the caller's user_id as fallback
   try {
     const { data: account } = await supabase
       .from('player_accounts')
@@ -1560,16 +1563,35 @@ export async function addPlayerToOpenGame(params: {
       .eq('id', params.playerAccountId)
       .maybeSingle()
     
-    if (account?.user_id) {
-      // Update user_id even if it already has a value (to fix SQL fallback issue)
-      await supabase
-        .from('open_game_players')
-        .update({ user_id: account.user_id })
-        .eq('game_id', params.gameId)
-        .eq('player_account_id', params.playerAccountId)
-    }
+    await supabase
+      .from('open_game_players')
+      .update({ user_id: account?.user_id || null })
+      .eq('game_id', params.gameId)
+      .eq('player_account_id', params.playerAccountId)
   } catch (err) {
     console.error('[OpenGames] Error updating user_id after adding player:', err)
+  }
+
+  if (params.position) {
+    try {
+      const { data: existing } = await supabase
+        .from('open_game_players')
+        .select('id, player_account_id, position')
+        .eq('game_id', params.gameId)
+        .eq('status', 'confirmed')
+      console.log('[addPlayerToOpenGame] existing players before reposition:', existing)
+      const occupant = (existing || []).find(p => p.position === params.position && p.player_account_id !== params.playerAccountId)
+      const newPlayer = (existing || []).find(p => p.player_account_id === params.playerAccountId)
+      console.log('[addPlayerToOpenGame] reposition:', { targetPos: params.position, occupant, newPlayer })
+      if (occupant && newPlayer) {
+        await supabase.from('open_game_players').update({ position: newPlayer.position }).eq('id', occupant.id)
+        await supabase.from('open_game_players').update({ position: params.position }).eq('id', newPlayer.id)
+      } else if (newPlayer) {
+        await supabase.from('open_game_players').update({ position: params.position }).eq('id', newPlayer.id)
+      }
+    } catch (err) {
+      console.error('[OpenGames] Error repositioning player:', err)
+    }
   }
 
   // Sync player details to court_booking
@@ -1748,7 +1770,7 @@ export async function fetchMyGamesPendingRequests(userId: string): Promise<{
       gamesMap.set(p.game_id, { pendingPlayers: [], myVotes: [] })
     }
     const entry = gamesMap.get(p.game_id)!
-    const details = detailsMap[p.user_id] || (p.player_account_id ? detailsMap['pa_' + p.player_account_id] : null)
+    const details = (p.player_account_id ? detailsMap['pa_' + p.player_account_id] : null) || detailsMap[p.user_id]
     entry.pendingPlayers.push({
       id: p.id,
       user_id: p.user_id,
@@ -2212,7 +2234,7 @@ export async function awardGameRewardPoints(gameId: string, actionType: string, 
     .from('open_games')
     .select('club_id')
     .eq('id', gameId)
-    .single()
+    .maybeSingle()
 
   if (!game || !game.club_id) {
     console.error('[Rewards] Cannot award points - game not found or no club_id:', gameId, gameError)

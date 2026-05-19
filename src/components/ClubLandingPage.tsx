@@ -125,6 +125,7 @@ const defaultPlans = [
     ],
     notIncluded: [
       'Suporte prioritário',
+      'Academia integrada',
       'AI Agent',
     ],
   },
@@ -133,7 +134,7 @@ const defaultPlans = [
     price: 69.99,
     priceAnnual: 789.99,
     color: 'from-gray-400 to-gray-300',
-    popular: true,
+    popular: false,
     features: [
       'Até 8 campos',
       'Gestão de reservas',
@@ -155,9 +156,9 @@ const defaultPlans = [
     price: 99.99,
     priceAnnual: 999.99,
     color: 'from-yellow-400 to-amber-500',
-    popular: false,
+    popular: true,
     features: [
-      'Até 30 campos',
+      'Até 10 campos',
       'Gestão de reservas',
       'Módulo de bar',
       'Licença Tour (torneios)',
@@ -168,6 +169,29 @@ const defaultPlans = [
       'Suporte prioritário',
       'Academia integrada',
       'AI Agent incluído',
+    ],
+    notIncluded: [],
+  },
+  {
+    name: 'Platinum',
+    price: 149.99,
+    priceAnnual: 1499.99,
+    color: 'from-slate-600 to-slate-400',
+    popular: false,
+    features: [
+      'Campos ilimitados',
+      'Gestão de reservas',
+      'Módulo de bar',
+      'Licença Tour (torneios)',
+      'Analytics avançado',
+      'App Player integrada',
+      'Staff e permissões',
+      'Precário público online',
+      'Suporte prioritário 24/7',
+      'Academia integrada',
+      'AI Agent incluído',
+      'Gestor de conta dedicado',
+      'Integrações personalizadas',
     ],
     notIncluded: [],
   },
@@ -422,7 +446,7 @@ export default function ClubLandingPage() {
               </ul>
               <div className="mt-6 p-3 bg-white/60 rounded-xl border border-purple-100">
                 <p className="text-xs text-purple-600 font-semibold text-center">
-                  Incluído no plano Gold — ou disponível como add-on para outros planos
+                  Incluído nos planos Gold e Platinum — ou disponível como add-on para outros planos
                 </p>
               </div>
             </div>
@@ -442,7 +466,7 @@ export default function ClubLandingPage() {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-5xl mx-auto">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 max-w-6xl mx-auto">
             {plans.map((plan) => (
               <div
                 key={plan.name}

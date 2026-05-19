@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useI18n } from '../lib/i18nContext'
+import { sendPushToPlayer } from '../lib/pushNotifications'
+import {
+  createLadderChallengeChatGroup,
+  ensureLadderChallengeChatGroup,
+  type LadderTeamForChat,
+} from '../lib/ladderChallengeChat'
 import {
   LadderRow,
   validateChallenge,
@@ -25,11 +31,15 @@ export default function PlayerLadderTournamentPanel({
   categoryId,
   authUserId,
   playerAccountId = null,
+  tournamentName = null,
+  onOpenChallengeChat,
 }: {
   tournamentId: string
   categoryId: string
   authUserId: string | null
   playerAccountId?: string | null
+  tournamentName?: string | null
+  onOpenChallengeChat?: (groupId: string) => void
 }) {
   const { t } = useI18n()
   const L = t.ladder
@@ -37,8 +47,10 @@ export default function PlayerLadderTournamentPanel({
   const [loading, setLoading] = useState(true)
   const [ladder, setLadder] = useState<LadderRow | null>(null)
   const [teams, setTeams] = useState<TeamRow[]>([])
+  const [teamClubNames, setTeamClubNames] = useState<Map<string, string>>(new Map())
   const [resultModal, setResultModal] = useState<LadderChallenge | null>(null)
   const [busy, setBusy] = useState(false)
+  const [chatBusyId, setChatBusyId] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -60,7 +72,37 @@ export default function PlayerLadderTournamentPanel({
     ])
     if (ladderRes.data) setLadder(ladderRes.data as LadderRow)
     else setLadder(null)
-    setTeams(((teamsRes.data || []) as TeamRow[]) ?? [])
+    const tl = ((teamsRes.data || []) as unknown as TeamRow[]) ?? []
+    setTeams(tl)
+
+    const paIds = [...new Set(tl.flatMap(tm => [tm.player1?.player_account_id, tm.player2?.player_account_id]).filter(Boolean))] as string[]
+    if (paIds.length > 0) {
+      const { data: paRows } = await supabase
+        .from('player_accounts')
+        .select('id, favorite_club_id')
+        .in('id', paIds)
+      const favByPa = new Map((paRows || []).map((r: { id: string; favorite_club_id: string | null }) => [r.id, r.favorite_club_id]))
+      const clubIds = [...new Set([...favByPa.values()].filter(Boolean))] as string[]
+      let clubNameById = new Map<string, string>()
+      if (clubIds.length > 0) {
+        const { data: clubRows } = await supabase.from('clubs').select('id, name').in('id', clubIds)
+        clubNameById = new Map((clubRows || []).map((c: { id: string; name: string }) => [c.id, c.name]))
+      }
+      const tcn = new Map<string, string>()
+      for (const tm of tl) {
+        const fav1 = tm.player1?.player_account_id ? favByPa.get(tm.player1.player_account_id) : null
+        const fav2 = tm.player2?.player_account_id ? favByPa.get(tm.player2.player_account_id) : null
+        const clubId = (fav1 === fav2 && fav1) ? fav1 : (fav1 || fav2 || null)
+        if (clubId) {
+          const name = clubNameById.get(clubId)
+          if (name) tcn.set(tm.id, name)
+        }
+      }
+      setTeamClubNames(tcn)
+    } else {
+      setTeamClubNames(new Map())
+    }
+
     setLoading(false)
   }, [tournamentId, categoryId])
 
@@ -91,6 +133,16 @@ export default function PlayerLadderTournamentPanel({
   const pending = useMemo(() => parsePending(ladder?.pending_challenges), [ladder?.pending_challenges])
 
   const teamById = useMemo(() => new Map(teams.map((x) => [x.id, x])), [teams])
+
+  const teamToChat = (tm: TeamRow | undefined): LadderTeamForChat | null => {
+    if (!tm) return null
+    return {
+      id: tm.id,
+      name: tm.name,
+      player1: tm.player1 ? { user_id: tm.player1.user_id } : null,
+      player2: tm.player2 ? { user_id: tm.player2.user_id } : null,
+    }
+  }
 
   const teamIdsInOrder = useMemo(() => teams.map((x) => x.id), [teams])
 
@@ -130,7 +182,7 @@ export default function PlayerLadderTournamentPanel({
 
     const now = new Date()
     const deadline = new Date(now.getTime() + ladder.challenge_window_days * 86400000)
-    const ch: LadderChallenge = {
+    let ch: LadderChallenge = {
       id: crypto.randomUUID(),
       challenger_team_id: challengerTeamId,
       challenged_team_id: challengedTeamId,
@@ -139,6 +191,18 @@ export default function PlayerLadderTournamentPanel({
       created_at: now.toISOString(),
       deadline_at: deadline.toISOString(),
       status: 'pending',
+    }
+    if (authUserId) {
+      const ct1 = teamToChat(teamById.get(challengerTeamId))
+      const ct2 = teamToChat(teamById.get(challengedTeamId))
+      if (ct1 && ct2) {
+        const { groupId } = await createLadderChallengeChatGroup({
+          challengerTeam: ct1,
+          challengedTeam: ct2,
+          tournamentName,
+        })
+        if (groupId) ch = { ...ch, community_group_id: groupId }
+      }
     }
     const next = [...allPending, ch]
     setBusy(true)
@@ -151,6 +215,23 @@ export default function PlayerLadderTournamentPanel({
     if (error) alert(L.errorGeneric + ': ' + error.message)
     else {
       alert(L.challengeCreated)
+
+      const challengerTeam = teamById.get(challengerTeamId)
+      const challengedTeam = teamById.get(challengedTeamId)
+      const challengerName = challengerTeam?.name ?? '?'
+      const deadlineStr = deadline.toLocaleDateString()
+      const venue = teamClubNames.get(challengedTeamId)
+      let bodyText = `${challengerName} ${L.challengeNotifBody ?? 'desafiou a vossa equipa! Prazo:'} ${deadlineStr}`
+      if (venue) bodyText += ` | ${L.playAt} ${venue}`
+      const pushPayload = {
+        title: L.challengeNotifTitle ?? 'Novo desafio!',
+        body: bodyText,
+        url: ch.community_group_id ? `/?group=${encodeURIComponent(ch.community_group_id)}` : '/?screen=compete',
+        tag: `ladder-challenge-${ch.id}`,
+      }
+      const ids = [challengedTeam?.player1?.player_account_id, challengedTeam?.player2?.player_account_id].filter(Boolean) as string[]
+      for (const paId of ids) sendPushToPlayer(paId, pushPayload).catch(() => {})
+
       void load()
     }
   }
@@ -161,19 +242,22 @@ export default function PlayerLadderTournamentPanel({
     const updated = all.map((c) =>
       c.id === resultModal.id ? { ...c, status: 'completed' as const, winner_team_id: winnerTeamId } : c
     )
-    let newPositions = mergePublishedPositionsWithTeams(ladder.positions, teams.map((x) => x.id), ladder.ladder_status)
-    if (winnerTeamId === resultModal.challenger_team_id) {
+    const positionsBefore = mergePublishedPositionsWithTeams(ladder.positions, teams.map((x) => x.id), ladder.ladder_status)
+    let newPositions = [...positionsBefore]
+    const challengerWon = winnerTeamId === resultModal.challenger_team_id
+    if (challengerWon) {
       newPositions = reorderAfterChallengerWin(
-        newPositions,
+        positionsBefore,
         resultModal.challenger_team_id,
         resultModal.challenged_team_id
       )
     }
+    const pendingToSave = updated.filter((c) => c.status === 'pending')
     setBusy(true)
     const { error } = await supabase
       .from('ladder_tournaments')
       .update({
-        pending_challenges: updated.filter((c) => c.status === 'pending'),
+        pending_challenges: pendingToSave,
         positions: newPositions,
       })
       .eq('tournament_id', tournamentId)
@@ -225,6 +309,7 @@ export default function PlayerLadderTournamentPanel({
                 <tr className="text-left text-gray-500 border-b">
                   <th className="py-2 pr-4">{L.rank}</th>
                   <th className="py-2 pr-4">{L.team}</th>
+                  <th className="py-2 pr-4">{L.club}</th>
                   <th className="py-2">{myTeamIds.size > 0 && ladder.ladder_status === 'active' ? L.challenge : ''}</th>
                 </tr>
               </thead>
@@ -249,6 +334,7 @@ export default function PlayerLadderTournamentPanel({
                           {tm ? `${tm.player1?.name || '?'} / ${tm.player2?.name || '?'}` : ''}
                         </div>
                       </td>
+                      <td className="py-2 pr-4 text-xs text-gray-500">{teamClubNames.get(row.team_id) ?? '—'}</td>
                       <td className="py-2">
                         {canShowChallenge ? (
                           <button
@@ -282,7 +368,43 @@ export default function PlayerLadderTournamentPanel({
             {pending.map((c) => {
               const t1 = teamById.get(c.challenger_team_id)
               const t2 = teamById.get(c.challenged_team_id)
+              const venue = teamClubNames.get(c.challenged_team_id)
               const canRecord = myTeamIds.has(c.challenger_team_id) || myTeamIds.has(c.challenged_team_id)
+              const inChallenge = canRecord
+              const openChat = async () => {
+                if (!authUserId || !onOpenChallengeChat) {
+                  alert(L.chatNeedAuth)
+                  return
+                }
+                const ct1 = teamToChat(t1)
+                const ct2 = teamToChat(t2)
+                if (!ct1 || !ct2) return
+                setChatBusyId(c.id)
+                try {
+                  let gid = c.community_group_id || null
+                  if (!gid) {
+                    const raw = ladder?.pending_challenges
+                    const res = await ensureLadderChallengeChatGroup({
+                      tournamentId,
+                      categoryId,
+                      challenge: c,
+                      challengerTeam: ct1,
+                      challengedTeam: ct2,
+                      tournamentName,
+                      pendingChallengesRaw: raw,
+                    })
+                    gid = res.groupId || null
+                    if (!gid) {
+                      alert(L.chatError + (res.error ? ` (${res.error})` : ''))
+                      return
+                    }
+                    void load()
+                  }
+                  onOpenChallengeChat(gid)
+                } finally {
+                  setChatBusyId(null)
+                }
+              }
               return (
                 <li key={c.id} className="flex flex-wrap items-center justify-between gap-2 border rounded-lg p-3">
                   <div>
@@ -292,16 +414,36 @@ export default function PlayerLadderTournamentPanel({
                     <div className="text-xs text-gray-500">
                       {L.deadline}: {new Date(c.deadline_at).toLocaleString()}
                     </div>
+                    {venue && (
+                      <div className="text-xs text-blue-600 mt-0.5">
+                        {L.playAt} {venue}
+                      </div>
+                    )}
+                    {authUserId && inChallenge && (
+                      <p className="text-[11px] text-gray-400 mt-1">{L.chatInviteHint}</p>
+                    )}
                   </div>
-                  {canRecord && (
-                    <button
-                      type="button"
-                      onClick={() => setResultModal(c)}
-                      className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg"
-                    >
-                      {L.recordResult}
-                    </button>
-                  )}
+                  <div className="flex flex-col sm:flex-row gap-2 shrink-0">
+                    {authUserId && inChallenge && onOpenChallengeChat && (
+                      <button
+                        type="button"
+                        disabled={chatBusyId === c.id}
+                        onClick={() => void openChat()}
+                        className="px-3 py-1.5 text-sm bg-emerald-600 text-white rounded-lg disabled:opacity-60"
+                      >
+                        {chatBusyId === c.id ? '…' : c.community_group_id ? L.openChat : L.createChat}
+                      </button>
+                    )}
+                    {canRecord && (
+                      <button
+                        type="button"
+                        onClick={() => setResultModal(c)}
+                        className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg"
+                      >
+                        {L.recordResult}
+                      </button>
+                    )}
+                  </div>
                 </li>
               )
             })}

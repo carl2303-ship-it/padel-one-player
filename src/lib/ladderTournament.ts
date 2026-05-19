@@ -12,6 +12,8 @@ export type LadderChallenge = {
   deadline_at: string
   status: 'pending' | 'completed' | 'cancelled'
   winner_team_id?: string | null
+  /** Grupo na Comunidade para os 4 jogadores combinarem o jogo */
+  community_group_id?: string | null
 }
 
 export type LadderRow = {
@@ -91,7 +93,7 @@ export function reorderAfterChallengerWin(
   if (i < 0 || j < 0 || j >= i) return arr
   const [moved] = arr.splice(i, 1)
   arr.splice(j, 0, moved)
-  return normalizePositions(arr)
+  return arr.map((p, idx) => ({ rank: idx + 1, team_id: p.team_id }))
 }
 
 export function teamHasOpenChallenge(

@@ -242,6 +242,22 @@ function App() {
     }
   }, [])
 
+  // Deep link: chat do desafio da escada (push / partilha) — ?group=<uuid>
+  useEffect(() => {
+    if (!player?.user_id) return
+    let params: URLSearchParams
+    try {
+      params = new URLSearchParams(window.location.search)
+    } catch {
+      return
+    }
+    const gid = params.get('group')
+    if (!gid || !/^[0-9a-f-]{36}$/i.test(gid.trim())) return
+    window.history.replaceState({}, '', window.location.pathname)
+    setSelectedGroupId(gid.trim())
+    setCurrentScreen('group-detail')
+  }, [player?.user_id])
+
   // Check push subscription status when player is loaded
   useEffect(() => {
     if (player?.id && pushSupported) {
@@ -820,6 +836,14 @@ function App() {
             onBack={() => setCurrentScreen('home')}
             initialTournamentId={pendingTournamentId}
             onInitialTournamentConsumed={() => setPendingTournamentId(null)}
+            onOpenCommunityGroupChat={
+              player?.user_id
+                ? (groupId: string) => {
+                    setSelectedGroupId(groupId)
+                    setCurrentScreen('group-detail')
+                  }
+                : undefined
+            }
           />
         )}
         {currentScreen === 'learn' && (
@@ -1475,6 +1499,7 @@ function OpenGameCard({
   const [game, setGame] = useState<import('./lib/openGames').OpenGame | null>(null)
   const [loading, setLoading] = useState(true)
   const [showAddPlayer, setShowAddPlayer] = useState(false)
+  const [addPlayerTargetPosition, setAddPlayerTargetPosition] = useState<number | null>(null)
   const [addPlayerSearch, setAddPlayerSearch] = useState('')
   const [addPlayerResults, setAddPlayerResults] = useState<{ id: string; name: string; avatar_url: string | null; level: number | null; player_category: string | null }[]>([])
   const [addingPlayer, setAddingPlayer] = useState(false)
@@ -1488,7 +1513,7 @@ function OpenGameCard({
         .from('open_games')
         .select('*')
         .eq('id', gameId)
-        .single()
+        .maybeSingle()
 
       if (data) {
         // Fetch players
@@ -1532,7 +1557,7 @@ function OpenGameCard({
 
         // Enrich players data
         const enrichedPlayers = (playersData || []).map((p: any) => {
-          const account = playerAccountsMap[p.user_id] || playerAccountsMap[p.player_account_id]
+          const account = playerAccountsMap[p.player_account_id] || playerAccountsMap[p.user_id]
           return {
             ...p,
             name: account?.name || p.name || t.common.player,
@@ -1604,7 +1629,7 @@ function OpenGameCard({
 
   const refetchGame = async () => {
     const { supabase } = await import('./lib/supabase')
-    const { data } = await supabase.from('open_games').select('*').eq('id', gameId).single()
+    const { data } = await supabase.from('open_games').select('*').eq('id', gameId).maybeSingle()
     if (data) {
       const { data: playersData } = await supabase
         .from('open_game_players')
@@ -1623,7 +1648,7 @@ function OpenGameCard({
         rResults.forEach(({ data: accts }) => { if (accts) accts.forEach((a: any) => { if (a.user_id) acctMap[a.user_id] = a; acctMap[a.id] = a }) })
       }
       const enriched = (playersData || []).map((p2: any) => {
-        const acct = acctMap[p2.user_id] || acctMap[p2.player_account_id]
+        const acct = acctMap[p2.player_account_id] || acctMap[p2.user_id]
         return { ...p2, name: acct?.name || t.common.player, avatar_url: acct?.avatar_url || null, level: acct?.level || null, player_category: acct?.player_category || null }
       })
       const { data: clubData } = await supabase.from('clubs').select('name, logo_url, city, payment_method').eq('id', data.club_id).single()
@@ -1720,12 +1745,15 @@ function OpenGameCard({
   }
 
   const handleAddPlayer = async (paId: string) => {
+    const selectedPlayer = addPlayerResults.find(r => r.id === paId)
+    console.log('[AddPlayer] clicked:', { paId, selectedName: selectedPlayer?.name, targetPosition: addPlayerTargetPosition, allResults: addPlayerResults.map(r => ({ id: r.id, name: r.name })) })
     setAddingPlayer(true)
     const { addPlayerToOpenGame } = await import('./lib/openGames')
-    const result = await addPlayerToOpenGame({ gameId: game.id, playerAccountId: paId })
+    const result = await addPlayerToOpenGame({ gameId: game.id, playerAccountId: paId, position: addPlayerTargetPosition ?? undefined })
     setAddingPlayer(false)
     if (result.success) {
       setShowAddPlayer(false)
+      setAddPlayerTargetPosition(null)
       setAddPlayerSearch('')
       setAddPlayerResults([])
       await refetchGame()
@@ -1766,10 +1794,10 @@ function OpenGameCard({
 
         {/* Player circles */}
         <div className="flex items-start gap-3 mb-3">
-          {/* Left team */}
+          {/* Left team - Positions 1 and 2 */}
           <div className="flex gap-3 flex-1 justify-center">
-            {[0, 1].map(i => {
-              const p = confirmedPlayers[i]
+            {[1, 2].map(pos => {
+              const p = confirmedPlayers.find(pl => pl.position === pos)
               if (p) {
                 const pColors = levelColors(p.level)
                 const isMe = p.user_id === userId || p.player_account_id === playerAccountId
@@ -1803,9 +1831,9 @@ function OpenGameCard({
               } else {
                 return (
                   <div 
-                    key={`empty-${i}`} 
+                    key={`empty-${pos}`} 
                     className={`flex flex-col items-center ${isInGame ? 'cursor-pointer' : ''}`}
-                    onClick={isInGame ? () => setShowAddPlayer(true) : undefined}
+                    onClick={isInGame ? () => { setAddPlayerTargetPosition(pos); setShowAddPlayer(true) } : undefined}
                   >
                     <div className={`w-16 h-16 rounded-full border-2 border-dashed flex items-center justify-center transition-colors ${isInGame ? 'border-blue-400 hover:border-blue-500 hover:bg-blue-50' : 'border-gray-300'}`}>
                       <UserPlus className={`w-6 h-6 ${isInGame ? 'text-blue-500' : 'text-gray-400'}`} />
@@ -1820,10 +1848,10 @@ function OpenGameCard({
           {/* Divider */}
           <div className="w-px h-20 bg-gray-200 self-center" />
           
-          {/* Right team */}
+          {/* Right team - Positions 3 and 4 */}
           <div className="flex gap-3 flex-1 justify-center">
-            {[2, 3].map(i => {
-              const p = confirmedPlayers[i]
+            {[3, 4].map(pos => {
+              const p = confirmedPlayers.find(pl => pl.position === pos)
               if (p) {
                 const pColors = levelColors(p.level)
                 const isMe = p.user_id === userId || p.player_account_id === playerAccountId
@@ -1857,9 +1885,9 @@ function OpenGameCard({
               } else {
                 return (
                   <div 
-                    key={`empty-${i}`} 
+                    key={`empty-${pos}`} 
                     className={`flex flex-col items-center ${isInGame ? 'cursor-pointer' : ''}`}
-                    onClick={isInGame ? () => setShowAddPlayer(true) : undefined}
+                    onClick={isInGame ? () => { setAddPlayerTargetPosition(pos); setShowAddPlayer(true) } : undefined}
                   >
                     <div className={`w-16 h-16 rounded-full border-2 border-dashed flex items-center justify-center transition-colors ${isInGame ? 'border-blue-400 hover:border-blue-500 hover:bg-blue-50' : 'border-gray-300'}`}>
                       <UserPlus className={`w-6 h-6 ${isInGame ? 'text-blue-500' : 'text-gray-400'}`} />
@@ -1877,9 +1905,16 @@ function OpenGameCard({
       {showAddPlayer && (
         <div className="border-t border-gray-100 px-4 py-3 bg-blue-50/50">
           <div className="flex items-center justify-between mb-2">
-            <p className="text-xs font-semibold text-gray-700">Adicionar jogador</p>
+            <p className="text-xs font-semibold text-gray-700">
+              {t.games.addPlayer ?? 'Adicionar jogador'}
+              {addPlayerTargetPosition != null && (
+                <span className="ml-1 text-blue-600">
+                  ({addPlayerTargetPosition <= 2 ? t.games.team1 ?? 'Equipa 1' : t.games.team2 ?? 'Equipa 2'})
+                </span>
+              )}
+            </p>
             <button 
-              onClick={() => { setShowAddPlayer(false); setAddPlayerSearch(''); setAddPlayerResults([]) }}
+              onClick={() => { setShowAddPlayer(false); setAddPlayerTargetPosition(null); setAddPlayerSearch(''); setAddPlayerResults([]) }}
               className="text-gray-400 hover:text-gray-600 text-xs"
             >
               ✕
@@ -3357,15 +3392,26 @@ function HomeScreen({
             <p className="text-xs text-gray-600">{t.home.pendingInvitesHint}</p>
             {homePartnerInvites.slice(0, 5).map((inv) => (
               <div key={inv.id} className="rounded-xl border border-blue-100 bg-white/80 p-3">
-                <p className="text-sm text-gray-800">
-                  <span className="font-semibold">{inv.requester_name || 'Jogador'}</span>
-                  {' '}{(t as any).partner?.invitedYouTo || 'convidou-o para o torneio'}{' '}
-                  <span className="font-semibold">{inv.tournament_name || 'Torneio'}</span>
-                  {inv.category_name ? (
-                    <span className="text-gray-600"> · {inv.category_name}</span>
-                  ) : null}
-                </p>
-                <div className="flex gap-2 mt-3">
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-lg flex-shrink-0 overflow-hidden">
+                    {inv.requester_avatar_url ? (
+                      <img src={inv.requester_avatar_url} className="w-full h-full object-cover" alt="" />
+                    ) : (
+                      <span className="text-blue-600 font-bold text-sm">{(inv.requester_name || 'J').charAt(0).toUpperCase()}</span>
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-gray-800">
+                      <span className="font-semibold">{inv.requester_name || 'Jogador'}</span>
+                      {' '}{(t as any).partner?.invitedYouTo || 'convidou-te para o torneio'}{' '}
+                      <span className="font-semibold">{inv.tournament_name || 'Torneio'}</span>
+                      {inv.category_name ? (
+                        <span className="text-gray-600"> · {inv.category_name}</span>
+                      ) : null}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex gap-2 mt-3 ml-[52px]">
                   <button
                     type="button"
                     onClick={() => handleHomeAcceptPartnerInvite(inv)}
@@ -4220,15 +4266,20 @@ function CommunityScreen({ userId, playerAccountId, playerAvatar, playerName, on
         {groupInvites.length > 0 && (
           <div className="mb-3 space-y-2">
             {groupInvites.map(inv => (
-              <div key={inv.id} className="flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-xl p-3">
-                <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center text-lg flex-shrink-0">
-                  {inv.group_image_url ? <img src={inv.group_image_url} className="w-full h-full rounded-full object-cover" /> : '👥'}
+              <div key={inv.id} className="bg-amber-50 border border-amber-200 rounded-xl p-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center text-lg flex-shrink-0 overflow-hidden">
+                    {inv.group_image_url ? <img src={inv.group_image_url} className="w-full h-full rounded-full object-cover" /> : '👥'}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-gray-900 truncate">{inv.group_name}</p>
+                    <p className="text-xs text-gray-500">Convite de {inv.inviter_name}</p>
+                  </div>
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-gray-900 truncate">{inv.group_name}</p>
-                  <p className="text-xs text-gray-500">Convite de {inv.inviter_name}</p>
-                </div>
-                <div className="flex gap-2">
+                {inv.group_description && (
+                  <p className="text-xs text-gray-600 mt-2 ml-[52px] line-clamp-2">{inv.group_description}</p>
+                )}
+                <div className="flex gap-2 mt-3 ml-[52px]">
                   <button onClick={() => handleRespondInvite(inv.id, true)} className="px-3 py-1.5 bg-green-600 text-white text-xs font-semibold rounded-lg">Aceitar</button>
                   <button onClick={() => handleRespondInvite(inv.id, false)} className="px-3 py-1.5 bg-gray-200 text-gray-700 text-xs font-semibold rounded-lg">Recusar</button>
                 </div>
@@ -5075,6 +5126,7 @@ function CompeteScreen({
   onBack,
   initialTournamentId,
   onInitialTournamentConsumed,
+  onOpenCommunityGroupChat,
 }: {
   dashboardData: PlayerDashboardData | null
   favoriteClubId: string | null
@@ -5085,6 +5137,7 @@ function CompeteScreen({
   onBack: () => void
   initialTournamentId?: string | null
   onInitialTournamentConsumed?: () => void
+  onOpenCommunityGroupChat?: (groupId: string) => void
 }) {
   const { t } = useI18n()
   const [activeTab, setActiveTab] = useState<'upcoming' | 'leagues' | 'history'>('upcoming')
@@ -5172,13 +5225,27 @@ function CompeteScreen({
           invitedIds = new Set(invites.map(i => i.tournament_id))
         }
 
-        const pg = player?.gender as string | undefined
+        const pg: string | undefined = player?.gender as string | undefined ||
+          (player?.player_category?.startsWith('M') ? 'male' : undefined) ||
+          (player?.player_category?.startsWith('F') ? 'female' : undefined)
+
+        const inferGender = (t: UpcomingTournamentFromTour): string | null => {
+          if (t.gender && t.gender !== 'all') return t.gender
+          const nm = (t.name || '').toLowerCase()
+          if (nm.includes('masc') || nm.includes(' m.') || nm.includes(' m ')) return 'male'
+          if (nm.includes('fem') || nm.includes(' f.') || nm.includes(' f ')) return 'female'
+          return null
+        }
+
         const filtered = list
           .filter(t => {
             if (t.visibility === 'invite_only' && !invitedIds.has(t.id)) return false
-            if (t.gender && pg) {
-              if (t.gender === 'male' && pg !== 'male') return false
-              if (t.gender === 'female' && pg !== 'female') return false
+            const tg = inferGender(t)
+            if (tg && tg !== 'all' && tg !== 'mixed') {
+              if (pg) {
+                if (tg === 'male' && pg !== 'male') return false
+                if (tg === 'female' && pg !== 'female') return false
+              }
             }
             return true
           })
@@ -5230,15 +5297,30 @@ function CompeteScreen({
         }
 
         const enrolledIds = new Set((d?.upcomingTournaments ?? []).map((t) => t.id))
-        const playerGender = player?.gender as string | undefined
+        const playerGender = player?.gender as string | undefined ||
+          (player?.player_category?.startsWith('M') ? 'male' : null) ||
+          (player?.player_category?.startsWith('F') ? 'female' : null) ||
+          undefined
+
+        const inferTournamentGender = (t: UpcomingTournamentFromTour): string | null => {
+          if (t.gender && t.gender !== 'all') return t.gender
+          const nameLower = (t.name || '').toLowerCase()
+          if (nameLower.includes('masc') || nameLower.includes(' m.') || nameLower.includes(' m ')) return 'male'
+          if (nameLower.includes('fem') || nameLower.includes(' f.') || nameLower.includes(' f ')) return 'female'
+          return null
+        }
+
         const activeNotEnrolled = list
           .filter((t) => {
             if (t.status !== 'active' || enrolledIds.has(t.id)) return false
             if (t.visibility === 'invite_only' && !invitedIds.has(t.id)) return false
-            // Filter by gender: hide male-only tournaments from female players and vice versa
-            if (t.gender && playerGender) {
-              if (t.gender === 'male' && playerGender !== 'male') return false
-              if (t.gender === 'female' && playerGender !== 'female') return false
+            // Filter by gender (explicit field or inferred from name)
+            const tournamentGender = inferTournamentGender(t)
+            if (tournamentGender && tournamentGender !== 'all' && tournamentGender !== 'mixed') {
+              if (playerGender) {
+                if (tournamentGender === 'male' && playerGender !== 'male') return false
+                if (tournamentGender === 'female' && playerGender !== 'female') return false
+              }
             }
             return true
           })
@@ -5254,17 +5336,26 @@ function CompeteScreen({
             .eq('tournament_id', tournament.id)
 
           if (categories && categories.length > 0) {
-            const hasCompatibleCategory = categories.some(cat => {
-              const hasLevelRange = cat.min_level != null || cat.max_level != null
+            const catsWithLevel = categories.filter(cat => cat.min_level != null || cat.max_level != null)
+            let hasCompatibleCategory: boolean
 
-              if (hasLevelRange) {
-                if (cat.min_level != null && (player?.level ?? 0) < cat.min_level) return false
-                if (cat.max_level != null && (player?.level ?? 0) > cat.max_level) return false
-                return true
+            if (catsWithLevel.length > 0) {
+              if (player?.level != null) {
+                const pLevel = Number(player.level)
+                hasCompatibleCategory = catsWithLevel.some(cat => {
+                  const minLvl = cat.min_level != null ? Number(cat.min_level) : null
+                  const maxLvl = cat.max_level != null ? Number(cat.max_level) : null
+                  if (minLvl != null && pLevel < minLvl) return false
+                  if (maxLvl != null && pLevel > maxLvl) return false
+                  return true
+                })
+              } else {
+                hasCompatibleCategory = false
               }
+            } else {
+              hasCompatibleCategory = true
+            }
 
-              return true
-            })
             if (hasCompatibleCategory) {
               const totalMax = categories.reduce((sum, c) => c.max_teams ? sum + c.max_teams : sum, 0)
               let isFull = false
@@ -5295,7 +5386,7 @@ function CompeteScreen({
     })()
 
     return () => { active = false }
-  }, [activeTab, favoriteClubId, d?.upcomingTournaments, player?.level])
+  }, [activeTab, favoriteClubId, clubIds, d?.upcomingTournaments, player?.level, player?.gender, player?.player_category])
 
   // Buscar ligas quando abre o tab Ligas (via Edge Function - bypass RLS)
   useEffect(() => {
@@ -5788,7 +5879,7 @@ function CompeteScreen({
                   </div>
                 )}
                 <div>
-                  <p className="text-xs text-gray-500">Clube</p>
+                  <p className="text-xs text-gray-500">{td.club_name!.includes(' · ') ? 'Clubes' : 'Clube'}</p>
                   <p className="text-sm font-semibold text-gray-900">{td.club_name}</p>
                 </div>
               </div>
@@ -6011,6 +6102,8 @@ function CompeteScreen({
                                   categoryId={cat.category_id}
                                   authUserId={userId}
                                   playerAccountId={playerAccountId}
+                                  tournamentName={td.name}
+                                  onOpenChallengeChat={onOpenCommunityGroupChat}
                                 />
                               )}
                               {hasGroupsOrMatches && catDetail ? (
@@ -7416,7 +7509,7 @@ function FindGameScreen({
   }, [groupId])
 
   // Add player modal
-  const [addPlayerModal, setAddPlayerModal] = useState<{ gameId: string } | null>(null)
+  const [addPlayerModal, setAddPlayerModal] = useState<{ gameId: string; position?: number } | null>(null)
   const [playerSearchQuery, setPlayerSearchQuery] = useState('')
   const [playerSearchResults, setPlayerSearchResults] = useState<{ id: string; name: string; avatar_url: string | null; level: number | null; player_category: string | null; phone_number: string | null }[]>([])
   const [searchingPlayers, setSearchingPlayers] = useState(false)
@@ -7702,6 +7795,7 @@ function FindGameScreen({
     const result = await addPlayerToOpenGame({
       gameId: addPlayerModal.gameId,
       playerAccountId,
+      position: addPlayerModal.position,
     })
     setAddingPlayer(false)
     if (result.success) {
@@ -7840,7 +7934,7 @@ function FindGameScreen({
                         }`}
                         onClick={() => {
                           if (isInGame) {
-                            setAddPlayerModal({ gameId: game.id })
+                            setAddPlayerModal({ gameId: game.id, position })
                             setPlayerSearchQuery('')
                             setPlayerSearchResults([])
                           } else {
@@ -7911,7 +8005,7 @@ function FindGameScreen({
                         }`}
                         onClick={() => {
                           if (isInGame) {
-                            setAddPlayerModal({ gameId: game.id })
+                            setAddPlayerModal({ gameId: game.id, position })
                             setPlayerSearchQuery('')
                             setPlayerSearchResults([])
                           } else {
@@ -9507,7 +9601,14 @@ function FindGameScreen({
           <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md shadow-2xl overflow-hidden animate-fade-in max-h-[85vh] flex flex-col">
             {/* Header */}
             <div className="p-4 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
-              <h3 className="font-bold text-lg text-gray-900">Adicionar jogador</h3>
+              <h3 className="font-bold text-lg text-gray-900">
+                {t.games.addPlayer ?? 'Adicionar jogador'}
+                {addPlayerModal.position != null && (
+                  <span className="ml-2 text-sm font-normal text-indigo-600">
+                    ({addPlayerModal.position <= 2 ? t.games.team1 ?? 'Equipa 1' : t.games.team2 ?? 'Equipa 2'})
+                  </span>
+                )}
+              </h3>
               <button
                 onClick={() => { setAddPlayerModal(null); setPlayerSearchQuery(''); setPlayerSearchResults([]) }}
                 className="p-1 hover:bg-gray-100 rounded-full"

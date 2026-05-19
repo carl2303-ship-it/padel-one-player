@@ -373,6 +373,7 @@ export async function fetchTournamentFullDetail(tournamentId: string, playerAcco
   if (!t) return null
 
   // 2) Clube(s) — torneio escada pode ter vários em club_ids
+  console.log('[fetchTournamentFullDetail] RAW club fields:', { club_id: t.club_id, club_ids: t.club_ids, type_club_ids: typeof t.club_ids, isArray: Array.isArray(t.club_ids) })
   let club_name: string | null = null
   let club_logo: string | null = null
   const venueIds = parseClubIds(t.club_ids, t.club_id)

@@ -37,6 +37,7 @@ export interface GroupInvite {
   status: string
   created_at: string
   group_name?: string
+  group_description?: string | null
   group_image_url?: string | null
   inviter_name?: string
 }
@@ -83,6 +84,25 @@ export async function createGroup(params: {
   }
 
   return { success: true, groupId: group.id }
+}
+
+/** Adiciona vários membros ao grupo (auth). Falhas individuais ignoradas. */
+export async function addMembersToCommunityGroup(
+  groupId: string,
+  memberUserIds: string[]
+): Promise<void> {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return
+  const unique = [...new Set(memberUserIds.filter((id) => id && id !== user.id))]
+  if (unique.length === 0) return
+  const rows = unique.map((user_id) => ({ group_id: groupId, user_id, role: 'member' as const }))
+  const { error } = await supabase.from('community_group_members').insert(rows)
+  if (error) {
+    for (const user_id of unique) {
+      const { error: oneErr } = await supabase.from('community_group_members').insert({ group_id: groupId, user_id, role: 'member' })
+      if (oneErr) await inviteToGroup(groupId, user_id)
+    }
+  }
 }
 
 export async function updateGroup(params: {
@@ -324,7 +344,7 @@ export async function getMyGroupInvites(userId: string): Promise<GroupInvite[]> 
   const inviterIds = [...new Set(invites.map(i => i.invited_by))]
 
   const [{ data: groups }, { data: inviters }] = await Promise.all([
-    supabase.from('community_groups').select('id, name, image_url').in('id', groupIds),
+    supabase.from('community_groups').select('id, name, description, image_url').in('id', groupIds),
     supabase.from('player_accounts').select('user_id, name').in('user_id', inviterIds),
   ])
 
@@ -336,6 +356,7 @@ export async function getMyGroupInvites(userId: string): Promise<GroupInvite[]> 
     return {
       ...inv,
       group_name: g?.name || 'Grupo',
+      group_description: g?.description || null,
       group_image_url: g?.image_url || null,
       inviter_name: inviterMap.get(inv.invited_by) || 'Jogador',
     }
