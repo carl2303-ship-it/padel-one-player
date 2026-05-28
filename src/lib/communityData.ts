@@ -476,12 +476,11 @@ export async function getFeedMatches(userId: string): Promise<FeedMatchItem[]> {
       }
     }
 
-    // 5B) Matches por individual player IDs
-    const indivBatches = chunk(playerIds, 15) // 15 players × 4 fields = 60 conditions per batch
+    // 5B) Matches por individual player IDs (usar .in.() para URLs curtos)
+    const indivBatches = chunk(playerIds, 50)
     for (const batch of indivBatches) {
-      const cond = batch
-        .map(id => `player1_individual_id.eq.${id},player2_individual_id.eq.${id},player3_individual_id.eq.${id},player4_individual_id.eq.${id}`)
-        .join(',')
+      const ids = batch.join(',')
+      const cond = `player1_individual_id.in.(${ids}),player2_individual_id.in.(${ids}),player3_individual_id.in.(${ids}),player4_individual_id.in.(${ids})`
       const { data } = await supabase
         .from('matches')
         .select(matchSelect)
@@ -960,9 +959,10 @@ export async function getPlayerProfile(targetUserId: string, myUserId: string): 
     const teamMatchConditions = teamIds.length > 0
       ? `team1_id.in.(${teamIds.join(',')}),team2_id.in.(${teamIds.join(',')})`
       : ''
-    const individualMatchConditions = playerIds
-      .map((id) => `player1_individual_id.eq.${id},player2_individual_id.eq.${id},player3_individual_id.eq.${id},player4_individual_id.eq.${id}`)
-      .join(',')
+    const pids = playerIds.join(',')
+    const individualMatchConditions = playerIds.length > 0
+      ? `player1_individual_id.in.(${pids}),player2_individual_id.in.(${pids}),player3_individual_id.in.(${pids}),player4_individual_id.in.(${pids})`
+      : ''
     const allConditions = [teamMatchConditions, individualMatchConditions].filter(c => c.length > 0).join(',')
 
     if (allConditions) {

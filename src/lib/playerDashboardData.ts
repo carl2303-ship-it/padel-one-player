@@ -1359,12 +1359,8 @@ export async function fetchTournamentStandingsAndMatches(
       teamIds.forEach((id) => entityIds.add(id))
       const teamMatchCond =
         teamIds.length > 0 ? `team1_id.in.(${teamIds.join(',')}),team2_id.in.(${teamIds.join(',')})` : ''
-      const indCond = playerIds
-        .map(
-          (id) =>
-            `player1_individual_id.eq.${id},player2_individual_id.eq.${id},player3_individual_id.eq.${id},player4_individual_id.eq.${id}`
-        )
-        .join(',')
+      const pidsJoined = playerIds.join(',')
+      const indCond = `player1_individual_id.in.(${pidsJoined}),player2_individual_id.in.(${pidsJoined}),player3_individual_id.in.(${pidsJoined}),player4_individual_id.in.(${pidsJoined})`
       const allCond = [teamMatchCond, indCond].filter((c) => c.length > 0).join(',')
       if (allCond) {
         const { data: playerMatches } = await supabase
