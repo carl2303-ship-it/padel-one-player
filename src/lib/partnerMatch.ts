@@ -14,6 +14,7 @@ export type PartnerInvite = {
   requester_player_account_id: string;
   requester_name?: string;
   requester_avatar_url?: string | null;
+  requester_user_id?: string | null;
   tournament_name?: string;
   category_name?: string;
 };
@@ -90,6 +91,22 @@ export async function declinePartnerInvite(inviteId: string): Promise<void> {
   await callFn("decline-partner-invite", { inviteId });
 }
 
+export async function cancelPartnerRequest(requestId: string): Promise<void> {
+  const { error: reqErr } = await supabase
+    .from("partner_match_requests")
+    .update({ status: "cancelled", updated_at: new Date().toISOString() })
+    .eq("id", requestId)
+    .eq("status", "open");
+
+  if (reqErr) throw new Error(reqErr.message);
+
+  await supabase
+    .from("partner_match_invites")
+    .update({ status: "cancelled", updated_at: new Date().toISOString() })
+    .eq("request_id", requestId)
+    .eq("status", "pending");
+}
+
 export async function fetchPendingPartnerInvites(playerAccountId: string): Promise<PartnerInvite[]> {
   const { data: sessionData } = await supabase.auth.getSession();
   const userId = sessionData.session?.user?.id;
@@ -115,7 +132,7 @@ export async function fetchPendingPartnerInvites(playerAccountId: string): Promi
       expires_at,
       requester_player_account_id,
       invitee_player_account_id,
-      requester:player_accounts!partner_match_invites_requester_player_account_id_fkey(name, avatar_url),
+      requester:player_accounts!partner_match_invites_requester_player_account_id_fkey(name, avatar_url, user_id),
       tournament:tournaments(name),
       category:tournament_categories(name, accepted_levels, min_level, max_level)
     `)
@@ -191,6 +208,7 @@ export async function fetchPendingPartnerInvites(playerAccountId: string): Promi
     requester_player_account_id: row.requester_player_account_id,
     requester_name: row.requester?.name,
     requester_avatar_url: row.requester?.avatar_url || null,
+    requester_user_id: row.requester?.user_id || null,
     tournament_name: row.tournament?.name,
     category_name: row.category?.name,
   }));

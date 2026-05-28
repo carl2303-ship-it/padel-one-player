@@ -5,6 +5,8 @@
 import { supabase } from './supabase'
 import { notifyOpenGamePlayers, notifyGameCreator, sendPushToPlayer } from './pushNotifications'
 import { getTranslations } from './translations'
+import { calculateNewRatings, calculateReliability, calculateProtectedReliability } from './ratingEngine'
+import { logLevelChange } from './levelHistory'
 
 const DEFAULT_TZ = 'Europe/Lisbon'
 
@@ -366,6 +368,28 @@ export async function fetchOpenGamesForLevel(playerLevel: number, playerUserId: 
 }
 
 // ============================
+// Get member discounts for the current player across all clubs
+// ============================
+
+export async function getPlayerMemberDiscounts(): Promise<Map<string, number>> {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return new Map()
+
+  const { data: subs } = await supabase
+    .from('member_subscriptions')
+    .select('club_owner_id, plan:membership_plans(court_discount_percent)')
+    .eq('user_id', user.id)
+    .eq('status', 'active')
+
+  const discountMap = new Map<string, number>()
+  for (const sub of subs || []) {
+    const discount = (sub.plan as any)?.court_discount_percent || 0
+    if (discount > 0) discountMap.set(sub.club_owner_id, discount)
+  }
+  return discountMap
+}
+
+// ============================
 // Fetch clubs with availability for "Crie um Jogo"
 // ============================
 
@@ -381,6 +405,9 @@ export async function fetchClubsWithAvailability(): Promise<ClubWithAvailability
     console.error('[OpenGames] Error fetching clubs:', clubsError)
     return []
   }
+
+  // Fetch member discounts for the current player
+  const memberDiscounts = await getPlayerMemberDiscounts()
 
   const result: ClubWithAvailability[] = []
   
@@ -571,9 +598,12 @@ export async function fetchClubsWithAvailability(): Promise<ClubWithAvailability
             const total90 = explicit90 != null ? explicit90 : hourlyRate * 1.5
             const total120 = explicit120 != null ? explicit120 : hourlyRate * 2
 
-            const price60 = Math.round((total60 / 4) * 100) / 100
-            const price90 = Math.round((total90 / 4) * 100) / 100
-            const price120 = Math.round((total120 / 4) * 100) / 100
+            const memberDiscount = memberDiscounts.get(club.owner_id) || 0
+            const factor = 1 - (memberDiscount / 100)
+
+            const price60 = Math.round((total60 / 4) * factor * 100) / 100
+            const price90 = Math.round((total90 / 4) * factor * 100) / 100
+            const price120 = Math.round((total120 / 4) * factor * 100) / 100
 
             courtSlots.push({
               court_id: court.id,
@@ -799,17 +829,31 @@ export async function createOpenGame(params: {
   if (params.players && params.players.length > 0) {
     const otherPlayers = params.players.filter(p => p.player_account_id !== resolvedAccountId)
     if (otherPlayers.length > 0) {
-      const playerInserts = otherPlayers.map(p => ({
-        game_id: game.id,
-        user_id: null, // User ID will be set if they log in later
-        player_account_id: p.player_account_id,
-        status: 'confirmed' as const,
-        position: p.position,
-      }))
-      const { error: otherPlayersError } = await supabase.from('open_game_players').insert(playerInserts)
-      if (otherPlayersError) {
-        console.error('[OpenGames] Error adding other players to game:', otherPlayersError)
-        // Don't fail the whole operation, but log it
+      const accountIds = otherPlayers.map(p => p.player_account_id)
+      const { data: accounts } = await supabase
+        .from('player_accounts')
+        .select('id, user_id')
+        .in('id', accountIds)
+
+      const userIdMap = new Map(
+        (accounts || []).map((a: any) => [a.id, a.user_id])
+      )
+
+      const playerInserts = otherPlayers
+        .filter(p => userIdMap.get(p.player_account_id))
+        .map(p => ({
+          game_id: game.id,
+          user_id: userIdMap.get(p.player_account_id),
+          player_account_id: p.player_account_id,
+          status: 'confirmed' as const,
+          position: p.position,
+        }))
+
+      if (playerInserts.length > 0) {
+        const { error: otherPlayersError } = await supabase.from('open_game_players').insert(playerInserts)
+        if (otherPlayersError) {
+          console.error('[OpenGames] Error adding other players to game:', otherPlayersError)
+        }
       }
     }
   }
@@ -2106,7 +2150,6 @@ async function processOpenGameRating(gameId: string): Promise<void> {
   const accountMap = new Map(accounts.map(a => [a.id, a]))
 
   // 4. Build ratings (positions 1,2 = team 1; positions 3,4 = team 2)
-  const { calculateNewRatings, calculateReliability, calculateProtectedReliability } = await import('./ratingEngine')
 
   const buildPlayerRating = (paId: string) => {
     const acct = accountMap.get(paId)
@@ -2206,7 +2249,6 @@ async function processOpenGameRating(gameId: string): Promise<void> {
       console.error('[OpenGames] processOpenGameRating: Error updating rating for', rp.id, rp.name, ':', rpcError)
     } else {
       console.log('[OpenGames] processOpenGameRating: ✅ Successfully updated', rp.name)
-      const { logLevelChange } = await import('./levelHistory')
       logLevelChange(rp.id, levelBefore, rp.rating, rp.delta, 'open_game', rp.won)
     }
   }
@@ -2264,7 +2306,7 @@ export async function awardGameRewardPoints(gameId: string, actionType: string, 
     playerAccountId = pa.id
   }
 
-  // First, ensure the club has reward rules (auto-create if missing)
+  // Check if the club has reward rules configured
   const { data: existingRules } = await supabase
     .from('reward_rules')
     .select('id')
@@ -2272,24 +2314,7 @@ export async function awardGameRewardPoints(gameId: string, actionType: string, 
     .limit(1)
 
   if (!existingRules || existingRules.length === 0) {
-    console.log('[Rewards] No reward rules found for club:', game.club_id, '- creating defaults...')
-    const defaultRules = [
-      { club_id: game.club_id, action_type: 'create_game', points: 15, description: 'Criou um jogo aberto', is_active: true },
-      { club_id: game.club_id, action_type: 'join_game', points: 10, description: 'Entrou num jogo aberto', is_active: true },
-      { club_id: game.club_id, action_type: 'submit_result', points: 5, description: 'Submeteu resultado', is_active: true },
-      { club_id: game.club_id, action_type: 'confirm_result', points: 5, description: 'Confirmou resultado', is_active: true },
-      { club_id: game.club_id, action_type: 'tournament_played', points: 20, description: 'Participou num torneio', is_active: true },
-      { club_id: game.club_id, action_type: 'bar_spend', points: 5, description: 'Consumo no bar (por cada 10€)', is_active: true },
-      { club_id: game.club_id, action_type: 'first_game', points: 25, description: 'Primeiro jogo na plataforma', is_active: true },
-      { club_id: game.club_id, action_type: 'streak_3', points: 15, description: '3 jogos seguidos', is_active: true },
-      { club_id: game.club_id, action_type: 'streak_7', points: 30, description: '7 jogos seguidos', is_active: true },
-    ]
-    const { error: insertError } = await supabase.from('reward_rules').insert(defaultRules)
-    if (insertError) {
-      console.error('[Rewards] Error creating default rules:', insertError)
-    } else {
-      console.log('[Rewards] Default reward rules created for club:', game.club_id)
-    }
+    return
   }
 
   // Award the reward points
@@ -2383,6 +2408,14 @@ export async function retroactivelyAwardMissingRewards(playerAccountId: string):
   try {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
+
+    // Quick check: does the player belong to any club with reward rules?
+    const { data: playerRewardClubs } = await supabase
+      .from('reward_rules')
+      .select('club_id')
+      .limit(1)
+
+    if (!playerRewardClubs || playerRewardClubs.length === 0) return
 
     // Find games where the player participated but has no reward transactions
     const { data: myGames } = await supabase
@@ -3115,7 +3148,7 @@ export async function fetchGamesAwaitingResult(userId: string, playerAccountId?:
     if (courts) courts.forEach((c: any) => { courtsMap[c.id] = { name: c.name, type: c.type || null } })
   }
 
-  return pastGames.map((g: any) => {
+  const allResults = pastGames.map((g: any) => {
     const gamePlayers = (playersData || [])
       .filter((p: any) => p.game_id === g.id)
       .map((p: any) => {
@@ -3149,6 +3182,16 @@ export async function fetchGamesAwaitingResult(userId: string, playerAccountId?:
     
     console.log('[OpenGames] Returning game:', game.id, 'resultStatus:', resultStatus, 'players:', gamePlayers.length)
     return game
+  })
+
+  // Exclude incomplete games (< 4 confirmed players) that have no result submitted
+  return allResults.filter(g => {
+    const confirmedCount = (g.players || []).length
+    if (confirmedCount < 4 && !(g as any)._resultStatus) {
+      console.log('[OpenGames] Excluding incomplete game', g.id, ':', confirmedCount, '/4 players, no result')
+      return false
+    }
+    return true
   })
 }
 
@@ -3209,7 +3252,7 @@ export async function fetchConfirmedOpenGameResults(userId: string, playerAccoun
       .from('open_game_results')
       .select('game_id')
       .eq('status', 'confirmed')
-      .eq('rating_processed', false)
+      .or('rating_processed.eq.false,rating_processed.is.null')
       .limit(5)
 
     if (unprocessedResults && unprocessedResults.length > 0) {
@@ -3478,12 +3521,19 @@ export async function fetchPendingResultGames(userId: string, playerAccountId?: 
   const allGames = await fetchGamesAwaitingResult(userId, playerAccountId)
   console.log('[OpenGames] fetchPendingResultGames: received', allGames.length, 'games from fetchGamesAwaitingResult')
   
-  // Return only games without confirmed results (pending or no result)
+  // Return only games without confirmed results AND with 4 confirmed players
   const filtered = allGames.filter(g => {
     const status = (g as any)._resultStatus
-    const shouldInclude = status !== 'confirmed'
-    console.log('[OpenGames] Game', g.id, 'resultStatus:', status, 'shouldInclude:', shouldInclude)
-    return shouldInclude
+    if (status === 'confirmed') return false
+
+    // Exclude incomplete games (< 4 confirmed players)
+    const confirmedCount = (g.players || []).filter((p: any) => p.status === 'confirmed').length
+    if (confirmedCount < 4) {
+      console.log('[OpenGames] Game', g.id, 'excluded: only', confirmedCount, '/4 confirmed players')
+      return false
+    }
+
+    return true
   })
   
   console.log('[OpenGames] fetchPendingResultGames: returning', filtered.length, 'games after filtering')
@@ -3590,6 +3640,8 @@ export async function createQuickResultGame(params: {
   const { error: playersError } = await supabase.from('open_game_players').insert(playerInserts)
   if (playersError) {
     console.error('[QuickResult] Error adding players:', playersError)
+    await supabase.from('open_games').delete().eq('id', game.id)
+    return { success: false, error: 'Erro ao adicionar jogadores: ' + playersError.message }
   }
 
   // Insert result directly into open_game_results (auto-confirmed since creator is entering it)
@@ -3609,6 +3661,7 @@ export async function createQuickResultGame(params: {
       status: 'confirmed',
       confirmed_by_user_id: realUserId,
       confirmed_at: new Date().toISOString(),
+      rating_processed: false,
     })
 
   if (resultError) {

@@ -42,6 +42,10 @@ export interface PlayerMatch {
 export interface LeagueStanding {
   league_id: string
   league_name: string
+  league_status?: string
+  league_end_date?: string | null
+  league_categories?: string[]
+  player_category?: string | null
   position: number
   total_participants: number
   points: number
@@ -817,8 +821,8 @@ async function fetchLeagueStandingsOnly(
     .from('league_standings')
     .select(
       `
-      id, league_id, total_points, tournaments_played, entity_name, player_account_id,
-      leagues!inner(id, name)
+      id, league_id, total_points, tournaments_played, entity_name, player_account_id, category,
+      leagues!inner(id, name, status, end_date, categories)
     `
     )
     .or(conditions.join(','))
@@ -851,6 +855,10 @@ async function fetchLeagueStandingsOnly(
     return {
       league_id: leagueId,
       league_name: s.leagues?.name || '',
+      league_status: s.leagues?.status || 'active',
+      league_end_date: s.leagues?.end_date || null,
+      league_categories: s.leagues?.categories || [],
+      player_category: s.category || null,
       position,
       total_participants: leagueStandings.length,
       points: s.total_points,
@@ -1060,7 +1068,7 @@ export async function fetchTournamentStandingsAndMatches(
   if (tournament) tournamentName = tournament.name || ''
 
   const isIndividual = (players?.length || 0) > 0 && (teams?.length || 0) === 0
-  const isMixedAmerican = tournament && ((tournament as any).format === 'mixed_american' || (tournament as any).format === 'mixed_gender')
+  const isMixedAmerican = tournament && (tournament as any).format === 'mixed_american'
   const standingsMap = new Map<string, any>()
 
   if (isIndividual && players) {

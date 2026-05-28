@@ -1060,6 +1060,107 @@ export async function getPlayerProfile(targetUserId: string, myUserId: string): 
     }
   }
 
+  // 7) Fetch open game results (quick results + normal confirmed results)
+  const { data: ogPlayers } = await supabase
+    .from('open_game_players')
+    .select('game_id')
+    .eq('player_account_id', pa.id)
+    .eq('status', 'confirmed')
+
+  if (ogPlayers && ogPlayers.length > 0) {
+    const ogGameIds = ogPlayers.map((p: any) => p.game_id)
+    const { data: ogResults } = await supabase
+      .from('open_game_results')
+      .select('game_id, team1_score_set1, team2_score_set1, team1_score_set2, team2_score_set2, team1_score_set3, team2_score_set3, status')
+      .in('game_id', ogGameIds)
+      .eq('status', 'confirmed')
+
+    if (ogResults && ogResults.length > 0) {
+      const ogResultGameIds = ogResults.map((r: any) => r.game_id)
+      const { data: ogGames } = await supabase
+        .from('open_games')
+        .select('id, scheduled_at, club_id')
+        .in('id', ogResultGameIds)
+
+      const { data: ogAllPlayers } = await supabase
+        .from('open_game_players')
+        .select('game_id, player_account_id, position, status')
+        .in('game_id', ogResultGameIds)
+        .eq('status', 'confirmed')
+
+      const ogPaIds = [...new Set((ogAllPlayers || []).map((p: any) => p.player_account_id).filter(Boolean))]
+      const { data: ogAccounts } = ogPaIds.length > 0
+        ? await supabase.from('player_accounts').select('id, name').in('id', ogPaIds)
+        : { data: [] }
+      const ogAccountMap = new Map((ogAccounts || []).map((a: any) => [a.id, a.name]))
+
+      const ogClubIds = [...new Set((ogGames || []).map((g: any) => g.club_id).filter(Boolean))]
+      const { data: ogClubs } = ogClubIds.length > 0
+        ? await supabase.from('clubs').select('id, name').in('id', ogClubIds)
+        : { data: [] }
+      const ogClubMap = new Map((ogClubs || []).map((c: any) => [c.id, c.name]))
+
+      for (const result of ogResults) {
+        const game = (ogGames || []).find((g: any) => g.id === result.game_id)
+        if (!game) continue
+
+        const gamePlayers = (ogAllPlayers || [])
+          .filter((p: any) => p.game_id === result.game_id)
+          .sort((a: any, b: any) => a.position - b.position)
+        if (gamePlayers.length < 4) continue
+
+        const getName = (paId: string) => ogAccountMap.get(paId) || '?'
+        const p1Name = getName(gamePlayers[0].player_account_id)
+        const p2Name = getName(gamePlayers[1].player_account_id)
+        const p3Name = getName(gamePlayers[2].player_account_id)
+        const p4Name = getName(gamePlayers[3].player_account_id)
+
+        const isInTeam1 = gamePlayers[0].player_account_id === pa.id || gamePlayers[1].player_account_id === pa.id
+
+        const s1 = `${result.team1_score_set1 ?? 0}-${result.team2_score_set1 ?? 0}`
+        const s2 = (result.team1_score_set2 > 0 || result.team2_score_set2 > 0)
+          ? `${result.team1_score_set2}-${result.team2_score_set2}` : undefined
+        const s3 = (result.team1_score_set3 > 0 || result.team2_score_set3 > 0)
+          ? `${result.team1_score_set3}-${result.team2_score_set3}` : undefined
+
+        const t1Sets = [(result.team1_score_set1 ?? 0) > (result.team2_score_set1 ?? 0) ? 1 : 0,
+          (result.team1_score_set2 ?? 0) > (result.team2_score_set2 ?? 0) ? 1 : 0,
+          (result.team1_score_set3 ?? 0) > (result.team2_score_set3 ?? 0) ? 1 : 0].reduce((a, b) => a + b, 0)
+        const t2Sets = [(result.team2_score_set1 ?? 0) > (result.team1_score_set1 ?? 0) ? 1 : 0,
+          (result.team2_score_set2 ?? 0) > (result.team1_score_set2 ?? 0) ? 1 : 0,
+          (result.team2_score_set3 ?? 0) > (result.team1_score_set3 ?? 0) ? 1 : 0].reduce((a, b) => a + b, 0)
+
+        const isWinner = isInTeam1 ? t1Sets > t2Sets : t2Sets > t1Sets
+        const clubName = ogClubMap.get(game.club_id) || ''
+
+        recentMatches.push({
+          id: result.game_id,
+          tournament_id: null as any,
+          tournament_name: clubName,
+          team1_name: isInTeam1 ? `${p1Name} / ${p2Name}` : `${p3Name} / ${p4Name}`,
+          team2_name: isInTeam1 ? `${p3Name} / ${p4Name}` : `${p1Name} / ${p2Name}`,
+          player1_name: isInTeam1 ? p1Name : p3Name,
+          player2_name: isInTeam1 ? p2Name : p4Name,
+          player3_name: isInTeam1 ? p3Name : p1Name,
+          player4_name: isInTeam1 ? p4Name : p2Name,
+          score1: isInTeam1 ? t1Sets : t2Sets,
+          score2: isInTeam1 ? t2Sets : t1Sets,
+          set1: isInTeam1 ? s1 : s1.split('-').reverse().join('-'),
+          set2: isInTeam1 && s2 ? s2 : (s2 ? s2.split('-').reverse().join('-') : undefined),
+          set3: isInTeam1 && s3 ? s3 : (s3 ? s3.split('-').reverse().join('-') : undefined),
+          is_winner: isWinner,
+          played_at: game.scheduled_at,
+          is_open_game: true,
+        } as any)
+
+        const allNames = [p1Name, p2Name, p3Name, p4Name].filter(n => n && n !== playerName)
+        allNames.forEach(n => topPlayersMap.set(n, (topPlayersMap.get(n) || 0) + 1))
+      }
+
+      recentMatches.sort((a, b) => new Date(b.played_at || 0).getTime() - new Date(a.played_at || 0).getTime())
+    }
+  }
+
   // Build topPlayers
   const topPlayers: TopPlayer[] = Array.from(topPlayersMap.entries())
     .sort((a, b) => b[1] - a[1])

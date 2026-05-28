@@ -125,6 +125,7 @@ import {
   fetchPartnerMatchRequesterSummary,
   acceptPartnerInvite,
   declinePartnerInvite,
+  cancelPartnerRequest,
   type PartnerInvite,
   type PartnerMatchRequesterSummary,
 } from './lib/partnerMatch'
@@ -573,7 +574,12 @@ function App() {
     }
 
     if (publicPage === 'register' || showRegister) {
-      return <RegisterScreen onBack={() => navigateTo('landing', '/')} onSuccess={async (pa) => {
+      const returnTo = new URLSearchParams(window.location.search).get('returnTo')
+      return <RegisterScreen onBack={() => navigateTo('landing', '/')} returnTo={returnTo} onSuccess={async (pa) => {
+        if (returnTo) {
+          window.location.href = returnTo
+          return
+        }
         setPlayer(pa as any)
         setAuthUserId(pa.user_id || null)
         setIsAuthenticated(true)
@@ -1333,6 +1339,9 @@ function GameCardPlaytomic({
   const team2Scores = parsedSets.map((p) => (p ? p[1] : '-'))
   const team1Won = match.status === 'completed' && match.score1 != null && match.score2 != null && match.score1 > match.score2
   const team2Won = match.status === 'completed' && match.score1 != null && match.score2 != null && match.score2 > match.score1
+  const numSets = setStrings.length
+  const scoreContainerW = numSets >= 3 ? 'min-w-[100px]' : 'w-[80px]'
+  const scoreFontSize = numSets >= 3 ? 'text-base' : 'text-2xl'
   
   // Função para renderizar jogador com nível (dados do cache global — sem queries)
   const renderPlayer = (name: string, bgClass: string, textClass: string) => {
@@ -1396,11 +1405,11 @@ function GameCardPlaytomic({
               {renderPlayer(p2, 'bg-orange-400', 'text-2xl font-bold text-white')}
             </div>
             {match.status === 'completed' && (hasSets || match.score1 != null) && (
-              <div className="flex items-center gap-1.5 flex-shrink-0 w-[80px] justify-end">
-                <span className="w-7 h-7 flex-shrink-0 flex items-center justify-center">
-                  {team1Won && <span className="w-7 h-7 rounded-full bg-sky-100 flex items-center justify-center text-sm" title={t.games.winnerTeam}>🏆</span>}
+              <div className={`flex items-center gap-1 flex-shrink-0 ${scoreContainerW} justify-end whitespace-nowrap`}>
+                <span className="w-6 h-6 flex-shrink-0 flex items-center justify-center">
+                  {team1Won && <span className="w-6 h-6 rounded-full bg-sky-100 flex items-center justify-center text-xs" title={t.games.winnerTeam}>🏆</span>}
                 </span>
-                <span className={team1Won ? 'text-2xl font-bold text-gray-900' : 'text-2xl font-medium text-gray-400'}>
+                <span className={team1Won ? `${scoreFontSize} font-bold text-gray-900` : `${scoreFontSize} font-medium text-gray-400`}>
                   {hasSets ? team1Scores.join(' ') : match.score1}
                 </span>
               </div>
@@ -1417,11 +1426,11 @@ function GameCardPlaytomic({
               {renderPlayer(p4, 'bg-sky-200', 'text-2xl font-bold text-sky-800')}
             </div>
             {match.status === 'completed' && (hasSets || match.score1 != null) && (
-              <div className="flex items-center gap-1.5 flex-shrink-0 w-[80px] justify-end">
-                <span className="w-7 h-7 flex-shrink-0 flex items-center justify-center">
-                  {team2Won && <span className="w-7 h-7 rounded-full bg-sky-100 flex items-center justify-center text-sm" title={t.games.winnerTeam}>🏆</span>}
+              <div className={`flex items-center gap-1 flex-shrink-0 ${scoreContainerW} justify-end whitespace-nowrap`}>
+                <span className="w-6 h-6 flex-shrink-0 flex items-center justify-center">
+                  {team2Won && <span className="w-6 h-6 rounded-full bg-sky-100 flex items-center justify-center text-xs" title={t.games.winnerTeam}>🏆</span>}
                 </span>
-                <span className={team2Won ? 'text-2xl font-bold text-gray-900' : 'text-2xl font-medium text-gray-400'}>
+                <span className={team2Won ? `${scoreFontSize} font-bold text-gray-900` : `${scoreFontSize} font-medium text-gray-400`}>
                   {hasSets ? team2Scores.join(' ') : match.score2}
                 </span>
               </div>
@@ -3393,16 +3402,24 @@ function HomeScreen({
             {homePartnerInvites.slice(0, 5).map((inv) => (
               <div key={inv.id} className="rounded-xl border border-blue-100 bg-white/80 p-3">
                 <div className="flex items-start gap-3">
-                  <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-lg flex-shrink-0 overflow-hidden">
+                  <button
+                    type="button"
+                    className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center text-lg flex-shrink-0 overflow-hidden cursor-pointer hover:ring-2 hover:ring-blue-400 transition-all"
+                    onClick={() => { if (inv.requester_user_id) onOpenPlayerProfile(inv.requester_user_id) }}
+                  >
                     {inv.requester_avatar_url ? (
                       <img src={inv.requester_avatar_url} className="w-full h-full object-cover" alt="" />
                     ) : (
                       <span className="text-blue-600 font-bold text-sm">{(inv.requester_name || 'J').charAt(0).toUpperCase()}</span>
                     )}
-                  </div>
+                  </button>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm text-gray-800">
-                      <span className="font-semibold">{inv.requester_name || 'Jogador'}</span>
+                      <button
+                        type="button"
+                        className="font-semibold text-blue-700 hover:underline cursor-pointer"
+                        onClick={() => { if (inv.requester_user_id) onOpenPlayerProfile(inv.requester_user_id) }}
+                      >{inv.requester_name || 'Jogador'}</button>
                       {' '}{(t as any).partner?.invitedYouTo || 'convidou-te para o torneio'}{' '}
                       <span className="font-semibold">{inv.tournament_name || 'Torneio'}</span>
                       {inv.category_name ? (
@@ -5206,8 +5223,8 @@ function CompeteScreen({
     return merged
   }, [pastTournamentDetails, d?.pastTournamentDetails])
 
-  // Use ligas do dashboardData se existirem, senão usa as buscadas diretamente
-  const leagueStandings = (d?.leagueStandings?.length ?? 0) > 0 ? d!.leagueStandings : leaguesDirect
+  // Preferir dados da edge function (leaguesDirect) pois incluem league_status e league_categories
+  const leagueStandings = leaguesDirect.length > 0 ? leaguesDirect : (d?.leagueStandings ?? [])
   
 
 
@@ -5336,31 +5353,28 @@ function CompeteScreen({
             .eq('tournament_id', tournament.id)
 
           if (categories && categories.length > 0) {
-            const catsWithLevel = categories.filter(cat => cat.min_level != null || cat.max_level != null)
             let hasCompatibleCategory: boolean
+            const pLevel = player?.level != null ? Number(player.level) : null
 
-            if (catsWithLevel.length > 0) {
-              if (player?.level != null) {
-                const pLevel = Number(player.level)
-                hasCompatibleCategory = catsWithLevel.some(cat => {
-                  const minLvl = cat.min_level != null ? Number(cat.min_level) : null
-                  const maxLvl = cat.max_level != null ? Number(cat.max_level) : null
-                  if (minLvl != null && pLevel < minLvl) return false
-                  if (maxLvl != null && pLevel > maxLvl) return false
-                  return true
-                })
-              } else {
-                hasCompatibleCategory = false
-              }
+            if (pLevel != null) {
+              hasCompatibleCategory = categories.some(cat => {
+                const minLvl = cat.min_level != null ? Number(cat.min_level) : null
+                const maxLvl = cat.max_level != null ? Number(cat.max_level) : null
+                if (minLvl == null && maxLvl == null) return true
+                if (minLvl != null && pLevel < minLvl) return false
+                if (maxLvl != null && pLevel > maxLvl) return false
+                return true
+              })
             } else {
-              hasCompatibleCategory = true
+              const allHaveLevel = categories.every(cat => cat.min_level != null || cat.max_level != null)
+              hasCompatibleCategory = !allHaveLevel
             }
 
             if (hasCompatibleCategory) {
               const totalMax = categories.reduce((sum, c) => c.max_teams ? sum + c.max_teams : sum, 0)
               let isFull = false
               if (totalMax > 0) {
-                const isIndiv = tournament.format === 'individual_groups_knockout' || tournament.format === 'mixed_american' || tournament.format === 'crossed_playoffs' || tournament.format === 'mixed_gender' || (tournament.format === 'round_robin' && tournament.round_robin_type === 'individual')
+                const isIndiv = tournament.format === 'individual_groups_knockout' || tournament.format === 'mixed_american' || (tournament.format === 'round_robin' && tournament.round_robin_type === 'individual')
                 const table = isIndiv ? 'players' : 'teams'
                 const { count } = await supabase
                   .from(table)
@@ -5391,7 +5405,7 @@ function CompeteScreen({
   // Buscar ligas quando abre o tab Ligas (via Edge Function - bypass RLS)
   useEffect(() => {
     if (activeTab !== 'leagues') return
-    if ((d?.leagueStandings?.length ?? 0) > 0 || leaguesFetched) return
+    if (leaguesFetched) return
     if (!playerAccountId) return
     let active = true
     setLeaguesLoading(true)
@@ -5430,7 +5444,12 @@ function CompeteScreen({
       if (active) { setLeaguesLoading(false); setLeaguesFetched(true) }
     })()
     return () => { active = false }
-  }, [activeTab, d?.leagueStandings?.length, leaguesFetched, playerAccountId])
+  }, [activeTab, leaguesFetched, playerAccountId])
+
+  // Reset open game history cache when dashboard data changes (e.g. after quick result)
+  useEffect(() => {
+    setOpenGameHistoryFetched(false)
+  }, [dashboardData])
 
   // Carregar resultados de jogos abertos quando abre o tab history
   useEffect(() => {
@@ -5562,7 +5581,7 @@ function CompeteScreen({
         if (pending) setPendingInviteForTournament(tournamentId)
       }
       if (detail) {
-        const isAmericano = ['mixed_american', 'crossed_playoffs', 'mixed_gender', 'individual_groups_knockout', 'round_robin', 'ladder'].includes(detail.format)
+        const isAmericano = ['mixed_american', 'individual_groups_knockout', 'round_robin', 'ladder'].includes(detail.format)
         if (!isAmericano) {
           setCategoryDetailsLoading(true)
           try {
@@ -5949,6 +5968,21 @@ function CompeteScreen({
                       ? 'Alguém aceitou o convite. Verifica a inscrição da dupla e o pagamento se o torneio for pago.'
                       : 'Ninguém aceitou ainda e não há convites em espera. Podes usar «Encontrar parceiro» de novo para convidar outros jogadores.'}
                 </p>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!confirm('Tens a certeza que queres cancelar este pedido de parceiro? Todos os convites pendentes serão cancelados.')) return
+                    try {
+                      await cancelPartnerRequest(partnerRequestSummary.requestId)
+                      setPartnerRequestSummary(null)
+                    } catch (err: any) {
+                      alert(err?.message || 'Erro ao cancelar o pedido.')
+                    }
+                  }}
+                  className="mt-3 w-full py-2 px-3 text-sm font-medium text-red-700 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition-colors"
+                >
+                  Cancelar pedido de parceiro
+                </button>
               </div>
             )}
 
@@ -6067,7 +6101,7 @@ function CompeteScreen({
                       if (r.includes('round_of_16')) return 'Oitavos-de-final'
                       return round
                     }
-                    const isAmericanoFormat = ['mixed_american', 'crossed_playoffs', 'mixed_gender', 'individual_groups_knockout', 'round_robin', 'ladder'].includes(td.format)
+                    const isAmericanoFormat = ['mixed_american', 'individual_groups_knockout', 'round_robin', 'ladder'].includes(td.format)
                     return td.enrolled.map((cat) => {
                       let catDetail = catDetailsMap.get(cat.category_id)
                       if (!catDetail && categoryDetails.length === 1) catDetail = categoryDetails[0]
@@ -6569,7 +6603,52 @@ function CompeteScreen({
         </div>
       )}
 
-      {activeTab === 'leagues' && (
+      {activeTab === 'leagues' && (() => {
+        const getPlayerLeagueCategory = (leagueCategories?: string[]): string | null => {
+          if (!leagueCategories || leagueCategories.length === 0) return null
+
+          // Check if categories are level ranges
+          const pLevel = player?.level != null ? Number(player.level) : null
+          let foundLevel = false
+          if (pLevel != null) {
+            for (const cat of leagueCategories) {
+              const c = cat.trim()
+              const plusMatch = c.match(/^[+>]\s*(\d+(?:\.\d+)?)$/)
+              if (plusMatch) {
+                foundLevel = true
+                if (pLevel >= parseFloat(plusMatch[1])) return c
+                continue
+              }
+              const rangeMatch = c.match(/^(\d+(?:\.\d+)?)\s*[-–]\s*(\d+(?:\.\d+)?)$/)
+              if (rangeMatch) {
+                foundLevel = true
+                const min = parseFloat(rangeMatch[1])
+                const max = parseFloat(rangeMatch[2])
+                if (pLevel >= min && pLevel <= max) return c
+                continue
+              }
+            }
+            if (foundLevel) return null
+          }
+
+          // Check if categories are gender-based
+          const genderLabels = ['masculino', 'feminino', 'male', 'female', 'masc', 'fem']
+          const isGender = leagueCategories.every(c => genderLabels.includes(c.trim().toLowerCase()))
+          if (isGender) {
+            const playerCat = player?.player_category as string | undefined
+            const playerGender = player?.gender as string | undefined
+            const isMale = (playerCat && playerCat.startsWith('M')) || playerGender === 'male'
+            const isFemale = (playerCat && playerCat.startsWith('F')) || playerGender === 'female'
+            for (const cat of leagueCategories) {
+              const lower = cat.trim().toLowerCase()
+              if (isMale && (lower === 'masculino' || lower === 'male' || lower === 'masc')) return cat
+              if (isFemale && (lower === 'feminino' || lower === 'female' || lower === 'fem')) return cat
+            }
+          }
+
+          return null
+        }
+        return (
         <div className="space-y-4">
           {leaguesLoading ? (
             <div className="flex justify-center py-12">
@@ -6578,20 +6657,34 @@ function CompeteScreen({
           ) : leagueStandings.length > 0 ? (
             <div className="space-y-4">
               <h2 className="text-lg font-bold text-gray-900">Ligas onde participas</h2>
-              {leagueStandings.map((s, idx) => (
-                <div key={idx} className="card p-6 flex flex-col items-center justify-center text-center">
-                  <h3 className="text-base font-bold text-gray-600">{s.league_name}</h3>
-                  <p className="text-2xl mt-3 flex items-center justify-center gap-2">
-                    <span className="text-3xl">🏆</span>
-                    <span className="font-bold text-red-600 text-3xl">{s.position}º</span>
-                    <span className="text-gray-600 text-xl"> de {s.total_participants} · </span>
-                    <span className="font-semibold text-gray-900 text-xl">{s.points} pts</span>
-                  </p>
-                  <button onClick={() => viewLeague(s.league_id, s.league_name)} className="mt-4 text-red-600 text-base font-semibold flex items-center gap-1">
-                    Ver classificação <ChevronRight className="w-4 h-4" />
-                  </button>
-                </div>
-              ))}
+              {[...leagueStandings].sort((a, b) => {
+                const aFinished = a.league_status === 'completed' ? 1 : 0
+                const bFinished = b.league_status === 'completed' ? 1 : 0
+                return aFinished - bFinished
+              }).map((s, idx) => {
+                const isFinished = s.league_status === 'completed'
+                const categoryLabel = getPlayerLeagueCategory(s.league_categories)
+                return (
+                  <div key={idx} className={`card p-6 flex flex-col items-center justify-center text-center relative ${isFinished ? 'bg-gray-100 border-gray-300 opacity-75' : ''}`}>
+                    {isFinished && (
+                      <span className="absolute top-3 right-3 bg-gray-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full uppercase">Terminada</span>
+                    )}
+                    <h3 className={`text-base font-bold ${isFinished ? 'text-gray-500' : 'text-gray-600'}`}>{s.league_name}</h3>
+                    {categoryLabel && (
+                      <span className={`mt-1 text-xs font-semibold px-2 py-0.5 rounded-full ${isFinished ? 'bg-gray-200 text-gray-600' : 'bg-red-100 text-red-700'}`}>Nível {categoryLabel}</span>
+                    )}
+                    <p className="text-2xl mt-3 flex items-center justify-center gap-2">
+                      <span className="text-3xl">{isFinished ? '🏁' : '🏆'}</span>
+                      <span className={`font-bold text-3xl ${isFinished ? 'text-gray-500' : 'text-red-600'}`}>{s.position}º</span>
+                      <span className={`text-xl ${isFinished ? 'text-gray-400' : 'text-gray-600'}`}> de {s.total_participants} · </span>
+                      <span className={`font-semibold text-xl ${isFinished ? 'text-gray-600' : 'text-gray-900'}`}>{s.points} pts</span>
+                    </p>
+                    <button onClick={() => viewLeague(s.league_id, s.league_name)} className={`mt-4 text-base font-semibold flex items-center gap-1 ${isFinished ? 'text-gray-500' : 'text-red-600'}`}>
+                      Ver classificação <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                )
+              })}
             </div>
           ) : (
             <div className="card p-8 text-center">
@@ -6601,7 +6694,8 @@ function CompeteScreen({
             </div>
           )}
         </div>
-      )}
+        )
+      })()}
 
       {activeTab === 'history' && (() => {
         const knockoutRounds = ['quarter', 'semi', 'final', '3rd', 'round_of_16']
@@ -10587,8 +10681,14 @@ function BookingScreen({
       }
     } else {
       // Private booking: create via open_game with isPrivate flag
-      // Don't add players now - organizer can add them later
       const { createOpenGame } = await import('./lib/openGames')
+
+      const otherPlayersPrivate = players.filter(p => p.slot !== 1).map(p => ({
+        player_account_id: p.id,
+        position: p.slot,
+        name: p.name,
+        phone_number: null,
+      }))
 
       const result = await createOpenGame({
         userId,
@@ -10603,8 +10703,8 @@ function BookingScreen({
         gender,
         playerLevel,
         pricePerPlayer,
-        isPrivate: true, // Mark as private
-        players: [], // No players added at creation - organizer adds them later
+        isPrivate: true,
+        players: otherPlayersPrivate,
       })
 
       if (result.success && result.gameId) {
@@ -12748,6 +12848,7 @@ function ProfileViewScreen({
       const won = m.is_winner ?? null
 
       if (historyEntry) {
+        runLvl = historyEntry.level_after
         return {
           index: i,
           level: historyEntry.level_after,
@@ -13682,9 +13783,10 @@ const getQuizPages = (t: typeof translations.pt) => {
   ]
 }
 
-function RegisterScreen({ onBack, onSuccess }: {
+function RegisterScreen({ onBack, onSuccess, returnTo }: {
   onBack: () => void
   onSuccess: (playerAccount: any) => void
+  returnTo?: string | null
 }) {
   const { t } = useI18n()
   const [step, setStep] = useState<0 | 1 | 2 | 3>(0)

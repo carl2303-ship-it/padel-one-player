@@ -701,8 +701,7 @@ export async function fetchTournamentCategoryDetails(tournamentId: string): Prom
   const isIndividual =
     (tournament.format === 'round_robin' && (tournament as any).round_robin_type === 'individual') ||
     tournament.format === 'individual_groups_knockout' ||
-    tournament.format === 'mixed_american' ||
-    tournament.format === 'mixed_gender'
+    tournament.format === 'mixed_american'
 
   const { data: allMatches } = await supabase
     .from('matches')

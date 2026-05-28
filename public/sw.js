@@ -1,5 +1,5 @@
 // Service Worker for PADEL ONE PWA
-const CACHE_NAME = 'padel-one-v1';
+const CACHE_NAME = 'padel-one-v2';
 const urlsToCache = [
   '/',
   '/index.html',
@@ -42,6 +42,9 @@ self.addEventListener('fetch', (event) => {
   
   // Skip API requests (let them go to network)
   if (event.request.url.includes('supabase.co')) return;
+
+  // Skip Vite dev server requests (HMR, source files)
+  if (event.request.url.includes('localhost:') || event.request.url.includes('127.0.0.1:')) return;
 
   event.respondWith(
     fetch(event.request)
