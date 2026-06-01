@@ -12803,6 +12803,24 @@ function ProfileViewScreen({
     const currentLevel = player?.level ?? 3.0
     const TARGET = 5
 
+    // Primary source: levelHistory (real data from DB)
+    if (levelHistory.length > 0) {
+      const sorted = [...levelHistory]
+        .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+        .slice(-TARGET)
+
+      return sorted.map((h, i) => ({
+        index: i,
+        level: h.level_after,
+        levelBefore: h.level_before,
+        delta: h.delta,
+        won: h.match_won,
+        date: new Date(h.created_at),
+        matchType: h.match_type,
+      }))
+    }
+
+    // Fallback: estimate from recentMatches if no levelHistory exists
     const completedMatches = [...recentMatches]
       .filter(m => m.status === 'completed' && m.is_winner !== undefined)
       .sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())
@@ -12811,20 +12829,6 @@ function ProfileViewScreen({
     if (lastMatches.length === 0) {
       return [{ index: 0, level: currentLevel, levelBefore: currentLevel, delta: 0, won: null as boolean | null, date: new Date(), matchType: 'tournament' }]
     }
-
-    // Sort history chronologically; group by day+type for ordered matching
-    const sortedHistory = [...levelHistory].sort((a, b) =>
-      new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-    )
-    const historyQueues = new Map<string, typeof levelHistory>()
-    for (const h of sortedHistory) {
-      const dayKey = new Date(h.created_at).toISOString().slice(0, 10)
-      const key = dayKey + '_' + h.match_type
-      const q = historyQueues.get(key) || []
-      q.push(h)
-      historyQueues.set(key, q)
-    }
-    const historyIndexes = new Map<string, number>()
 
     const totalRated = (player?.wins ?? 0) + (player?.losses ?? 0)
     const K = totalRated < 5 ? 0.50 : totalRated < 10 ? 0.35 : totalRated < 20 ? 0.25 : totalRated < 40 ? 0.15 : totalRated < 60 ? 0.10 : 0.06
@@ -12835,31 +12839,6 @@ function ProfileViewScreen({
     for (let i = deltas.length - 1; i >= 0; i--) runLvl = Math.max(0.5, runLvl - deltas[i])
 
     return lastMatches.map((m, i) => {
-      const matchDate = new Date(m.start_time)
-      const dayKey = matchDate.toISOString().slice(0, 10)
-      const matchType = m.is_open_game ? 'open_game' : 'tournament'
-      const queueKey = dayKey + '_' + matchType
-      const queue = historyQueues.get(queueKey)
-      const idx = historyIndexes.get(queueKey) || 0
-      const historyEntry = queue?.[idx]
-      if (historyEntry) historyIndexes.set(queueKey, idx + 1)
-
-      // ALWAYS use is_winner from recentMatches — it's the source of truth
-      const won = m.is_winner ?? null
-
-      if (historyEntry) {
-        runLvl = historyEntry.level_after
-        return {
-          index: i,
-          level: historyEntry.level_after,
-          levelBefore: historyEntry.level_before,
-          delta: historyEntry.delta,
-          won,
-          date: matchDate,
-          matchType,
-        }
-      }
-
       const before = runLvl
       runLvl = Math.max(0.5, parseFloat((runLvl + deltas[i]).toFixed(2)))
       return {
@@ -12867,9 +12846,9 @@ function ProfileViewScreen({
         level: runLvl,
         levelBefore: parseFloat(before.toFixed(2)),
         delta: parseFloat(deltas[i].toFixed(4)),
-        won,
-        date: matchDate,
-        matchType,
+        won: m.is_winner ?? null,
+        date: new Date(m.start_time),
+        matchType: m.is_open_game ? 'open_game' : 'tournament',
       }
     })
   }, [levelHistory, recentMatches, player?.level, player?.wins, player?.losses])
