@@ -6354,28 +6354,36 @@ function CompeteScreen({
                 <div className="flex items-center gap-3">
                   <div className="flex-1">
                     <label className="text-xs text-gray-500 mb-1 block">Mín</label>
-                    <input
-                      type="number"
-                      step="0.5"
-                      min="1"
-                      max="7"
-                      value={partnerMinLevel}
-                      onChange={(e) => setPartnerMinLevel(Math.max(1, Math.min(7, parseFloat(e.target.value) || 1)))}
-                      className="w-full p-2.5 border border-gray-200 rounded-lg text-sm text-center"
-                    />
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setPartnerMinLevel(v => Math.max(1, parseFloat((v - 0.5).toFixed(1))))}
+                        className="w-9 h-9 flex items-center justify-center rounded-lg border border-gray-200 text-gray-600 text-lg font-bold active:bg-gray-100"
+                      >−</button>
+                      <span className="flex-1 text-center text-sm font-semibold text-gray-800">{partnerMinLevel.toFixed(1)}</span>
+                      <button
+                        type="button"
+                        onClick={() => setPartnerMinLevel(v => Math.min(7, parseFloat((v + 0.5).toFixed(1))))}
+                        className="w-9 h-9 flex items-center justify-center rounded-lg border border-gray-200 text-gray-600 text-lg font-bold active:bg-gray-100"
+                      >+</button>
+                    </div>
                   </div>
                   <span className="text-gray-400 mt-5">—</span>
                   <div className="flex-1">
                     <label className="text-xs text-gray-500 mb-1 block">Máx</label>
-                    <input
-                      type="number"
-                      step="0.5"
-                      min="1"
-                      max="7"
-                      value={partnerMaxLevel}
-                      onChange={(e) => setPartnerMaxLevel(Math.max(1, Math.min(7, parseFloat(e.target.value) || 7)))}
-                      className="w-full p-2.5 border border-gray-200 rounded-lg text-sm text-center"
-                    />
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setPartnerMaxLevel(v => Math.max(1, parseFloat((v - 0.5).toFixed(1))))}
+                        className="w-9 h-9 flex items-center justify-center rounded-lg border border-gray-200 text-gray-600 text-lg font-bold active:bg-gray-100"
+                      >−</button>
+                      <span className="flex-1 text-center text-sm font-semibold text-gray-800">{partnerMaxLevel.toFixed(1)}</span>
+                      <button
+                        type="button"
+                        onClick={() => setPartnerMaxLevel(v => Math.min(7, parseFloat((v + 0.5).toFixed(1))))}
+                        className="w-9 h-9 flex items-center justify-center rounded-lg border border-gray-200 text-gray-600 text-lg font-bold active:bg-gray-100"
+                      >+</button>
+                    </div>
                   </div>
                 </div>
                 <p className="text-xs text-gray-400 mt-1">O teu nível: {player?.level?.toFixed(2) || '—'}</p>
