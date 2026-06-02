@@ -91,6 +91,7 @@ import { fetchAllClubs, fetchClubById, fetchUpcomingTournaments, fetchTournament
 import { fetchAvailableClasses, fetchMyClasses, enrollInClass, type Class as ClassData } from './lib/classes'
 import { preloadAllPlayerData, getCachedPlayerData } from './lib/playerDataCache'
 import { fetchLevelHistory, type LevelHistoryEntry } from './lib/levelHistory'
+import { geocodeAddress } from './lib/geocoding'
 import {
   createGroup,
   updateGroup,
@@ -5233,7 +5234,14 @@ function CompeteScreen({
     const effectiveClubIds = clubIds.length > 0 ? clubIds : (favoriteClubId ? [favoriteClubId] : [])
     ;(async () => {
       try {
-        const list = await fetchUpcomingTournaments(effectiveClubIds.length > 0 ? effectiveClubIds : undefined)
+        const list = await fetchUpcomingTournaments(
+          effectiveClubIds.length > 0 ? effectiveClubIds : undefined,
+          {
+            playerPhone: player?.phone_number || null,
+            playerLat: (player as any)?.lat || null,
+            playerLng: (player as any)?.lng || null,
+          }
+        )
         if (!active) return
 
         let invitedIds = new Set<string>()
@@ -5304,7 +5312,14 @@ function CompeteScreen({
 
     ;(async () => {
       try {
-        const list = await fetchUpcomingTournaments(effIds.length > 0 ? effIds : undefined)
+        const list = await fetchUpcomingTournaments(
+          effIds.length > 0 ? effIds : undefined,
+          {
+            playerPhone: player?.phone_number || null,
+            playerLat: (player as any)?.lat || null,
+            playerLng: (player as any)?.lng || null,
+          }
+        )
         if (!active) return
 
         let invitedIds = new Set<string>()
@@ -13339,7 +13354,7 @@ function ProfileEditScreen({
     setSaving(true)
     setSaveMsg('')
     try {
-      await onSaveProfile({
+      const updates: Partial<PlayerAccount> = {
         name: editName.trim(),
         email: editEmail.trim(),
         gender: editGender as any,
@@ -13350,7 +13365,17 @@ function ProfileEditScreen({
         bio: editBio.trim() || undefined,
         game_type: editGameType as any,
         preferred_time: editPreferredTime as any,
-      })
+      }
+
+      if (editLocation.trim() && editLocation.trim() !== (player?.location || '')) {
+        const geo = await geocodeAddress(editLocation.trim())
+        if (geo) {
+          ;(updates as any).lat = geo.lat
+          ;(updates as any).lng = geo.lng
+        }
+      }
+
+      await onSaveProfile(updates)
       setSaveMsg(t.settings.profileSaved)
       setTimeout(() => setSaveMsg(''), 3000)
     } catch {
@@ -13468,13 +13493,30 @@ function ProfileEditScreen({
             {/* Localização */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">{t.settings.location} <span className="text-red-600">*</span></label>
-              <input
-                type="text"
-                value={editLocation}
-                onChange={(e) => setEditLocation(e.target.value)}
-                className="w-full px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none"
-                placeholder={t.settings.locationPlaceholder}
-              />
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={editLocation}
+                  onChange={(e) => setEditLocation(e.target.value)}
+                  className="flex-1 px-3 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none"
+                  placeholder={t.settings.locationPlaceholder}
+                />
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!navigator.geolocation) return
+                    navigator.geolocation.getCurrentPosition(async (pos) => {
+                      const { reverseGeocode } = await import('./lib/geocoding')
+                      const addr = await reverseGeocode(pos.coords.latitude, pos.coords.longitude)
+                      if (addr) setEditLocation(addr.split(',').slice(0, 3).join(',').trim())
+                    }, () => {})
+                  }}
+                  className="px-3 py-2.5 border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-50 transition-colors whitespace-nowrap"
+                  title="Usar GPS"
+                >
+                  📍
+                </button>
+              </div>
             </div>
 
             {/* Mão Preferida */}

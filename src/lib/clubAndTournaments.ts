@@ -432,8 +432,11 @@ export async function fetchTournamentFullDetail(tournamentId: string, playerAcco
   }
 }
 
-/** Próximos torneios (Tour) – opcionalmente filtrados por club_ids do jogador. */
-export async function fetchUpcomingTournaments(clubIds?: string[] | string | null): Promise<UpcomingTournamentFromTour[]> {
+/** Próximos torneios (Tour) – filtrados por club_ids do jogador + contactos + geolocalização. */
+export async function fetchUpcomingTournaments(
+  clubIds?: string[] | string | null,
+  opts?: { playerPhone?: string | null; playerLat?: number | null; playerLng?: number | null }
+): Promise<UpcomingTournamentFromTour[]> {
   const today = new Date().toISOString().split('T')[0]
   let query = supabase
     .from('tournaments')
@@ -446,11 +449,34 @@ export async function fetchUpcomingTournaments(clubIds?: string[] | string | nul
   const ids = Array.isArray(clubIds) ? clubIds : clubIds ? [clubIds] : []
   if (ids.length > 0) {
     const orParts = ids.flatMap((id) => [`club_id.eq.${id}`, `club_ids.cs.{${id}}`])
+    orParts.push('club_id.is.null')
     query = query.or(orParts.join(','))
   }
 
   const { data } = await query
-  return enrichTournamentsWithHostClubLabels((data || []) as Record<string, unknown>[])
+
+  const seenIds = new Set((data || []).map((t: any) => t.id))
+  let extraTournaments: any[] = []
+
+  const contactPromise = opts?.playerPhone
+    ? supabase.rpc('get_tournaments_for_contact', { p_phone: opts.playerPhone }).then(r => r.data || [])
+    : Promise.resolve([])
+
+  const nearbyPromise = (opts?.playerLat != null && opts?.playerLng != null)
+    ? supabase.rpc('get_nearby_tournaments', { p_lat: opts.playerLat, p_lng: opts.playerLng }).then(r => r.data || [])
+    : Promise.resolve([])
+
+  const [contactResults, nearbyResults] = await Promise.all([contactPromise, nearbyPromise])
+
+  for (const t of [...contactResults, ...nearbyResults]) {
+    if (!seenIds.has(t.id)) {
+      seenIds.add(t.id)
+      extraTournaments.push(t)
+    }
+  }
+
+  const allTournaments = [...(data || []), ...extraTournaments]
+  return enrichTournamentsWithHostClubLabels(allTournaments as Record<string, unknown>[])
 }
 
 /** Busca contagem de inscritos para uma lista de torneios (teams + players). */
