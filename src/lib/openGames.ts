@@ -688,6 +688,230 @@ function isSlotAvailable(
 }
 
 // ============================
+// Court booking helpers (reserve only when game is full)
+// ============================
+
+async function getGameCourtBooking(gameId: string) {
+  const { data } = await supabase
+    .from('court_bookings')
+    .select('id, status')
+    .eq('event_type', 'open_game')
+    .like('notes', `%ID: ${gameId}%`)
+    .neq('status', 'cancelled')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  return data
+}
+
+async function isCourtAvailableForGame(game: {
+  id: string
+  court_id: string | null
+  scheduled_at: string
+  duration_minutes: number
+}): Promise<boolean> {
+  if (!game.court_id) return false
+
+  const slotStart = new Date(game.scheduled_at)
+  const slotEnd = new Date(slotStart.getTime() + (game.duration_minutes || 90) * 60000)
+
+  const { data: bookings } = await supabase
+    .from('court_bookings')
+    .select('id, court_id, start_time, end_time, notes, event_type, status')
+    .eq('court_id', game.court_id)
+    .eq('status', 'confirmed')
+    .lt('start_time', slotEnd.toISOString())
+    .gt('end_time', slotStart.toISOString())
+
+  for (const booking of bookings || []) {
+    if (booking.event_type === 'open_game' && booking.notes?.includes(`ID: ${game.id}`)) {
+      continue
+    }
+    return false
+  }
+
+  return true
+}
+
+async function cancelCourtBookingForGame(gameId: string) {
+  await supabase
+    .from('court_bookings')
+    .update({ status: 'cancelled' })
+    .like('notes', `%ID: ${gameId}%`)
+    .eq('event_type', 'open_game')
+    .neq('status', 'cancelled')
+}
+
+async function notifyManagerBookingCreated(params: {
+  ownerId: string
+  bookingId: string
+  courtName: string
+  playerName: string
+  scheduledAt: string
+}) {
+  try {
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://rqiwnxcexsccguruiteq.supabase.co'
+    const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJxaXdueGNleHNjY2d1cnVpdGVxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk3Njc5MzcsImV4cCI6MjA3NTM0MzkzN30.Dl05zPQDtPVpmvn_Y-JokT3wDq0Oh9uF3op5xcHZpkY'
+    await fetch(`${supabaseUrl}/functions/v1/notify-manager`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${supabaseAnonKey}`,
+      },
+      body: JSON.stringify({
+        userId: params.ownerId,
+        type: 'booking_created',
+        bookingId: params.bookingId,
+        courtName: params.courtName,
+        playerName: params.playerName,
+        scheduledAt: params.scheduledAt,
+      }),
+    })
+  } catch (err) {
+    console.error('[OpenGames] Error notifying manager about booking:', err)
+  }
+}
+
+async function createCourtBookingForGame(gameId: string): Promise<{
+  success: boolean
+  bookingId?: string
+  error?: string
+}> {
+  const existing = await getGameCourtBooking(gameId)
+  if (existing?.id) {
+    await syncBookingPlayers(gameId)
+    return { success: true, bookingId: existing.id }
+  }
+
+  const { data: game } = await supabase
+    .from('open_games')
+    .select('id, creator_user_id, club_id, court_id, scheduled_at, duration_minutes, game_type, price_per_player, status')
+    .eq('id', gameId)
+    .maybeSingle()
+
+  if (!game?.court_id) {
+    return { success: false, error: 'Jogo ou campo não encontrado' }
+  }
+
+  const available = await isCourtAvailableForGame(game)
+  if (!available) {
+    return { success: false, error: 'court_unavailable' }
+  }
+
+  const [{ data: club }, { data: courtData }, { data: creatorPa }, { data: { user: authUser } }] = await Promise.all([
+    supabase.from('clubs').select('owner_id').eq('id', game.club_id).maybeSingle(),
+    supabase.from('club_courts').select('name').eq('id', game.court_id).maybeSingle(),
+    supabase.from('player_accounts').select('name, phone_number').eq('user_id', game.creator_user_id).maybeSingle(),
+    supabase.auth.getUser(),
+  ])
+
+  const realUserId = authUser?.id || game.creator_user_id
+  const startDate = new Date(game.scheduled_at)
+  const endTime = new Date(startDate.getTime() + game.duration_minutes * 60000)
+  const gameTypeLabel = game.game_type === 'competitive' ? 'Competitivo' : 'Amigável'
+  const bookingName = creatorPa?.name || getTranslations().common.player
+
+  const { data: bookingData, error } = await supabase
+    .from('court_bookings')
+    .insert({
+      user_id: realUserId,
+      court_id: game.court_id,
+      start_time: startDate.toISOString(),
+      end_time: endTime.toISOString(),
+      booked_by_name: bookingName,
+      booked_by_phone: creatorPa?.phone_number || null,
+      player1_name: bookingName,
+      player1_phone: creatorPa?.phone_number || null,
+      player1_is_member: false,
+      player1_discount: 0,
+      player2_is_member: false,
+      player2_discount: 0,
+      player3_is_member: false,
+      player3_discount: 0,
+      player4_is_member: false,
+      player4_discount: 0,
+      status: 'confirmed',
+      price: Number(game.price_per_player) * 4,
+      payment_status: 'pending',
+      event_type: 'open_game',
+      notes: `Jogo Aberto (${gameTypeLabel}) - Criado pela app Player | ID: ${game.id}`,
+    })
+    .select('id')
+    .maybeSingle()
+
+  if (error) {
+    console.error('[OpenGames] Error creating court booking:', error)
+    return { success: false, error: error.message }
+  }
+
+  await syncBookingPlayers(gameId)
+
+  if (club?.owner_id && bookingData?.id) {
+    await notifyManagerBookingCreated({
+      ownerId: club.owner_id,
+      bookingId: bookingData.id,
+      courtName: courtData?.name || 'Campo',
+      playerName: bookingName,
+      scheduledAt: startDate.toISOString(),
+    })
+  }
+
+  return { success: true, bookingId: bookingData?.id }
+}
+
+async function handleGameCourtUnavailable(gameId: string) {
+  const t = getTranslations()
+  await notifyGameCreator(gameId, {
+    title: t.notifications.courtUnavailableTitle,
+    body: t.notifications.courtUnavailableBody,
+    url: '/?screen=games',
+    tag: `court-unavailable-${gameId}`,
+  })
+  await cancelOpenGame(gameId)
+}
+
+async function tryCompleteGameAndBookCourt(gameId: string): Promise<{
+  isFull: boolean
+  bookingCreated: boolean
+  courtUnavailable?: boolean
+}> {
+  const { data: game } = await supabase
+    .from('open_games')
+    .select('id, max_players, status')
+    .eq('id', gameId)
+    .maybeSingle()
+
+  if (!game || game.status === 'cancelled' || game.status === 'completed' || game.status === 'expired') {
+    return { isFull: false, bookingCreated: false }
+  }
+
+  const { count } = await supabase
+    .from('open_game_players')
+    .select('id', { count: 'exact', head: true })
+    .eq('game_id', gameId)
+    .eq('status', 'confirmed')
+
+  const confirmedCount = count || 0
+  if (confirmedCount < game.max_players) {
+    return { isFull: false, bookingCreated: false }
+  }
+
+  await supabase.from('open_games').update({ status: 'full' }).eq('id', gameId)
+
+  const bookingResult = await createCourtBookingForGame(gameId)
+  if (bookingResult.error === 'court_unavailable') {
+    await handleGameCourtUnavailable(gameId)
+    return { isFull: true, bookingCreated: false, courtUnavailable: true }
+  }
+
+  if (!bookingResult.success) {
+    return { isFull: true, bookingCreated: false }
+  }
+
+  return { isFull: true, bookingCreated: true }
+}
+
+// ============================
 // Create a new open game
 // ============================
 
@@ -858,83 +1082,9 @@ export async function createOpenGame(params: {
     }
   }
 
-  // === Sync: Create a court_booking in the Manager app's agenda ===
-  try {
-    // Get the club owner_id (needed for the booking user_id)
-    const { data: club } = await supabase
-      .from('clubs')
-      .select('owner_id')
-      .eq('id', params.clubId)
-      .single()
-
-    // Get the court name for the notification
-    const { data: courtData } = await supabase
-      .from('club_courts')
-      .select('name')
-      .eq('id', params.courtId)
-      .maybeSingle()
-
-    const courtName = courtData?.name || 'Campo'
-
-    if (club) {
-      const startDate = clubLocalToUTC(params.scheduledAt, tz)
-      const endTime = new Date(startDate.getTime() + params.durationMinutes * 60000)
-      const gameTypeLabel = params.gameType === 'competitive' ? 'Competitivo' : 'Amigável'
-      const bookingName = resolvedName || (typeof window !== 'undefined' ? getTranslations().common.player : 'Jogador')
-
-      const { data: bookingData } = await supabase.from('court_bookings').insert({
-        user_id: realUserId,
-        court_id: params.courtId,
-        start_time: startDate.toISOString(),
-        end_time: endTime.toISOString(),
-        booked_by_name: bookingName,
-        booked_by_phone: resolvedPhone || null,
-        player1_name: bookingName,
-        player1_phone: resolvedPhone || null,
-        player1_is_member: false,
-        player1_discount: 0,
-        player2_is_member: false,
-        player2_discount: 0,
-        player3_is_member: false,
-        player3_discount: 0,
-        player4_is_member: false,
-        player4_discount: 0,
-        status: 'confirmed',
-        price: params.pricePerPlayer * 4,
-        payment_status: 'pending',
-        event_type: 'open_game',
-        notes: `Jogo Aberto (${gameTypeLabel}) - Criado pela app Player | ID: ${game.id}`
-      }).select('id').maybeSingle()
-
-      // Sync player details + member check to the booking
-      await syncBookingPlayers(game.id)
-
-      // === Notify Manager about the new booking ===
-      try {
-        const supabaseUrl = 'https://rqiwnxcexsccguruiteq.supabase.co'
-        const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJxaXdueGNleHNjY2d1cnVpdGVxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk3Njc5MzcsImV4cCI6MjA3NTM0MzkzN30.Dl05zPQDtPVpmvn_Y-JokT3wDq0Oh9uF3op5xcHZpkY'
-        await fetch(`${supabaseUrl}/functions/v1/notify-manager`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${supabaseAnonKey}`
-          },
-          body: JSON.stringify({
-            userId: club.owner_id,
-            type: 'booking_created',
-            bookingId: bookingData?.id || game.id,
-            courtName,
-            playerName: bookingName,
-            scheduledAt: scheduledAtISO
-          })
-        })
-      } catch (notifyErr) {
-        console.error('[OpenGames] Error notifying manager about booking:', notifyErr)
-      }
-    }
-  } catch (syncErr) {
-    console.error('[OpenGames] Error syncing court booking:', syncErr)
-    // Don't fail the game creation if sync fails
+  const completion = await tryCompleteGameAndBookCourt(game.id)
+  if (completion.courtUnavailable) {
+    return { success: false, error: 'O campo já não está disponível. O jogo foi cancelado.' }
   }
 
   // Award reward points for creating a game
@@ -999,6 +1149,9 @@ export async function createOpenGame(params: {
 
 async function syncBookingPlayers(gameId: string) {
   try {
+    const existingBooking = await getGameCourtBooking(gameId)
+    if (!existingBooking?.id) return
+
     // 1. Get all confirmed players for this game
     const { data: gamePlayers } = await supabase
       .from('open_game_players')
@@ -1221,26 +1374,22 @@ export async function joinOpenGame(params: {
     return { success: false, status: joinStatus, error: error.message }
   }
 
-  // Check if game is now full
+  // Check if game is now full and reserve court when complete
   if (joinStatus === 'confirmed') {
-    const { data: confirmedPlayers } = await supabase
-      .from('open_game_players')
-      .select('id')
-      .eq('game_id', params.gameId)
-      .eq('status', 'confirmed')
+    const completion = await tryCompleteGameAndBookCourt(params.gameId)
+    if (completion.courtUnavailable) {
+      return {
+        success: false,
+        status: joinStatus,
+        error: 'O campo já não está disponível. O jogo foi cancelado.',
+      }
+    }
 
     const { data: game } = await supabase
       .from('open_games')
-      .select('max_players, club_id')
+      .select('club_id')
       .eq('id', params.gameId)
       .maybeSingle()
-
-    if (confirmedPlayers && game && confirmedPlayers.length >= game.max_players) {
-      await supabase
-        .from('open_games')
-        .update({ status: 'full' })
-        .eq('id', params.gameId)
-    }
 
     // Auto-register player at this club (for future notifications)
     if (resolvedAccountId && game?.club_id) {
@@ -1259,10 +1408,11 @@ export async function joinOpenGame(params: {
         })
         .catch((err) => console.error('[OpenGames] Error auto-registering player at club:', err))
     }
-  }
 
-  // Sync player details to court_booking
-  await syncBookingPlayers(params.gameId)
+    if (completion.bookingCreated) {
+      await syncBookingPlayers(params.gameId)
+    }
+  }
 
   // Award reward points for joining
   if (joinStatus === 'confirmed') {
@@ -1328,15 +1478,18 @@ export async function leaveOpenGame(gameId: string, userId: string): Promise<boo
     return false
   }
 
-  // Re-open game if it was full
-  await supabase
+  // Re-open game if it was full and release the court booking
+  const { data: reopenedGame } = await supabase
     .from('open_games')
     .update({ status: 'open' })
     .eq('id', gameId)
     .eq('status', 'full')
+    .select('id')
+    .maybeSingle()
 
-  // Sync player details to court_booking
-  await syncBookingPlayers(gameId)
+  if (reopenedGame) {
+    await cancelCourtBookingForGame(gameId)
+  }
 
   // 🔔 Push: notify game players that someone left
   try {
@@ -1391,15 +1544,18 @@ export async function removePlayerFromOpenGame(params: {
     return false
   }
 
-  // Re-open game if it was full
-  await supabase
+  // Re-open game if it was full and release the court booking
+  const { data: reopenedGame } = await supabase
     .from('open_games')
     .update({ status: 'open' })
     .eq('id', params.gameId)
     .in('status', ['full'])
+    .select('id')
+    .maybeSingle()
 
-  // Sync player details to court_booking
-  await syncBookingPlayers(params.gameId)
+  if (reopenedGame) {
+    await cancelCourtBookingForGame(params.gameId)
+  }
 
   // 🔔 Push: notify the removed player
   try {
@@ -1638,8 +1794,10 @@ export async function addPlayerToOpenGame(params: {
     }
   }
 
-  // Sync player details to court_booking
-  await syncBookingPlayers(params.gameId)
+  const completion = await tryCompleteGameAndBookCourt(params.gameId)
+  if (completion.courtUnavailable) {
+    return { success: false, error: 'O campo já não está disponível. O jogo foi cancelado.' }
+  }
 
   // 🔔 Push: notify the added player
   try {
@@ -1686,16 +1844,29 @@ export async function voteOnJoinRequest(
     return { success: false, error: result?.error || 'Erro desconhecido' }
   }
 
+  const { data: reqPlayer } = await supabase
+    .from('open_game_players')
+    .select('player_account_id, game_id')
+    .eq('id', requestPlayerId)
+    .maybeSingle()
+
+  if (result.resolved && result.new_status === 'confirmed' && reqPlayer?.game_id) {
+    try {
+      const completion = await tryCompleteGameAndBookCourt(reqPlayer.game_id)
+      if (completion.courtUnavailable) {
+        return {
+          success: false,
+          error: 'O campo já não está disponível. O jogo foi cancelado.',
+        }
+      }
+    } catch (err) {
+      console.error('[OpenGames] Error completing game after vote:', err)
+    }
+  }
+
   // 🔔 Push: notify player if vote was resolved (accepted/rejected)
   if (result.resolved && result.new_status) {
     try {
-      // requestPlayerId is the open_game_players.id, need to get the player_account_id
-      const { data: reqPlayer } = await supabase
-        .from('open_game_players')
-        .select('player_account_id, game_id')
-        .eq('id', requestPlayerId)
-        .maybeSingle()
-      
       if (reqPlayer?.player_account_id) {
         const t = getTranslations()
         if (result.new_status === 'confirmed') {

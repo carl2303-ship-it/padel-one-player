@@ -437,6 +437,8 @@ export const translations = {
       newFollowerBody: '{name} começou a seguir-te.',
       aPlayer: 'Um jogador',
       someone: 'Alguém',
+      courtUnavailableTitle: 'Jogo vai ser cancelado ⚠️',
+      courtUnavailableBody: 'O campo já não está disponível nesse horário. O teu jogo aberto vai ser cancelado.',
     },
     // Payments
     payments: {
@@ -1353,6 +1355,8 @@ export const translations = {
       newFollowerBody: '{name} started following you.',
       aPlayer: 'A player',
       someone: 'Someone',
+      courtUnavailableTitle: 'Game will be cancelled ⚠️',
+      courtUnavailableBody: 'The court is no longer available at that time. Your open game will be cancelled.',
     },
     payments: {
       title: 'Your Payments',
