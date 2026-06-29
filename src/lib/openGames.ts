@@ -2077,7 +2077,8 @@ export function canDisputeGameResult(
   if (status !== 'confirmed' && status !== 'pending') return false
 
   const myTeam = getPlayerTeamFromGame(game, userId, playerAccountId)
-  if (!myTeam || myTeam === game._submittedByTeam) return false
+  const submittedByTeam = game._submittedByTeam
+  if (!myTeam || !submittedByTeam || myTeam === submittedByTeam) return false
 
   if (resultCreatedAt) {
     const age = Date.now() - new Date(resultCreatedAt).getTime()
@@ -2085,6 +2086,26 @@ export function canDisputeGameResult(
   }
 
   return true
+}
+
+export type ResultGameAction = 'submit' | 'dispute' | 'none'
+
+export function getResultGameAction(
+  game: OpenGame & { _resultStatus?: string | null; _submittedByTeam?: number },
+  userId: string,
+  playerAccountId?: string | null,
+): ResultGameAction {
+  const confirmedCount = (game.players || []).filter(p => p.status === 'confirmed').length
+  if (confirmedCount < 4) return 'none'
+
+  const status = game._resultStatus
+  if (!status) return 'submit'
+
+  if (status === 'confirmed' || status === 'pending') {
+    return canDisputeGameResult(game, userId, playerAccountId) ? 'dispute' : 'none'
+  }
+
+  return 'none'
 }
 
 async function finalizeOpenGameResult(gameId: string): Promise<void> {
@@ -3306,7 +3327,7 @@ export async function fetchGamesAwaitingResult(userId: string, playerAccountId?:
   console.log('[OpenGames] fetchGamesAwaitingResult will return', pastGames.length, 'games total')
   const { data: existingResults } = await supabase
     .from('open_game_results')
-    .select('game_id, status, submitted_by_team')
+    .select('game_id, status, submitted_by_team, team1_score_set1, team2_score_set1, team1_score_set2, team2_score_set2, team1_score_set3, team2_score_set3, created_at')
     .in('game_id', pastGameIds)
 
   console.log('[OpenGames] Existing results:', existingResults?.length || 0)
@@ -3318,6 +3339,7 @@ export async function fetchGamesAwaitingResult(userId: string, playerAccountId?:
 
   const resultsMap = new Map((existingResults || []).map(r => [r.game_id, r.status]))
   const submittedByTeamMap = new Map((existingResults || []).map(r => [r.game_id, r.submitted_by_team]))
+  const resultsDataMap = new Map((existingResults || []).map(r => [r.game_id, r]))
 
   // Fetch full data for these games using fetchOpenGames pattern
   const gameIdsForFetch = pastGames.map(g => g.id)
@@ -3393,7 +3415,8 @@ export async function fetchGamesAwaitingResult(userId: string, playerAccountId?:
       players: gamePlayers, created_at: g.created_at,
       _resultStatus: resultStatus, // extra field for UI
       _submittedByTeam: submittedByTeamMap.get(g.id) || 0, // which team submitted the result
-    } as OpenGame & { _resultStatus?: string | null; _submittedByTeam?: number }
+      _resultData: resultsDataMap.get(g.id) || null,
+    } as OpenGame & { _resultStatus?: string | null; _submittedByTeam?: number; _resultData?: OpenGameResult | null }
     
     console.log('[OpenGames] Returning game:', game.id, 'resultStatus:', resultStatus, 'players:', gamePlayers.length)
     return game
@@ -3728,33 +3751,29 @@ export async function fetchConfirmedOpenGameResults(userId: string, playerAccoun
 }
 
 // ============================
-// Fetch games with PENDING results that need action from current user
-// (either no result at all, or result submitted by other team waiting confirmation)
+// Secção Jogos → Resultados: sem resultado, com resultado (fechado ou disputável)
 // ============================
 
-export async function fetchPendingResultGames(userId: string, playerAccountId?: string): Promise<(OpenGame & { _resultStatus?: string | null; _submittedByTeam?: number })[]> {
+export async function fetchResultGamesForTab(
+  userId: string,
+  playerAccountId?: string,
+): Promise<(OpenGame & { _resultStatus?: string | null; _submittedByTeam?: number; _resultData?: OpenGameResult | null })[]> {
   const allGames = await fetchGamesAwaitingResult(userId, playerAccountId)
-  console.log('[OpenGames] fetchPendingResultGames: received', allGames.length, 'games from fetchGamesAwaitingResult')
-
-  const filtered = allGames.filter(g => {
+  return allGames.filter(g => {
+    const action = getResultGameAction(g, userId, playerAccountId)
+    if (action === 'submit' || action === 'dispute') return true
     const status = (g as any)._resultStatus
-    const confirmedCount = (g.players || []).filter((p: any) => p.status === 'confirmed').length
-    if (confirmedCount < 4) {
-      console.log('[OpenGames] Game', g.id, 'excluded: only', confirmedCount, '/4 confirmed players')
-      return false
-    }
-
-    if (!status) return true
-
-    if (status === 'confirmed' || status === 'pending') {
-      return canDisputeGameResult(g, userId, playerAccountId)
-    }
-
-    return false
+    return status === 'confirmed' || status === 'pending'
   })
+}
 
-  console.log('[OpenGames] fetchPendingResultGames: returning', filtered.length, 'games after filtering')
-  return filtered
+// ============================
+// Home: apenas jogos SEM resultado (não inclui disputas — disputa é facultativa em Jogos → Resultados)
+// ============================
+
+export async function fetchPendingResultGames(userId: string, playerAccountId?: string): Promise<(OpenGame & { _resultStatus?: string | null; _submittedByTeam?: number; _resultData?: OpenGameResult | null })[]> {
+  const allGames = await fetchGamesAwaitingResult(userId, playerAccountId)
+  return allGames.filter(g => getResultGameAction(g, userId, playerAccountId) === 'submit')
 }
 
 // ============================

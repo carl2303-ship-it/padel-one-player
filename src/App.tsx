@@ -1223,6 +1223,39 @@ function initialFor(name: string): string {
 type PlayerMatchForCard = import('./lib/playerDashboardData').PlayerMatch
 type TournamentForCard = import('./lib/playerDashboardData').TournamentSummary
 
+function OpenGameResultScores({ result }: { result: import('./lib/openGames').OpenGameResult }) {
+  const s1 = [result.team1_score_set1 || 0, result.team2_score_set1 || 0]
+  const s2 = [result.team1_score_set2 || 0, result.team2_score_set2 || 0]
+  const s3 = [result.team1_score_set3 || 0, result.team2_score_set3 || 0]
+  const sets1 = (s1[0] > s1[1] ? 1 : 0) + (s2[0] > s2[1] ? 1 : 0) + (s3[0] > s3[1] ? 1 : 0)
+  const sets2 = (s1[1] > s1[0] ? 1 : 0) + (s2[1] > s2[0] ? 1 : 0) + (s3[1] > s3[0] ? 1 : 0)
+  const team1Won = sets1 > sets2
+  const sets = [s1, s2, ...(s3[0] > 0 || s3[1] > 0 ? [s3] : [])]
+
+  return (
+    <div className="bg-gray-50 rounded-xl p-3">
+      <div className="flex items-center justify-between mb-2">
+        <div className={`flex-1 text-center ${team1Won ? 'font-bold text-green-700' : 'text-gray-500'}`}>
+          <span className="text-xs">Eq. 1 {team1Won ? '🏆' : ''}</span>
+        </div>
+        <div className="w-8" />
+        <div className={`flex-1 text-center ${!team1Won ? 'font-bold text-green-700' : 'text-gray-500'}`}>
+          <span className="text-xs">Eq. 2 {!team1Won ? '🏆' : ''}</span>
+        </div>
+      </div>
+      <div className="flex items-center justify-center gap-3">
+        {sets.map((s, i) => (
+          <div key={i} className="text-center">
+            <p className="text-[9px] text-gray-400">Set {i + 1}</p>
+            <p className="text-sm font-bold text-gray-800">{s[0]} - {s[1]}</p>
+          </div>
+        ))}
+      </div>
+      <p className="text-[10px] text-gray-400 text-center mt-1">Submetido pela Equipa {result.submitted_by_team}</p>
+    </div>
+  )
+}
+
 function ActionButton({ icon: Icon, label, color, onClick, emoji }: {
   icon: any
   label: string
@@ -2973,7 +3006,6 @@ function HomeScreen({
   const [pendingConfirmModal, setPendingConfirmModal] = useState<{ game: any; result: any } | null>(null)
   const [pendingResultScores, setPendingResultScores] = useState({ t1s1: '', t2s1: '', t1s2: '', t2s2: '', t1s3: '', t2s3: '' })
   const [pendingSubmitting, setPendingSubmitting] = useState(false)
-  const [pendingResults, setPendingResults] = useState<Record<string, any>>({})
   const [homeSwapSelected, setHomeSwapSelected] = useState<{ playerId: string; team: number; gameId: string } | null>(null)
   const [homeSwapping, setHomeSwapping] = useState(false)
 
@@ -3044,30 +3076,6 @@ function HomeScreen({
       setPendingResultGames(data)
     } catch {}
   }
-
-  useEffect(() => {
-    const gamesNeedingResultData = pendingResultGames.filter(g => {
-      const status = (g as any)._resultStatus
-      return status === 'pending' || status === 'confirmed'
-    })
-    if (gamesNeedingResultData.length === 0) return
-    let active = true
-    const loadResults = async () => {
-      const { fetchGameResult } = await import('./lib/openGames')
-      for (const g of gamesNeedingResultData) {
-        if (!active) return
-        if (pendingResults[g.id]) continue
-        try {
-          const res = await fetchGameResult(g.id)
-          if (res && active) {
-            setPendingResults(prev => ({ ...prev, [g.id]: res }))
-          }
-        } catch {}
-      }
-    }
-    loadResults()
-    return () => { active = false }
-  }, [pendingResultGames])
 
   const handlePlayerClick = async (playerName: string) => {
     const { findPlayerUserIdByName } = await import('./lib/classes')
@@ -3750,7 +3758,7 @@ function HomeScreen({
         </div>
       </div>
 
-      {/* Resultados Pendentes – jogos que precisam de resultado ou confirmação */}
+      {/* Resultados Pendentes – apenas jogos sem resultado introduzido */}
       {(pendingResultGames.length > 0 || pendingLoading) && (
         <div>
           <div className="flex items-center justify-between mb-3">
@@ -3766,13 +3774,6 @@ function HomeScreen({
               const confirmedPlayers = game.players.filter(p => p.status === 'confirmed')
               const team1 = confirmedPlayers.filter(p => (p.position || 0) <= 2)
               const team2 = confirmedPlayers.filter(p => (p.position || 0) > 2)
-              const resultStatus = (game as any)._resultStatus as string | null
-              const needsSubmit = !resultStatus
-              const canDispute = resultStatus === 'pending' || resultStatus === 'confirmed'
-              const myPlayer = confirmedPlayers.find(p => p.user_id === userId || (player?.id && p.player_account_id === player.id))
-              const myTeam = myPlayer ? ((myPlayer.position || 0) <= 2 ? 1 : 2) : 0
-              const resultData = pendingResults[game.id]
-              const showDispute = canDispute && resultData && myTeam !== 0 && myTeam !== resultData.submitted_by_team
 
               return (
                 <div key={game.id} className="border border-amber-200 rounded-2xl overflow-hidden bg-amber-50/50 shadow-sm">
@@ -3781,11 +3782,7 @@ function HomeScreen({
                       <p className="text-sm font-bold text-gray-900">
                         {new Date(game.scheduled_at).toLocaleDateString('pt-PT', { weekday: 'short', day: '2-digit', month: '2-digit' })} às {new Date(game.scheduled_at).toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' })}
                       </p>
-                      {showDispute ? (
-                        <span className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full text-xs font-medium">⚠️ Podes disputar</span>
-                      ) : needsSubmit ? (
-                        <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded-full text-xs font-medium">Sem resultado</span>
-                      ) : null}
+                      <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded-full text-xs font-medium">Sem resultado</span>
                     </div>
                     
                     {/* Teams compact display - tap to swap */}
@@ -3851,71 +3848,15 @@ function HomeScreen({
                     </div>
 
                     {/* Actions */}
-                    {needsSubmit ? (
-                      <button
-                        onClick={() => {
-                          setPendingResultModal({ game })
-                          setPendingResultScores({ t1s1: '', t2s1: '', t1s2: '', t2s2: '', t1s3: '', t2s3: '' })
-                        }}
-                        className="w-full py-2.5 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 transition-colors"
-                      >
-                        📊 Introduzir resultado
-                      </button>
-                    ) : showDispute ? (() => {
-                      const r = resultData
-                      if (!r) return <p className="text-xs text-gray-400 text-center py-2">A carregar resultado...</p>
-                      const s1 = [r.team1_score_set1 || 0, r.team2_score_set1 || 0]
-                      const s2 = [r.team1_score_set2 || 0, r.team2_score_set2 || 0]
-                      const s3 = [r.team1_score_set3 || 0, r.team2_score_set3 || 0]
-                      const sets1 = (s1[0] > s1[1] ? 1 : 0) + (s2[0] > s2[1] ? 1 : 0) + (s3[0] > s3[1] ? 1 : 0)
-                      const sets2 = (s1[1] > s1[0] ? 1 : 0) + (s2[1] > s2[0] ? 1 : 0) + (s3[1] > s3[0] ? 1 : 0)
-                      const team1Won = sets1 > sets2
-                      return (
-                        <div className="space-y-3">
-                          <div className="bg-gray-50 rounded-xl p-3">
-                            <div className="flex items-center justify-between mb-2">
-                              <div className={`flex-1 text-center ${team1Won ? 'font-bold text-green-700' : 'text-gray-500'}`}>
-                                <span className="text-xs">Eq. 1 {team1Won ? '🏆' : ''}</span>
-                              </div>
-                              <div className="w-8" />
-                              <div className={`flex-1 text-center ${!team1Won ? 'font-bold text-green-700' : 'text-gray-500'}`}>
-                                <span className="text-xs">Eq. 2 {!team1Won ? '🏆' : ''}</span>
-                              </div>
-                            </div>
-                            <div className="flex items-center justify-center gap-3">
-                              <div className="flex gap-2">
-                                {[s1, s2, ...(s3[0] > 0 || s3[1] > 0 ? [s3] : [])].map((s, i) => (
-                                  <div key={i} className="text-center">
-                                    <p className="text-[9px] text-gray-400">Set {i + 1}</p>
-                                    <p className="text-sm font-bold text-gray-800">{s[0]} - {s[1]}</p>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                            <p className="text-[10px] text-gray-400 text-center mt-1">Submetido pela Equipa {r.submitted_by_team}</p>
-                          </div>
-                          <button
-                            onClick={async () => {
-                              if (!confirm(t.results.disputePrompt)) return
-                              setPendingSubmitting(true)
-                              const { disputeGameResult } = await import('./lib/openGames')
-                              const res = await disputeGameResult(game.id)
-                              if (res.success) {
-                                alert(t.results.resultDisputed)
-                                refreshPendingResults()
-                              } else {
-                                alert(res.error || t.results.disputeError)
-                              }
-                              setPendingSubmitting(false)
-                            }}
-                            disabled={pendingSubmitting}
-                            className="w-full py-2.5 bg-red-100 text-red-700 rounded-xl text-sm font-semibold hover:bg-red-200 disabled:opacity-50"
-                          >
-                            ✗ {t.results.disputeResult}
-                          </button>
-                        </div>
-                      )
-                    })() : null}
+                    <button
+                      onClick={() => {
+                        setPendingResultModal({ game })
+                        setPendingResultScores({ t1s1: '', t2s1: '', t1s2: '', t2s2: '', t1s3: '', t2s3: '' })
+                      }}
+                      className="w-full py-2.5 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 transition-colors"
+                    >
+                      📊 Introduzir resultado
+                    </button>
                   </div>
                 </div>
               )
@@ -7600,6 +7541,18 @@ function FindGameScreen({
   const [qrClubs, setQrClubs] = useState<{ id: string; name: string; logo_url: string | null }[]>([])
   const [qrClubsLoading, setQrClubsLoading] = useState(false)
 
+  const loadPastGames = async () => {
+    if (!userId) return
+    setLoadingPastGames(true)
+    try {
+      const { fetchResultGamesForTab } = await import('./lib/openGames')
+      const data = await fetchResultGamesForTab(userId, player?.id)
+      setPastGames(data)
+    } finally {
+      setLoadingPastGames(false)
+    }
+  }
+
   // Load clubs when quick result modal opens
   useEffect(() => {
     if (quickResultModal && qrClubs.length === 0) {
@@ -7703,8 +7656,8 @@ function FindGameScreen({
         setQuickResultModal(false)
         // Refresh past games
         if (userId) {
-          const { fetchGamesAwaitingResult } = await import('./lib/openGames')
-          const data = await fetchGamesAwaitingResult(userId, player?.id)
+          const { fetchResultGamesForTab } = await import('./lib/openGames')
+          const data = await fetchResultGamesForTab(userId, player?.id)
           setPastGames(data)
         }
         if (onRefresh) onRefresh()
@@ -8649,13 +8602,7 @@ function FindGameScreen({
         <button
           onClick={async () => {
             setActiveSection('results')
-            if (pastGames.length === 0 && userId) {
-              setLoadingPastGames(true)
-              const { fetchGamesAwaitingResult } = await import('./lib/openGames')
-              const data = await fetchGamesAwaitingResult(userId, player?.id)
-              setPastGames(data)
-              setLoadingPastGames(false)
-            }
+            await loadPastGames()
           }}
           className={`flex-1 py-2.5 rounded-lg text-xs font-semibold transition-all ${
             activeSection === 'results' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'
@@ -8820,7 +8767,7 @@ function FindGameScreen({
         <div className="space-y-3">
           <div>
             <h2 className="text-lg font-bold text-gray-900">Resultados</h2>
-            <p className="text-xs text-gray-500">Introduza resultados de jogos terminados ou dispute resultados incorretos</p>
+            <p className="text-xs text-gray-500">Introduza resultados em falta ou consulte resultados registados (disputa facultativa)</p>
           </div>
 
           {/* Quick Result Button */}
@@ -8844,13 +8791,13 @@ function FindGameScreen({
                 const team1 = confirmedPlayers.filter(p => (p.position || 0) <= 2)
                 const team2 = confirmedPlayers.filter(p => (p.position || 0) > 2)
                 const resultStatus = (game as any)._resultStatus as string | null
-                const hasResult = resultStatus === 'pending' || resultStatus === 'confirmed'
-                const isConfirmed = resultStatus === 'confirmed' || resultStatus === 'pending'
-                const submittedByTeam = (game as any)._submittedByTeam || 0
+                const resultData = (game as any)._resultData as import('./lib/openGames').OpenGameResult | null | undefined
+                const hasResult = !!resultStatus && !!resultData
+                const submittedByTeam = (game as any)._submittedByTeam || resultData?.submitted_by_team || 0
                 
-                // Determine which team I'm on
                 const myPlayer = confirmedPlayers.find(p => p.user_id === userId || (player?.id && p.player_account_id === player.id))
                 const myTeam = myPlayer ? ((myPlayer.position || 0) <= 2 ? 1 : 2) : 0
+                const canDispute = hasResult && myTeam !== 0 && myTeam !== submittedByTeam
 
                 return (
                   <div key={game.id} className="border border-gray-200 rounded-2xl overflow-hidden bg-white shadow-sm">
@@ -8859,10 +8806,9 @@ function FindGameScreen({
                         <p className="text-sm font-bold text-gray-900">
                           {new Date(game.scheduled_at).toLocaleDateString('pt-PT', { weekday: 'short', day: '2-digit', month: '2-digit' })} às {new Date(game.scheduled_at).toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' })}
                         </p>
-                        {isConfirmed && (
+                        {hasResult ? (
                           <span className="px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs font-medium">✓ {t.games.confirmed}</span>
-                        )}
-                        {!hasResult && (
+                        ) : (
                           <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded-full text-xs font-medium">Sem resultado</span>
                         )}
                       </div>
@@ -8944,27 +8890,24 @@ function FindGameScreen({
                           📊 Introduzir resultado
                         </button>
                       )}
-                      {hasResult && myTeam && myTeam !== submittedByTeam && (
+                      {hasResult && resultData && (
                         <div className="space-y-2">
-                          <button
-                            onClick={async () => {
-                              const { fetchGameResult } = await import('./lib/openGames')
-                              const res = await fetchGameResult(game.id)
-                              if (res) {
-                                setConfirmModal({ game, result: res })
-                              } else {
-                                alert('Erro ao carregar resultado')
-                              }
-                            }}
-                            className="w-full py-2.5 rounded-xl text-sm font-semibold transition-colors bg-red-100 text-red-700 hover:bg-red-200"
-                          >
-                            ⚠️ {t.results.disputeResult}
-                          </button>
+                          <OpenGameResultScores result={resultData} />
+                          {canDispute && (
+                            <button
+                              onClick={async () => {
+                                setConfirmModal({ game, result: resultData })
+                              }}
+                              className="w-full py-2.5 rounded-xl text-sm font-semibold transition-colors bg-red-100 text-red-700 hover:bg-red-200"
+                            >
+                              ⚠️ {t.results.disputeResult}
+                            </button>
+                          )}
                         </div>
                       )}
 
                       {/* Duplicate button — available on any completed game with result */}
-                      {(isConfirmed || (game as any).is_quick_result) && (
+                      {hasResult && (
                         <button
                           onClick={() => {
                             openQuickResultModal({
@@ -9134,8 +9077,8 @@ function FindGameScreen({
                     } catch {}
                     // Refresh past games
                     if (userId) {
-                      const { fetchGamesAwaitingResult } = await import('./lib/openGames')
-                      const data = await fetchGamesAwaitingResult(userId, player?.id)
+                      const { fetchResultGamesForTab } = await import('./lib/openGames')
+                      const data = await fetchResultGamesForTab(userId, player?.id)
                       setPastGames(data)
                     }
                   } else {
@@ -9655,8 +9598,8 @@ function FindGameScreen({
                           alert(t.results.resultDisputed)
                           setConfirmModal(null)
                           if (userId) {
-                            const { fetchGamesAwaitingResult } = await import('./lib/openGames')
-                            const data = await fetchGamesAwaitingResult(userId, player?.id)
+                            const { fetchResultGamesForTab } = await import('./lib/openGames')
+                            const data = await fetchResultGamesForTab(userId, player?.id)
                             setPastGames(data)
                           }
                         } else {
