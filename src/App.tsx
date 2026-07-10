@@ -133,7 +133,7 @@ import {
 } from './lib/partnerMatch'
 import { fetchClientModules, type PlayerAppMode } from './lib/useClientModules'
 
-type Screen = 'home' | 'games' | 'profile-view' | 'profile-edit' | 'club' | 'club-detail' | 'clubs-list' | 'compete' | 'community' | 'player-profile' | 'follows-list' | 'learn' | 'find-game' | 'rewards' | 'booking' | 'payments' | 'group-detail' | 'rankings'
+type Screen = 'home' | 'games' | 'profile-view' | 'profile-edit' | 'club' | 'club-detail' | 'clubs-list' | 'compete' | 'community' | 'player-profile' | 'follows-list' | 'learn' | 'find-game' | 'game-results' | 'rewards' | 'booking' | 'payments' | 'group-detail' | 'rankings'
 
 function App() {
   const { t, language, setLanguage, languageNames, languageFlags } = useI18n()
@@ -812,6 +812,7 @@ function App() {
             onOpenClubsList={() => setCurrentScreen('clubs-list')}
             onOpenClubDetail={(clubId: string) => { setSelectedClubId(clubId); setCurrentScreen('club-detail') }}
             onOpenRankings={() => setCurrentScreen('rankings')}
+            onOpenGameResults={() => setCurrentScreen('game-results')}
             isLiteMode={isLiteMode}
           />
         )}
@@ -840,7 +841,9 @@ function App() {
             onBack={() => setCurrentScreen('home')}
             onOpenPlayerProfile={(uid: string) => { setSelectedPlayerUserId(uid); setCurrentScreen('player-profile') }}
             onOpenFindGame={() => setCurrentScreen('find-game')}
+            onOpenGameResults={() => setCurrentScreen('game-results')}
             initialTab={gamesInitialTab}
+            isLiteMode={isLiteMode}
           />
         )}
         {currentScreen === 'club' && (
@@ -887,6 +890,16 @@ function App() {
             onOpenPlayerProfile={(uid: string) => { setSelectedPlayerUserId(uid); setCurrentScreen('player-profile') }}
             onRefresh={refreshDashboard}
             groupId={createGameForGroupId}
+          />
+        )}
+        {currentScreen === 'game-results' && (
+          <FindGameScreen
+            player={player}
+            userId={authUserId || player?.user_id || null}
+            onBack={() => setCurrentScreen('home')}
+            onOpenPlayerProfile={(uid: string) => { setSelectedPlayerUserId(uid); setCurrentScreen('player-profile') }}
+            onRefresh={refreshDashboard}
+            resultsOnly
           />
         )}
         {currentScreen === 'clubs-list' && !isLiteMode && (
@@ -2986,6 +2999,7 @@ function HomeScreen({
   onOpenClubsList,
   onOpenClubDetail,
   onOpenRankings,
+  onOpenGameResults,
   isLiteMode = false,
 }: {
   player: PlayerAccount | null
@@ -3007,6 +3021,7 @@ function HomeScreen({
   onOpenClubsList: () => void
   onOpenClubDetail: (clubId: string) => void
   onOpenRankings: () => void
+  onOpenGameResults: () => void
   isLiteMode?: boolean
 }) {
   const { t } = useI18n()
@@ -3109,7 +3124,7 @@ function HomeScreen({
   const [homeOpenGamesLoading, setHomeOpenGamesLoading] = useState(false)
 
   useEffect(() => {
-    if (!userId || !player?.level) return
+    if (!userId || !player?.level || isLiteMode) return
     let active = true
     const load = async () => {
       setHomeOpenGamesLoading(true)
@@ -3124,7 +3139,7 @@ function HomeScreen({
     }
     load()
     return () => { active = false }
-  }, [userId, player?.level])
+  }, [userId, player?.level, isLiteMode])
 
   const d = dashboardData
   const name = d?.playerName || player?.name?.split(' ')[0] || t.common.player
@@ -3269,8 +3284,14 @@ function HomeScreen({
         {!isLiteMode && <ActionButton icon={Building2} label="Clubes" color="blue" onClick={onOpenClubsList} />}
         <ActionButton icon={TrendingUp} label={t.home.rankings} color="rose" onClick={onOpenRankings} />
         <ActionButton icon={Trophy} label={t.home.tournaments} color="amber" onClick={onOpenCompete} />
-        {!isLiteMode && <ActionButton icon={Gamepad2} label={t.home.findGame} color="purple" emoji="🎾" onClick={onOpenFindGame} />}
-        {!isLiteMode && <ActionButton icon={GraduationCap} label={t.home.learn} color="emerald" onClick={onOpenLearn} />}
+        {isLiteMode ? (
+          <ActionButton icon={Target} label={t.common.quickResult} color="emerald" emoji="📊" onClick={onOpenGameResults} />
+        ) : (
+          <>
+            <ActionButton icon={Gamepad2} label={t.home.findGame} color="purple" emoji="🎾" onClick={onOpenFindGame} />
+            <ActionButton icon={GraduationCap} label={t.home.learn} color="emerald" onClick={onOpenLearn} />
+          </>
+        )}
       </div>
 
       {/* Profile Card - Foto + Nome + Bio */}
@@ -3327,6 +3348,18 @@ function HomeScreen({
         )
       })()}
 
+      {isLiteMode && (
+        <button
+          onClick={onOpenGameResults}
+          className="w-full p-4 rounded-2xl bg-gradient-to-r from-green-600 to-emerald-600 text-white shadow-md hover:shadow-lg transition-shadow text-left"
+        >
+          <p className="font-bold text-base flex items-center gap-2">
+            <span>📊</span> {t.common.quickResultTitle}
+          </p>
+          <p className="text-sm text-white/90 mt-1">{t.common.quickResultDesc}</p>
+        </button>
+      )}
+
       {/* Estatísticas - Jogos, Vitórias, Taxa, Seguir, Seguidores */}
       <div className="grid grid-cols-5 gap-2">
         <div className="card p-3 text-center">
@@ -3357,6 +3390,7 @@ function HomeScreen({
       </div>
 
       {/* Pontos Reward + Medalhas */}
+      {!isLiteMode && (
       <div className={`rounded-xl shadow-sm overflow-hidden p-5 ${rewardTier.bgColor} cursor-pointer hover:shadow-md transition-shadow`} onClick={onOpenRewards}>
         <div className="flex items-center justify-between">
           <div>
@@ -3383,6 +3417,7 @@ function HomeScreen({
           🎁 {t.home.spendPoints}
         </button>
       </div>
+      )}
 
       {/* Próximos Jogos – lista horizontal ao estilo Playtomic */}
       <div>
@@ -3429,7 +3464,7 @@ function HomeScreen({
       </div>
 
       {/* Jogos Abertos — jogos disponíveis para o nível do jogador */}
-      {(homeOpenGames.length > 0 || homeOpenGamesLoading) && (
+      {!isLiteMode && (homeOpenGames.length > 0 || homeOpenGamesLoading) && (
         <div>
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
@@ -7517,6 +7552,7 @@ function FindGameScreen({
   onOpenPlayerProfile,
   onRefresh,
   groupId,
+  resultsOnly = false,
 }: {
   player: PlayerAccount | null
   userId: string | null
@@ -7524,9 +7560,10 @@ function FindGameScreen({
   onOpenPlayerProfile: (userId: string) => void
   onRefresh?: () => Promise<void>
   groupId?: string | null
+  resultsOnly?: boolean
 }) {
   const { t } = useI18n()
-  const [activeSection, setActiveSection] = useState<'existing' | 'request' | 'create' | 'results'>(groupId ? 'create' : 'existing')
+  const [activeSection, setActiveSection] = useState<'existing' | 'request' | 'create' | 'results'>(resultsOnly ? 'results' : (groupId ? 'create' : 'existing'))
   const [loading, setLoading] = useState(true)
   const [games, setGames] = useState<import('./lib/openGames').OpenGame[]>([])
   const [clubsAvailability, setClubsAvailability] = useState<import('./lib/openGames').ClubWithAvailability[]>([])
@@ -7571,6 +7608,12 @@ function FindGameScreen({
       setLoadingPastGames(false)
     }
   }
+
+  useEffect(() => {
+    if (resultsOnly && userId) {
+      void loadPastGames()
+    }
+  }, [resultsOnly, userId, player?.id])
 
   // Load clubs when quick result modal opens
   useEffect(() => {
@@ -8541,9 +8584,13 @@ function FindGameScreen({
         <button onClick={onBack} className="p-1 -ml-1">
           <ChevronLeft className="w-6 h-6 text-gray-700" />
         </button>
-        <h1 className="text-2xl font-bold text-gray-900">{t.games.title}</h1>
+        <h1 className="text-2xl font-bold text-gray-900">
+          {resultsOnly ? t.common.quickResultTitle : t.games.title}
+        </h1>
       </div>
 
+      {!resultsOnly && (
+      <>
       {/* Filter Bar */}
       <div className="flex gap-2 overflow-x-auto pb-1 -mx-4 px-4 snap-x">
         {/* Club filter */}
@@ -8630,6 +8677,8 @@ function FindGameScreen({
           📊 {t.common.resultsTab}
         </button>
       </div>
+      </>
+      )}
 
       {/* === SECTION: Jogos Existentes === */}
       {activeSection === 'existing' && (
@@ -11515,7 +11564,9 @@ function GamesScreen({
   onBack,
   onOpenPlayerProfile,
   onOpenFindGame,
+  onOpenGameResults,
   initialTab,
+  isLiteMode = false,
 }: {
   player: PlayerAccount | null
   dashboardData: PlayerDashboardData | null
@@ -11523,7 +11574,9 @@ function GamesScreen({
   onBack: () => void
   onOpenPlayerProfile: (userId: string) => void
   onOpenFindGame: () => void
+  onOpenGameResults: () => void
   initialTab?: 'upcoming' | 'history'
+  isLiteMode?: boolean
 }) {
   const { t } = useI18n()
   const [activeTab, setActiveTab] = useState<'upcoming' | 'history'>(initialTab || 'upcoming')
@@ -11551,6 +11604,16 @@ function GamesScreen({
   return (
     <div className="space-y-4 animate-fade-in">
       <h1 className="text-2xl font-bold text-gray-900">{t.games.title}</h1>
+
+      {isLiteMode && (
+        <button
+          onClick={onOpenGameResults}
+          className="w-full py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-2xl text-sm font-bold hover:from-green-700 hover:to-emerald-700 transition-all shadow-md flex items-center justify-center gap-2"
+        >
+          <Plus className="w-4 h-4" />
+          {t.common.quickResult}
+        </button>
+      )}
 
       <div className="flex gap-2 bg-gray-100 p-1 rounded-xl">
         <button
