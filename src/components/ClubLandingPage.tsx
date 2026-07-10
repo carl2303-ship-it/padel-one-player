@@ -105,6 +105,97 @@ const benefits = [
   },
 ]
 
+const MODULE_COLORS: Record<string, string> = {
+  tournaments: 'from-emerald-500 to-teal-500',
+  manager: 'from-blue-500 to-indigo-500',
+  bar: 'from-orange-500 to-amber-500',
+  ai_full: 'from-purple-500 to-indigo-600',
+  ai_light: 'from-violet-500 to-purple-500',
+};
+
+const DEFAULT_MODULES = [
+  {
+    code: 'tournaments',
+    name: 'Torneios',
+    description: 'Criação e gestão de torneios com tour.padel1.app + app jogador lite',
+    price_monthly: 19.99,
+    price_annual: 199.99,
+    target_types: ['club', 'organizer'],
+    requires_modules: [],
+    landing_features: [
+      'Gestão completa de torneios',
+      'Americanos, grupos, eliminatórias',
+      'Ligas multi-torneio',
+      'Inscrições online com pagamento',
+      'App jogador lite para participantes',
+    ],
+  },
+  {
+    code: 'manager',
+    name: 'Gestão de Clube & Academia',
+    description: 'manager.padel1.app para gerir clube e academia + app jogador completa',
+    price_monthly: 49.99,
+    price_annual: 499.99,
+    target_types: ['club'],
+    requires_modules: [],
+    landing_features: [
+      'Gestão de campos e reservas',
+      'Academia e aulas',
+      'Membros e planos de sócio',
+      'Staff e permissões',
+      'App jogador completa (padel1.app)',
+    ],
+  },
+  {
+    code: 'bar',
+    name: 'Bar & Restaurante QR',
+    description: 'Gestão de bar/restaurante com menu QR Code para clientes',
+    price_monthly: 14.99,
+    price_annual: 149.99,
+    target_types: ['club'],
+    requires_modules: [],
+    landing_features: [
+      'Gestão de menu e pedidos',
+      'Contas e consumos',
+      'Menu público com QR Code',
+      'Relatórios de bar',
+      'Integração com recompensas',
+    ],
+  },
+  {
+    code: 'ai_light',
+    name: 'Agente IA Light',
+    description: 'Respostas automáticas a FAQ e preços. Alerta admin em pedidos de reserva',
+    price_monthly: 9.99,
+    price_annual: 99.99,
+    target_types: ['club', 'organizer'],
+    requires_modules: [],
+    landing_features: [
+      'Respostas automáticas FAQ',
+      'Informação de preços',
+      'WhatsApp, Instagram, Facebook',
+      'Chat no website',
+      'Alerta admin para reservas',
+    ],
+  },
+  {
+    code: 'ai_full',
+    name: 'Agente IA Completo',
+    description: 'Reservas automáticas via WhatsApp, Instagram, Facebook e website (requer Manager)',
+    price_monthly: 29.99,
+    price_annual: 299.99,
+    target_types: ['club'],
+    requires_modules: ['manager'],
+    landing_features: [
+      'Reservas automáticas 24/7',
+      'WhatsApp, Instagram, Facebook',
+      'Chat no website',
+      'Consulta de disponibilidade',
+      'Confirmação automática',
+    ],
+  },
+];
+
 const DEFAULT_PACKS = [
   {
     code: 'light',
@@ -154,6 +245,17 @@ interface PlatformPack {
   is_popular: boolean;
 }
 
+interface PlatformModule {
+  code: string;
+  name: string;
+  description: string | null;
+  price_monthly: number | null;
+  price_annual: number | null;
+  target_types: string[];
+  requires_modules: string[];
+  landing_features: string[];
+}
+
 const aiChannels = [
   { icon: MessageCircle, name: 'WhatsApp', desc: 'Responde automaticamente a mensagens dos clientes' },
   { icon: Instagram, name: 'Instagram', desc: 'Responde a DMs e comentários no Instagram do clube' },
@@ -163,14 +265,27 @@ const aiChannels = [
 ]
 
 export default function ClubLandingPage() {
+  const [modules, setModules] = useState<PlatformModule[]>(DEFAULT_MODULES);
   const [packs, setPacks] = useState<PlatformPack[]>(DEFAULT_PACKS as PlatformPack[]);
   const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('monthly');
 
   useEffect(() => {
     const load = async () => {
-      const { data } = await supabase.rpc('get_active_packs_public');
-      if (data && data.length > 0) {
-        setPacks(data.map((p: PlatformPack) => ({
+      const [modsRes, packsRes] = await Promise.all([
+        supabase.rpc('get_active_modules_public'),
+        supabase.rpc('get_active_packs_public'),
+      ]);
+
+      if (modsRes.data && modsRes.data.length > 0) {
+        setModules(modsRes.data.map((m: PlatformModule) => ({
+          ...m,
+          price_monthly: m.price_monthly != null ? Number(m.price_monthly) : null,
+          price_annual: m.price_annual != null ? Number(m.price_annual) : null,
+        })));
+      }
+
+      if (packsRes.data && packsRes.data.length > 0) {
+        setPacks(packsRes.data.map((p: PlatformPack) => ({
           ...p,
           price_monthly: Number(p.price_monthly),
           price_annual: Number(p.price_annual),
@@ -402,15 +517,78 @@ export default function ClubLandingPage() {
         </div>
       </section>
 
+      {/* Módulos à la carte */}
+      <section className="py-20 bg-white">
+        <div className="max-w-6xl mx-auto px-4">
+          <div className="text-center mb-14">
+            <h2 className="text-3xl md:text-4xl font-black text-gray-900 mb-4">
+              Módulos à la carte
+            </h2>
+            <p className="text-lg text-gray-500 max-w-xl mx-auto">
+              Compra apenas o que precisas. Cada módulo pode ser ativado individualmente para o teu clube ou organização.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-6xl mx-auto">
+            {modules.map((mod) => (
+              <div
+                key={mod.code}
+                className="relative rounded-3xl bg-white border-2 border-gray-100 overflow-hidden transition-all hover:shadow-xl hover:border-blue-200"
+              >
+                <div className={`h-2 bg-gradient-to-r ${MODULE_COLORS[mod.code] || 'from-gray-400 to-gray-500'}`} />
+                <div className="p-6">
+                  <h3 className="text-xl font-bold text-gray-900 mb-1">{mod.name}</h3>
+                  <p className="text-sm text-gray-500 mb-4 min-h-[40px]">{mod.description}</p>
+
+                  <div className="mb-4">
+                    <div className="flex items-end gap-1">
+                      <span className="text-3xl font-black text-gray-900">{mod.price_monthly}€</span>
+                      <span className="text-sm text-gray-400 mb-1">/mês</span>
+                    </div>
+                    {mod.price_annual != null && (
+                      <p className="text-xs text-gray-400 mt-1">
+                        ou {mod.price_annual}€/ano
+                      </p>
+                    )}
+                  </div>
+
+                  {mod.requires_modules?.length > 0 && (
+                    <p className="text-xs text-amber-600 mb-3">
+                      Requer: {mod.requires_modules.join(', ')}
+                    </p>
+                  )}
+
+                  <ul className="space-y-2 mb-6">
+                    {(mod.landing_features || []).map((f) => (
+                      <li key={f} className="flex items-start gap-2 text-sm text-gray-700">
+                        <Check className="w-4 h-4 text-green-500 mt-0.5 shrink-0" />
+                        {f}
+                      </li>
+                    ))}
+                  </ul>
+
+                  <a
+                    href={`mailto:info@boostpadel.store?subject=${encodeURIComponent(`Interesse no módulo ${mod.name}`)}`}
+                    className="block text-center py-3 rounded-xl text-sm font-bold bg-gray-100 text-gray-700 hover:bg-gray-200 transition-all"
+                  >
+                    Contactar
+                  </a>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
       {/* Packs */}
       <section className="py-20 bg-gray-50">
         <div className="max-w-6xl mx-auto px-4">
           <div className="text-center mb-10">
             <h2 className="text-3xl md:text-4xl font-black text-gray-900 mb-4">
-              Escolhe o teu Pack
+              Packs — poupa vs módulos individuais
             </h2>
             <p className="text-lg text-gray-500 max-w-xl mx-auto mb-8">
-              Dois packs pensados para clubes — com tudo o que precisas, a preço especial face aos módulos individuais.
+              Preferes um pacote completo? Os packs Light e Total incluem vários módulos a preço especial.
             </p>
             <div className="inline-flex items-center bg-white rounded-xl p-1 border border-gray-200 shadow-sm">
               <button
