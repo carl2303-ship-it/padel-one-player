@@ -105,30 +105,53 @@ const benefits = [
   },
 ]
 
-const MODULE_COLORS: Record<string, string> = {
-  tournaments: 'from-emerald-500 to-teal-500',
-  manager: 'from-blue-500 to-indigo-500',
-  bar: 'from-orange-500 to-amber-500',
-  ai_full: 'from-purple-500 to-indigo-600',
-  ai_light: 'from-violet-500 to-purple-500',
-};
+const DEFAULT_PACKS = [
+  {
+    code: 'light',
+    name: 'Pack Light',
+    tagline: 'Mantém a tua app de reservas actual',
+    description: 'O plano perfeito para os clubes que querem ficar com a sua aplicação actual de Gestão de Reservas!',
+    price_monthly: 89,
+    price_annual: 990,
+    compare_price_monthly: 129,
+    compare_price_annual: 1548,
+    landing_features: [
+      'Módulo 1 — Tour + App Player Light',
+      'Módulo 3 — Agente IA Light',
+      'Módulo 4 — Gestão de Bar com QR Code',
+    ],
+    is_popular: false,
+  },
+  {
+    code: 'total',
+    name: 'Pack Padel One Total',
+    tagline: 'Independência digital completa',
+    description: 'A solução definitiva de independência digital. Substitui por completo qualquer software concorrente e automatiza a receção a 100% via Inteligência Artificial.',
+    price_monthly: 149,
+    price_annual: 1590,
+    compare_price_monthly: 219,
+    compare_price_annual: 2199,
+    landing_features: [
+      'TODOS OS MÓDULOS (1, 2, 3 e 4)',
+      'Manager + App Player completa',
+      'Gestão de Bar com QR Code',
+      'Agente IA Completo — reserva automática de campos',
+    ],
+    is_popular: true,
+  },
+];
 
-interface PlatformModule {
+interface PlatformPack {
   code: string;
   name: string;
+  tagline: string | null;
   description: string | null;
-  price_monthly: number | null;
-  price_annual: number | null;
-  target_types: string[];
-  requires_modules: string[];
+  price_monthly: number;
+  price_annual: number;
+  compare_price_monthly: number | null;
+  compare_price_annual: number | null;
   landing_features: string[];
-}
-
-interface BundlePlan {
-  name: string;
-  price: number;
-  priceAnnual: number;
-  features: string[];
+  is_popular: boolean;
 }
 
 const aiChannels = [
@@ -140,31 +163,19 @@ const aiChannels = [
 ]
 
 export default function ClubLandingPage() {
-  const [modules, setModules] = useState<PlatformModule[]>([]);
-  const [bundles, setBundles] = useState<BundlePlan[]>([]);
+  const [packs, setPacks] = useState<PlatformPack[]>(DEFAULT_PACKS as PlatformPack[]);
+  const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('monthly');
 
   useEffect(() => {
     const load = async () => {
-      const [modsRes, plansRes] = await Promise.all([
-        supabase.rpc('get_active_modules_public'),
-        supabase
-          .from('platform_plans')
-          .select('name, price_monthly, price_annual, features')
-          .eq('target_type', 'club')
-          .eq('is_active', true)
-          .order('price_monthly', { ascending: true }),
-      ]);
-
-      if (modsRes.data) setModules(modsRes.data as PlatformModule[]);
-
-      if (plansRes.data && plansRes.data.length > 0) {
-        setBundles(plansRes.data.map(p => ({
-          name: p.name,
-          price: Number(p.price_monthly) || 0,
-          priceAnnual: Number(p.price_annual) || 0,
-          features: Object.entries(p.features || {})
-            .filter(([, v]) => v === true || (typeof v === 'number' && v > 0))
-            .map(([k, v]) => typeof v === 'number' && v > 0 ? `${k}: ${v}` : k.replace(/_/g, ' ')),
+      const { data } = await supabase.rpc('get_active_packs_public');
+      if (data && data.length > 0) {
+        setPacks(data.map((p: PlatformPack) => ({
+          ...p,
+          price_monthly: Number(p.price_monthly),
+          price_annual: Number(p.price_annual),
+          compare_price_monthly: p.compare_price_monthly != null ? Number(p.compare_price_monthly) : null,
+          compare_price_annual: p.compare_price_annual != null ? Number(p.compare_price_annual) : null,
         })));
       }
     };
@@ -383,7 +394,7 @@ export default function ClubLandingPage() {
               </ul>
               <div className="mt-6 p-3 bg-white/60 rounded-xl border border-purple-100">
                 <p className="text-xs text-purple-600 font-semibold text-center">
-                  Incluído nos planos Gold e Platinum — ou disponível como add-on para outros planos
+                  Incluído no Pack Padel One Total — variante completa com reservas automáticas
                 </p>
               </div>
             </div>
@@ -391,89 +402,110 @@ export default function ClubLandingPage() {
         </div>
       </section>
 
-      {/* Módulos à la carte */}
+      {/* Packs */}
       <section className="py-20 bg-gray-50">
         <div className="max-w-6xl mx-auto px-4">
-          <div className="text-center mb-14">
+          <div className="text-center mb-10">
             <h2 className="text-3xl md:text-4xl font-black text-gray-900 mb-4">
-              Módulos à la carte
+              Escolhe o teu Pack
             </h2>
-            <p className="text-lg text-gray-500 max-w-xl mx-auto">
-              Compra apenas o que precisas. Cada módulo pode ser ativado individualmente para o teu clube ou organização.
+            <p className="text-lg text-gray-500 max-w-xl mx-auto mb-8">
+              Dois packs pensados para clubes — com tudo o que precisas, a preço especial face aos módulos individuais.
             </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-6xl mx-auto">
-            {(modules.length > 0 ? modules : []).map((mod) => (
-              <div
-                key={mod.code}
-                className="relative rounded-3xl bg-white border-2 border-gray-100 overflow-hidden transition-all hover:shadow-xl hover:border-blue-200"
+            <div className="inline-flex items-center bg-white rounded-xl p-1 border border-gray-200 shadow-sm">
+              <button
+                onClick={() => setBillingCycle('monthly')}
+                className={`px-5 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  billingCycle === 'monthly' ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-gray-800'
+                }`}
               >
-                <div className={`h-2 bg-gradient-to-r ${MODULE_COLORS[mod.code] || 'from-gray-400 to-gray-500'}`} />
-                <div className="p-6">
-                  <h3 className="text-xl font-bold text-gray-900 mb-1">{mod.name}</h3>
-                  <p className="text-sm text-gray-500 mb-4 min-h-[40px]">{mod.description}</p>
-
-                  <div className="mb-4">
-                    <div className="flex items-end gap-1">
-                      <span className="text-3xl font-black text-gray-900">{mod.price_monthly}€</span>
-                      <span className="text-sm text-gray-400 mb-1">/mês</span>
-                    </div>
-                    {mod.price_annual != null && (
-                      <p className="text-xs text-gray-400 mt-1">
-                        ou {mod.price_annual}€/ano
-                      </p>
-                    )}
-                  </div>
-
-                  {mod.requires_modules?.length > 0 && (
-                    <p className="text-xs text-amber-600 mb-3">
-                      Requer: {mod.requires_modules.join(', ')}
-                    </p>
-                  )}
-
-                  <ul className="space-y-2 mb-6">
-                    {(mod.landing_features || []).map((f) => (
-                      <li key={f} className="flex items-start gap-2 text-sm text-gray-700">
-                        <Check className="w-4 h-4 text-green-500 mt-0.5 shrink-0" />
-                        {f}
-                      </li>
-                    ))}
-                  </ul>
-
-                  <a
-                    href="mailto:info@boostpadel.store"
-                    className="block text-center py-3 rounded-xl text-sm font-bold bg-gray-100 text-gray-700 hover:bg-gray-200 transition-all"
-                  >
-                    Contactar
-                  </a>
-                </div>
-              </div>
-            ))}
+                Mensal
+              </button>
+              <button
+                onClick={() => setBillingCycle('annual')}
+                className={`px-5 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  billingCycle === 'annual' ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-gray-800'
+                }`}
+              >
+                Anual
+              </button>
+            </div>
           </div>
 
-          {bundles.length > 0 && (
-            <div className="mt-16">
-              <div className="text-center mb-8">
-                <h3 className="text-2xl font-bold text-gray-900 mb-2">Pacotes (Bundles)</h3>
-                <p className="text-gray-500 text-sm">Preferes um pacote completo? Temos opções pré-configuradas.</p>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-4xl mx-auto">
-                {bundles.map((plan) => (
-                  <div key={plan.name} className="rounded-2xl bg-white border border-gray-200 p-5">
-                    <h4 className="font-bold text-gray-900 mb-2">{plan.name}</h4>
-                    <p className="text-2xl font-black text-gray-900">{plan.price}€<span className="text-sm font-normal text-gray-400">/mês</span></p>
-                    <p className="text-xs text-gray-400 mb-3">ou {plan.priceAnnual}€/ano</p>
-                    <ul className="space-y-1">
-                      {plan.features.map(f => (
-                        <li key={f} className="text-xs text-gray-600 flex gap-1"><Check className="w-3 h-3 text-green-500 shrink-0" />{f}</li>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 max-w-5xl mx-auto">
+            {packs.map((pack) => {
+              const price = billingCycle === 'monthly' ? pack.price_monthly : pack.price_annual;
+              const compare = billingCycle === 'monthly' ? pack.compare_price_monthly : pack.compare_price_annual;
+              const period = billingCycle === 'monthly' ? '/mês' : '/ano';
+              const savings = compare && compare > price
+                ? Math.round((1 - price / compare) * 100)
+                : null;
+
+              return (
+                <div
+                  key={pack.code}
+                  className={`relative rounded-3xl bg-white border-2 overflow-hidden transition-all hover:shadow-xl ${
+                    pack.is_popular ? 'border-blue-500 shadow-lg scale-[1.02]' : 'border-gray-100'
+                  }`}
+                >
+                  {pack.is_popular && (
+                    <div className="absolute top-0 left-0 right-0 bg-gradient-to-r from-blue-500 to-indigo-600 text-white text-center text-xs font-bold py-1.5">
+                      Mais Completo
+                    </div>
+                  )}
+                  <div className={`p-8 ${pack.is_popular ? 'pt-10' : ''}`}>
+                    <h3 className="text-2xl font-black text-gray-900 mb-1">{pack.name}</h3>
+                    {pack.tagline && (
+                      <p className="text-sm font-medium text-blue-600 mb-3">{pack.tagline}</p>
+                    )}
+                    <p className="text-sm text-gray-500 mb-6 leading-relaxed">{pack.description}</p>
+
+                    <div className="mb-6">
+                      {compare != null && (
+                        <p className="text-sm text-gray-400 line-through mb-1">
+                          {compare.toFixed(2).replace('.00', '')}€{period}
+                          <span className="text-xs ml-2 no-underline text-gray-400">(módulos individuais)</span>
+                        </p>
+                      )}
+                      <div className="flex items-end gap-1">
+                        <span className="text-5xl font-black text-gray-900">
+                          {price.toFixed(2).replace('.00', '')}€
+                        </span>
+                        <span className="text-sm text-gray-400 mb-2">{period}</span>
+                      </div>
+                      {savings != null && billingCycle === 'monthly' && (
+                        <p className="text-xs text-green-600 font-semibold mt-1">Poupa {savings}% vs módulos individuais</p>
+                      )}
+                    </div>
+
+                    <ul className="space-y-3 mb-8">
+                      {(pack.landing_features || []).map((f) => (
+                        <li key={f} className="flex items-start gap-2 text-sm text-gray-700">
+                          <Check className="w-4 h-4 text-green-500 mt-0.5 shrink-0" />
+                          {f}
+                        </li>
                       ))}
                     </ul>
+
+                    <a
+                      href={`mailto:info@boostpadel.store?subject=${encodeURIComponent(`Interesse no ${pack.name}`)}`}
+                      className={`block text-center py-4 rounded-xl text-sm font-bold transition-all ${
+                        pack.is_popular
+                          ? 'bg-gradient-to-r from-blue-500 to-indigo-600 text-white hover:shadow-lg hover:shadow-blue-200'
+                          : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
+                      }`}
+                    >
+                      Contactar — {pack.name}
+                    </a>
                   </div>
-                ))}
-              </div>
-            </div>
-          )}
+                </div>
+              );
+            })}
+          </div>
+
+          <p className="text-center text-sm text-gray-400 mt-8">
+            Preços sem IVA. Pagamento mensal ou anual via Stripe.
+          </p>
         </div>
       </section>
 
