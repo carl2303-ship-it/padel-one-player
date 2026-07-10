@@ -120,6 +120,7 @@ import {
   type ChatMessage,
 } from './lib/groupChat'
 import { isPushSupported, checkIsSubscribed, subscribeToPush, unsubscribeFromPush } from './lib/pushNotifications'
+import { normalizePhone } from './lib/phoneUtils'
 import {
   requestPartnerMatch,
   fetchPendingPartnerInvites,
@@ -130,6 +131,7 @@ import {
   type PartnerInvite,
   type PartnerMatchRequesterSummary,
 } from './lib/partnerMatch'
+import { fetchClientModules, type PlayerAppMode } from './lib/useClientModules'
 
 type Screen = 'home' | 'games' | 'profile-view' | 'profile-edit' | 'club' | 'club-detail' | 'clubs-list' | 'compete' | 'community' | 'player-profile' | 'follows-list' | 'learn' | 'find-game' | 'rewards' | 'booking' | 'payments' | 'group-detail' | 'rankings'
 
@@ -176,6 +178,18 @@ function App() {
     return 'landing'
   })
   const [languageDropdownOpen, setLanguageDropdownOpen] = useState(false)
+  const [playerMode, setPlayerMode] = useState<PlayerAppMode>('full')
+  const isLiteMode = playerMode === 'lite'
+
+  useEffect(() => {
+    if (!player?.favorite_club_id) {
+      setPlayerMode('full')
+      return
+    }
+    fetchClientModules('club', player.favorite_club_id).then(mods => {
+      setPlayerMode(mods.playerMode)
+    })
+  }, [player?.favorite_club_id])
 
   useEffect(() => {
     const onPopState = () => {
@@ -429,14 +443,7 @@ function App() {
       let playerAccount: any = null
 
       // Login via telefone - usa Edge Function como o Tour
-      let normalizedPhone = phone.trim().replace(/\s+/g, '')
-      
-      // Se começar só com + sem indicativo, adiciona +351
-      if (normalizedPhone === '+' || (normalizedPhone.startsWith('+') && normalizedPhone.length < 4)) {
-        normalizedPhone = '+351' + normalizedPhone.substring(1)
-      } else if (!normalizedPhone.startsWith('+')) {
-        normalizedPhone = '+351' + normalizedPhone
-      }
+      const normalizedPhone = normalizePhone(phone)
 
       // Chamar Edge Function para obter o email (usa Service Role Key, ignora RLS)
       const response = await fetch(
@@ -805,6 +812,7 @@ function App() {
             onOpenClubsList={() => setCurrentScreen('clubs-list')}
             onOpenClubDetail={(clubId: string) => { setSelectedClubId(clubId); setCurrentScreen('club-detail') }}
             onOpenRankings={() => setCurrentScreen('rankings')}
+            isLiteMode={isLiteMode}
           />
         )}
         {currentScreen === 'rankings' && (
@@ -815,7 +823,7 @@ function App() {
             onOpenPlayerProfile={(uid: string) => { setSelectedPlayerUserId(uid); setCurrentScreen('player-profile') }}
           />
         )}
-        {currentScreen === 'booking' && (
+        {currentScreen === 'booking' && !isLiteMode && (
           <BookingScreen
             player={player}
             userId={player?.user_id ?? null}
@@ -871,7 +879,7 @@ function App() {
             onOpenClub={(clubId: string) => { setSelectedClubId(clubId); setCurrentScreen('club-detail') }}
           />
         )}
-        {currentScreen === 'find-game' && (
+        {currentScreen === 'find-game' && !isLiteMode && (
           <FindGameScreen
             player={player}
             userId={authUserId || player?.user_id || null}
@@ -881,7 +889,7 @@ function App() {
             groupId={createGameForGroupId}
           />
         )}
-        {currentScreen === 'clubs-list' && (
+        {currentScreen === 'clubs-list' && !isLiteMode && (
           <ClubsListScreen
             playerClubIds={player?.club_ids ?? []}
             favoriteClubId={player?.favorite_club_id ?? null}
@@ -939,7 +947,7 @@ function App() {
             onOpenInfo={(type) => setShowInfoModal(type)}
           />
         )}
-        {currentScreen === 'rewards' && player && (
+        {currentScreen === 'rewards' && player && !isLiteMode && (
           <RewardsScreen
             player={player}
             onBack={() => setCurrentScreen('home')}
@@ -953,7 +961,7 @@ function App() {
             onBack={() => setCurrentScreen('home')}
           />
         )}
-        {currentScreen === 'community' && player?.user_id && (
+        {currentScreen === 'community' && player?.user_id && !isLiteMode && (
           <CommunityScreen userId={player.user_id} playerAccountId={player.id} playerAvatar={player.avatar_url} playerName={player.name} onOpenPlayerProfile={(uid: string) => { setSelectedPlayerUserId(uid); setCurrentScreen('player-profile') }} onOpenGroup={(groupId: string) => { setSelectedGroupId(groupId); setCurrentScreen('group-detail') }} />
         )}
         {currentScreen === 'group-detail' && selectedGroupId && player?.user_id && (
@@ -997,12 +1005,21 @@ function App() {
             active={currentScreen === 'home'} 
             onClick={() => setCurrentScreen('home')} 
           />
-          <NavItem 
-            icon={Users} 
-            label={t.menu.community} 
-            active={currentScreen === 'community'} 
-            onClick={() => setCurrentScreen('community')} 
-          />
+          {!isLiteMode ? (
+            <NavItem 
+              icon={Users} 
+              label={t.menu.community} 
+              active={currentScreen === 'community'} 
+              onClick={() => setCurrentScreen('community')} 
+            />
+          ) : (
+            <NavItem 
+              icon={Trophy} 
+              label={t.home.tournaments} 
+              active={currentScreen === 'compete'} 
+              onClick={() => setCurrentScreen('compete')} 
+            />
+          )}
           <NavItem 
             icon={User} 
             label={t.menu.profile} 
@@ -2969,6 +2986,7 @@ function HomeScreen({
   onOpenClubsList,
   onOpenClubDetail,
   onOpenRankings,
+  isLiteMode = false,
 }: {
   player: PlayerAccount | null
   dashboardData: PlayerDashboardData | null
@@ -2989,6 +3007,7 @@ function HomeScreen({
   onOpenClubsList: () => void
   onOpenClubDetail: (clubId: string) => void
   onOpenRankings: () => void
+  isLiteMode?: boolean
 }) {
   const { t } = useI18n()
   const [followingCount, setFollowingCount] = useState(0)
@@ -3246,12 +3265,12 @@ function HomeScreen({
     <div className="space-y-6 animate-fade-in">
       {/* Quick Actions */}
       <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 sm:gap-3">
-        <ActionButton icon={Calendar} label={t.home.book} color="lime" onClick={onOpenBooking} />
-        <ActionButton icon={Building2} label="Clubes" color="blue" onClick={onOpenClubsList} />
+        {!isLiteMode && <ActionButton icon={Calendar} label={t.home.book} color="lime" onClick={onOpenBooking} />}
+        {!isLiteMode && <ActionButton icon={Building2} label="Clubes" color="blue" onClick={onOpenClubsList} />}
         <ActionButton icon={TrendingUp} label={t.home.rankings} color="rose" onClick={onOpenRankings} />
         <ActionButton icon={Trophy} label={t.home.tournaments} color="amber" onClick={onOpenCompete} />
-        <ActionButton icon={Gamepad2} label={t.home.findGame} color="purple" emoji="🎾" onClick={onOpenFindGame} />
-        <ActionButton icon={GraduationCap} label={t.home.learn} color="emerald" onClick={onOpenLearn} />
+        {!isLiteMode && <ActionButton icon={Gamepad2} label={t.home.findGame} color="purple" emoji="🎾" onClick={onOpenFindGame} />}
+        {!isLiteMode && <ActionButton icon={GraduationCap} label={t.home.learn} color="emerald" onClick={onOpenLearn} />}
       </div>
 
       {/* Profile Card - Foto + Nome + Bio */}
@@ -5819,7 +5838,7 @@ function CompeteScreen({
   }
 
   const handlePartnerPhoneLookup = async (phone: string) => {
-    const normalized = phone.replace(/\s+/g, '').trim()
+    const normalized = normalizePhone(phone)
     if (normalized.length < 6) {
       setPartnerInviteeLookup(null)
       return
@@ -13934,14 +13953,7 @@ function RegisterScreen({ onBack, onSuccess, returnTo }: {
 
     try {
       // Normalizar telefone
-      let normalizedPhone = regPhone.trim().replace(/\s+/g, '')
-      
-      // Se começar só com + sem indicativo, adiciona +351
-      if (normalizedPhone === '+' || (normalizedPhone.startsWith('+') && normalizedPhone.length < 4)) {
-        normalizedPhone = '+351' + normalizedPhone.substring(1)
-      } else if (!normalizedPhone.startsWith('+')) {
-        normalizedPhone = '+351' + normalizedPhone
-      }
+      const normalizedPhone = normalizePhone(regPhone)
 
       // Validações
       if (!name.trim()) { setError(t.register.nameRequired); setSaving(false); return }
@@ -14212,8 +14224,7 @@ function RegisterScreen({ onBack, onSuccess, returnTo }: {
                 if (regPassword.length < 6) { setError(t.register.passwordMin); return }
                 if (regPassword !== confirmPwd) { setError(t.register.passwordsMismatch); return }
 
-                let checkPhone = regPhone.trim().replace(/\s+/g, '')
-                if (!checkPhone.startsWith('+')) checkPhone = '+351' + checkPhone
+                const checkPhone = normalizePhone(regPhone)
                 const { data: dupPhone } = await supabase
                   .from('player_accounts')
                   .select('id')

@@ -22,7 +22,6 @@ import {
   Zap,
   Instagram,
   Globe,
-  Star,
 } from 'lucide-react'
 
 const apps = [
@@ -106,96 +105,31 @@ const benefits = [
   },
 ]
 
-const defaultPlans = [
-  {
-    name: 'Bronze',
-    price: 29.99,
-    priceAnnual: 329.99,
-    color: 'from-amber-600 to-yellow-500',
-    popular: false,
-    features: [
-      'Até 4 campos',
-      'Gestão de reservas',
-      'Módulo de bar',
-      'Licença Tour (torneios)',
-      'Analytics avançado',
-      'App Player integrada',
-      'Staff e permissões',
-      'Precário público online',
-    ],
-    notIncluded: [
-      'Suporte prioritário',
-      'Academia integrada',
-      'AI Agent',
-    ],
-  },
-  {
-    name: 'Silver',
-    price: 69.99,
-    priceAnnual: 789.99,
-    color: 'from-gray-400 to-gray-300',
-    popular: false,
-    features: [
-      'Até 8 campos',
-      'Gestão de reservas',
-      'Módulo de bar',
-      'Licença Tour (torneios)',
-      'Analytics avançado',
-      'App Player integrada',
-      'Staff e permissões',
-      'Precário público online',
-      'Suporte prioritário',
-      'Academia integrada',
-    ],
-    notIncluded: [
-      'AI Agent',
-    ],
-  },
-  {
-    name: 'Gold',
-    price: 99.99,
-    priceAnnual: 999.99,
-    color: 'from-yellow-400 to-amber-500',
-    popular: true,
-    features: [
-      'Até 10 campos',
-      'Gestão de reservas',
-      'Módulo de bar',
-      'Licença Tour (torneios)',
-      'Analytics avançado',
-      'App Player integrada',
-      'Staff e permissões',
-      'Precário público online',
-      'Suporte prioritário',
-      'Academia integrada',
-      'AI Agent incluído',
-    ],
-    notIncluded: [],
-  },
-  {
-    name: 'Platinum',
-    price: 149.99,
-    priceAnnual: 1499.99,
-    color: 'from-slate-600 to-slate-400',
-    popular: false,
-    features: [
-      'Campos ilimitados',
-      'Gestão de reservas',
-      'Módulo de bar',
-      'Licença Tour (torneios)',
-      'Analytics avançado',
-      'App Player integrada',
-      'Staff e permissões',
-      'Precário público online',
-      'Suporte prioritário 24/7',
-      'Academia integrada',
-      'AI Agent incluído',
-      'Gestor de conta dedicado',
-      'Integrações personalizadas',
-    ],
-    notIncluded: [],
-  },
-]
+const MODULE_COLORS: Record<string, string> = {
+  tournaments: 'from-emerald-500 to-teal-500',
+  manager: 'from-blue-500 to-indigo-500',
+  bar: 'from-orange-500 to-amber-500',
+  ai_full: 'from-purple-500 to-indigo-600',
+  ai_light: 'from-violet-500 to-purple-500',
+};
+
+interface PlatformModule {
+  code: string;
+  name: string;
+  description: string | null;
+  price_monthly: number | null;
+  price_annual: number | null;
+  target_types: string[];
+  requires_modules: string[];
+  landing_features: string[];
+}
+
+interface BundlePlan {
+  name: string;
+  price: number;
+  priceAnnual: number;
+  features: string[];
+}
 
 const aiChannels = [
   { icon: MessageCircle, name: 'WhatsApp', desc: 'Responde automaticamente a mensagens dos clientes' },
@@ -206,32 +140,35 @@ const aiChannels = [
 ]
 
 export default function ClubLandingPage() {
-  const [plans, setPlans] = useState(defaultPlans);
+  const [modules, setModules] = useState<PlatformModule[]>([]);
+  const [bundles, setBundles] = useState<BundlePlan[]>([]);
 
   useEffect(() => {
-    const loadPlans = async () => {
-      const { data } = await supabase
-        .from('platform_plans')
-        .select('name, price_monthly, price_annual, features')
-        .eq('target_type', 'club')
-        .eq('is_active', true)
-        .order('price_monthly', { ascending: true });
+    const load = async () => {
+      const [modsRes, plansRes] = await Promise.all([
+        supabase.rpc('get_active_modules_public'),
+        supabase
+          .from('platform_plans')
+          .select('name, price_monthly, price_annual, features')
+          .eq('target_type', 'club')
+          .eq('is_active', true)
+          .order('price_monthly', { ascending: true }),
+      ]);
 
-      if (data && data.length > 0) {
-        setPlans(defaultPlans.map(dp => {
-          const dbPlan = data.find(d => d.name.toLowerCase() === dp.name.toLowerCase());
-          if (dbPlan) {
-            return {
-              ...dp,
-              price: Number(dbPlan.price_monthly) || dp.price,
-              priceAnnual: Number(dbPlan.price_annual) || dp.priceAnnual,
-            };
-          }
-          return dp;
-        }));
+      if (modsRes.data) setModules(modsRes.data as PlatformModule[]);
+
+      if (plansRes.data && plansRes.data.length > 0) {
+        setBundles(plansRes.data.map(p => ({
+          name: p.name,
+          price: Number(p.price_monthly) || 0,
+          priceAnnual: Number(p.price_annual) || 0,
+          features: Object.entries(p.features || {})
+            .filter(([, v]) => v === true || (typeof v === 'number' && v > 0))
+            .map(([k, v]) => typeof v === 'number' && v > 0 ? `${k}: ${v}` : k.replace(/_/g, ' ')),
+        })));
       }
     };
-    loadPlans();
+    load();
   }, []);
 
   return (
@@ -454,57 +391,51 @@ export default function ClubLandingPage() {
         </div>
       </section>
 
-      {/* Pricing */}
+      {/* Módulos à la carte */}
       <section className="py-20 bg-gray-50">
         <div className="max-w-6xl mx-auto px-4">
           <div className="text-center mb-14">
             <h2 className="text-3xl md:text-4xl font-black text-gray-900 mb-4">
-              Planos e Preços
+              Módulos à la carte
             </h2>
             <p className="text-lg text-gray-500 max-w-xl mx-auto">
-              Escolhe o plano ideal para o teu clube. Todos incluem as 3 apps integradas.
+              Compra apenas o que precisas. Cada módulo pode ser ativado individualmente para o teu clube ou organização.
             </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 max-w-6xl mx-auto">
-            {plans.map((plan) => (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-6xl mx-auto">
+            {(modules.length > 0 ? modules : []).map((mod) => (
               <div
-                key={plan.name}
-                className={`relative rounded-3xl bg-white border-2 overflow-hidden transition-all hover:shadow-xl ${
-                  plan.popular ? 'border-blue-500 shadow-lg scale-105' : 'border-gray-100'
-                }`}
+                key={mod.code}
+                className="relative rounded-3xl bg-white border-2 border-gray-100 overflow-hidden transition-all hover:shadow-xl hover:border-blue-200"
               >
-                {plan.popular && (
-                  <div className="absolute top-0 left-0 right-0 bg-gradient-to-r from-blue-500 to-indigo-600 text-white text-center text-xs font-bold py-1.5">
-                    Mais Popular
-                  </div>
-                )}
-                <div className={`p-6 ${plan.popular ? 'pt-10' : ''}`}>
-                  <div className={`inline-flex items-center gap-2 bg-gradient-to-r ${plan.color} rounded-full px-3 py-1 mb-4`}>
-                    <Star className="w-3.5 h-3.5 text-white" />
-                    <span className="text-sm font-bold text-white">{plan.name}</span>
-                  </div>
+                <div className={`h-2 bg-gradient-to-r ${MODULE_COLORS[mod.code] || 'from-gray-400 to-gray-500'}`} />
+                <div className="p-6">
+                  <h3 className="text-xl font-bold text-gray-900 mb-1">{mod.name}</h3>
+                  <p className="text-sm text-gray-500 mb-4 min-h-[40px]">{mod.description}</p>
 
-                  <div className="mb-6">
+                  <div className="mb-4">
                     <div className="flex items-end gap-1">
-                      <span className="text-4xl font-black text-gray-900">{plan.price}€</span>
+                      <span className="text-3xl font-black text-gray-900">{mod.price_monthly}€</span>
                       <span className="text-sm text-gray-400 mb-1">/mês</span>
                     </div>
-                    <p className="text-xs text-gray-400 mt-1">
-                      ou {plan.priceAnnual}€/ano <span className="text-green-600 font-semibold">({Math.round((1 - plan.priceAnnual / (plan.price * 12)) * 100)}% desc.)</span>
-                    </p>
+                    {mod.price_annual != null && (
+                      <p className="text-xs text-gray-400 mt-1">
+                        ou {mod.price_annual}€/ano
+                      </p>
+                    )}
                   </div>
 
-                  <ul className="space-y-2.5 mb-6">
-                    {plan.features.map((f) => (
+                  {mod.requires_modules?.length > 0 && (
+                    <p className="text-xs text-amber-600 mb-3">
+                      Requer: {mod.requires_modules.join(', ')}
+                    </p>
+                  )}
+
+                  <ul className="space-y-2 mb-6">
+                    {(mod.landing_features || []).map((f) => (
                       <li key={f} className="flex items-start gap-2 text-sm text-gray-700">
                         <Check className="w-4 h-4 text-green-500 mt-0.5 shrink-0" />
-                        {f}
-                      </li>
-                    ))}
-                    {plan.notIncluded.map((f) => (
-                      <li key={f} className="flex items-start gap-2 text-sm text-gray-400 line-through">
-                        <Check className="w-4 h-4 text-gray-300 mt-0.5 shrink-0" />
                         {f}
                       </li>
                     ))}
@@ -512,11 +443,7 @@ export default function ClubLandingPage() {
 
                   <a
                     href="mailto:info@boostpadel.store"
-                    className={`block text-center py-3 rounded-xl text-sm font-bold transition-all ${
-                      plan.popular
-                        ? 'bg-gradient-to-r from-blue-500 to-indigo-600 text-white hover:shadow-lg hover:shadow-blue-200'
-                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                    }`}
+                    className="block text-center py-3 rounded-xl text-sm font-bold bg-gray-100 text-gray-700 hover:bg-gray-200 transition-all"
                   >
                     Contactar
                   </a>
@@ -525,9 +452,28 @@ export default function ClubLandingPage() {
             ))}
           </div>
 
-          <p className="text-center text-sm text-gray-400 mt-8">
-            Todos os preços são sem IVA. Pagamento mensal ou anual via Stripe.
-          </p>
+          {bundles.length > 0 && (
+            <div className="mt-16">
+              <div className="text-center mb-8">
+                <h3 className="text-2xl font-bold text-gray-900 mb-2">Pacotes (Bundles)</h3>
+                <p className="text-gray-500 text-sm">Preferes um pacote completo? Temos opções pré-configuradas.</p>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-4xl mx-auto">
+                {bundles.map((plan) => (
+                  <div key={plan.name} className="rounded-2xl bg-white border border-gray-200 p-5">
+                    <h4 className="font-bold text-gray-900 mb-2">{plan.name}</h4>
+                    <p className="text-2xl font-black text-gray-900">{plan.price}€<span className="text-sm font-normal text-gray-400">/mês</span></p>
+                    <p className="text-xs text-gray-400 mb-3">ou {plan.priceAnnual}€/ano</p>
+                    <ul className="space-y-1">
+                      {plan.features.map(f => (
+                        <li key={f} className="text-xs text-gray-600 flex gap-1"><Check className="w-3 h-3 text-green-500 shrink-0" />{f}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </section>
 
