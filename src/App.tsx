@@ -3033,84 +3033,6 @@ function HomeScreen({
     getFollowersCount(userId).then(setFollowersCount)
   }, [userId])
 
-  // Pending results state
-  const [pendingResultGames, setPendingResultGames] = useState<(import('./lib/openGames').OpenGame & { _resultStatus?: string | null; _submittedByTeam?: number })[]>([])
-  const [pendingLoading, setPendingLoading] = useState(false)
-  const [pendingResultModal, setPendingResultModal] = useState<{ game: any } | null>(null)
-  const [pendingConfirmModal, setPendingConfirmModal] = useState<{ game: any; result: any } | null>(null)
-  const [pendingResultScores, setPendingResultScores] = useState({ t1s1: '', t2s1: '', t1s2: '', t2s2: '', t1s3: '', t2s3: '' })
-  const [pendingSubmitting, setPendingSubmitting] = useState(false)
-  const [homeSwapSelected, setHomeSwapSelected] = useState<{ playerId: string; team: number; gameId: string } | null>(null)
-  const [homeSwapping, setHomeSwapping] = useState(false)
-
-  const handleHomePlayerSwap = async (clickedPlayer: any, clickedTeam: number, gameId: string, gamePlayersRef: any[]) => {
-    if (homeSwapping) return
-    if (!homeSwapSelected || homeSwapSelected.gameId !== gameId) {
-      setHomeSwapSelected({ playerId: clickedPlayer.id, team: clickedTeam, gameId })
-      return
-    }
-    if (homeSwapSelected.playerId === clickedPlayer.id) {
-      setHomeSwapSelected(null)
-      return
-    }
-    if (homeSwapSelected.team === clickedTeam) {
-      setHomeSwapSelected({ playerId: clickedPlayer.id, team: clickedTeam, gameId })
-      return
-    }
-    setHomeSwapping(true)
-    try {
-      const { swapPlayerTeam } = await import('./lib/openGames')
-      const res = await swapPlayerTeam(homeSwapSelected.playerId, clickedPlayer.id)
-      if (res.success) {
-        const pA = gamePlayersRef.find((p: any) => p.id === homeSwapSelected.playerId)
-        const pB = gamePlayersRef.find((p: any) => p.id === clickedPlayer.id)
-        if (pA && pB) {
-          const tmpPos = pA.position
-          pA.position = pB.position
-          pB.position = tmpPos
-        }
-        setPendingResultGames([...pendingResultGames])
-      }
-    } catch (err) {
-      console.error('[Swap] Error:', err)
-    }
-    setHomeSwapSelected(null)
-    setHomeSwapping(false)
-  }
-
-  // Fetch pending results
-  useEffect(() => {
-    if (!userId) return
-    let active = true
-    const loadPending = async () => {
-      setPendingLoading(true)
-      try {
-        const { fetchPendingResultGames } = await import('./lib/openGames')
-        const data = await fetchPendingResultGames(userId, player?.id)
-        console.log('[Home] Fetched pending results:', data.length, 'games for userId:', userId, 'playerAccountId:', player?.id)
-        if (active) setPendingResultGames(data)
-      } catch (err) {
-        console.error('[Home] Error fetching pending results:', err)
-      }
-      if (active) setPendingLoading(false)
-    }
-    loadPending()
-    const onVis = () => {
-      if (document.visibilityState === 'visible') loadPending()
-    }
-    document.addEventListener('visibilitychange', onVis)
-    return () => { active = false; document.removeEventListener('visibilitychange', onVis) }
-  }, [userId, player?.id])
-
-  const refreshPendingResults = async () => {
-    if (!userId) return
-    try {
-      const { fetchPendingResultGames } = await import('./lib/openGames')
-      const data = await fetchPendingResultGames(userId, player?.id)
-      setPendingResultGames(data)
-    } catch {}
-  }
-
   const handlePlayerClick = async (playerName: string) => {
     const { findPlayerUserIdByName } = await import('./lib/classes')
     const userId = await findPlayerUserIdByName(playerName)
@@ -3811,290 +3733,6 @@ function HomeScreen({
           )}
         </div>
       </div>
-
-      {/* Resultados Pendentes – apenas jogos sem resultado introduzido */}
-      {(pendingResultGames.length > 0 || pendingLoading) && (
-        <div>
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-              <span>⏳</span> Resultados Pendentes
-            </h2>
-            <span className="bg-red-600 text-white text-xs font-bold px-2 py-0.5 rounded-full">
-              {pendingResultGames.length}
-            </span>
-          </div>
-          <div className="space-y-3">
-            {pendingResultGames.slice(0, 5).map(game => {
-              const confirmedPlayers = game.players.filter(p => p.status === 'confirmed')
-              const team1 = confirmedPlayers.filter(p => (p.position || 0) <= 2)
-              const team2 = confirmedPlayers.filter(p => (p.position || 0) > 2)
-
-              return (
-                <div key={game.id} className="border border-amber-200 rounded-2xl overflow-hidden bg-amber-50/50 shadow-sm">
-                  <div className="p-4">
-                    <div className="flex items-center justify-between mb-2">
-                      <p className="text-sm font-bold text-gray-900">
-                        {new Date(game.scheduled_at).toLocaleDateString('pt-PT', { weekday: 'short', day: '2-digit', month: '2-digit' })} às {new Date(game.scheduled_at).toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' })}
-                      </p>
-                      <span className="px-2 py-0.5 bg-red-100 text-red-700 rounded-full text-xs font-medium">Sem resultado</span>
-                    </div>
-                    
-                    {/* Teams compact display - tap to swap */}
-                    <div className="flex items-center gap-3 mb-3">
-                      <div className="flex-1 text-center">
-                        <div className="flex justify-center gap-2">
-                          {team1.map(p => {
-                            const isSelected = homeSwapSelected?.playerId === p.id && homeSwapSelected?.gameId === game.id
-                            return (
-                            <div key={p.id} className="flex flex-col items-center cursor-pointer" onClick={() => handleHomePlayerSwap(p, 1, game.id, confirmedPlayers)}>
-                              <div className={`w-10 h-10 rounded-full overflow-hidden flex items-center justify-center transition-all ${isSelected ? 'ring-3 ring-blue-500 ring-offset-1 scale-110' : 'bg-gray-200'}`}>
-                                {p.avatar_url ? (
-                                  <img src={p.avatar_url} className="w-full h-full object-cover" />
-                                ) : (
-                                  <div className="w-full h-full bg-gray-200 flex items-center justify-center">
-                                    <span className="text-xs font-bold text-gray-600">{(p.name || '?').charAt(0).toUpperCase()}</span>
-                                  </div>
-                                )}
-                              </div>
-                              <span className="text-[10px] text-gray-600 mt-0.5 truncate max-w-[55px]">{(p.name || '').split(' ')[0]}</span>
-                            </div>
-                            )
-                          })}
-                        </div>
-                      </div>
-                      <span className="text-gray-300 text-sm font-bold">VS</span>
-                      <div className="flex-1 text-center">
-                        <div className="flex justify-center gap-2">
-                          {team2.map(p => {
-                            const isSelected = homeSwapSelected?.playerId === p.id && homeSwapSelected?.gameId === game.id
-                            return (
-                            <div key={p.id} className="flex flex-col items-center cursor-pointer" onClick={() => handleHomePlayerSwap(p, 2, game.id, confirmedPlayers)}>
-                              <div className={`w-10 h-10 rounded-full overflow-hidden flex items-center justify-center transition-all ${isSelected ? 'ring-3 ring-blue-500 ring-offset-1 scale-110' : 'bg-gray-200'}`}>
-                                {p.avatar_url ? (
-                                  <img src={p.avatar_url} className="w-full h-full object-cover" />
-                                ) : (
-                                  <div className="w-full h-full bg-gray-200 flex items-center justify-center">
-                                    <span className="text-xs font-bold text-gray-600">{(p.name || '?').charAt(0).toUpperCase()}</span>
-                                  </div>
-                                )}
-                              </div>
-                              <span className="text-[10px] text-gray-600 mt-0.5 truncate max-w-[55px]">{(p.name || '').split(' ')[0]}</span>
-                            </div>
-                            )
-                          })}
-                        </div>
-                      </div>
-                    </div>
-                    {homeSwapSelected?.gameId === game.id && (
-                      <p className="text-[10px] text-blue-500 text-center mb-2 animate-pulse">Toca num jogador da outra equipa para trocar</p>
-                    )}
-
-                    {/* Club info */}
-                    <div className="flex items-center gap-2 mb-3">
-                      {game.club_logo_url ? (
-                        <img src={game.club_logo_url} alt="" className="w-5 h-5 rounded-lg object-cover" />
-                      ) : (
-                        <div className="w-5 h-5 rounded-lg bg-gray-200 flex items-center justify-center">
-                          <Building2 className="w-3 h-3 text-gray-400" />
-                        </div>
-                      )}
-                      <span className="text-xs text-gray-600">{game.club_name}</span>
-                    </div>
-
-                    {/* Actions */}
-                    <button
-                      onClick={() => {
-                        setPendingResultModal({ game })
-                        setPendingResultScores({ t1s1: '', t2s1: '', t1s2: '', t2s2: '', t1s3: '', t2s3: '' })
-                      }}
-                      className="w-full py-2.5 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 transition-colors"
-                    >
-                      📊 Introduzir resultado
-                    </button>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Modal: Introduzir Resultado (Homepage) */}
-      {pendingResultModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setPendingResultModal(null)}>
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-fade-in" onClick={e => e.stopPropagation()}>
-            <div className="p-4 border-b border-gray-100 flex items-center justify-between">
-              <h3 className="font-bold text-lg text-gray-900">📊 Introduzir resultado</h3>
-              <button onClick={() => setPendingResultModal(null)} className="p-1">
-                <X className="w-5 h-5 text-gray-500" />
-              </button>
-            </div>
-            <div className="p-5 space-y-4">
-              {(() => {
-                const cp = pendingResultModal.game.players.filter((p: any) => p.status === 'confirmed')
-                const t1 = cp.filter((p: any) => (p.position || 0) <= 2)
-                const t2 = cp.filter((p: any) => (p.position || 0) > 2)
-                return (
-                  <div className="flex items-center gap-4">
-                    <div className="flex-1 text-center">
-                      <p className="text-xs font-bold text-blue-600 mb-1">Equipa 1</p>
-                      {t1.map((p: any) => <p key={p.id} className="text-xs text-gray-700">{(p.name || '').split(' ')[0]}</p>)}
-                    </div>
-                    <span className="text-gray-300 font-bold">VS</span>
-                    <div className="flex-1 text-center">
-                      <p className="text-xs font-bold text-red-600 mb-1">Equipa 2</p>
-                      {t2.map((p: any) => <p key={p.id} className="text-xs text-gray-700">{(p.name || '').split(' ')[0]}</p>)}
-                    </div>
-                  </div>
-                )
-              })()}
-              <div className="space-y-3">
-                {['Set 1', 'Set 2', 'Set 3'].map((label, idx) => (
-                  <div key={label} className="flex items-center gap-3">
-                    <span className={`text-sm font-medium w-12 ${idx === 2 ? 'text-gray-400' : 'text-gray-700'}`}>{label}</span>
-                    <input type="number" min="0" max="7" placeholder="E1"
-                      value={idx === 0 ? pendingResultScores.t1s1 : idx === 1 ? pendingResultScores.t1s2 : pendingResultScores.t1s3}
-                      onChange={e => {
-                        const key = idx === 0 ? 't1s1' : idx === 1 ? 't1s2' : 't1s3'
-                        setPendingResultScores(prev => ({ ...prev, [key]: e.target.value }))
-                      }}
-                      className="flex-1 text-center py-2 border border-gray-200 rounded-lg text-sm font-bold focus:ring-2 focus:ring-blue-500"
-                    />
-                    <span className="text-gray-300">-</span>
-                    <input type="number" min="0" max="7" placeholder="E2"
-                      value={idx === 0 ? pendingResultScores.t2s1 : idx === 1 ? pendingResultScores.t2s2 : pendingResultScores.t2s3}
-                      onChange={e => {
-                        const key = idx === 0 ? 't2s1' : idx === 1 ? 't2s2' : 't2s3'
-                        setPendingResultScores(prev => ({ ...prev, [key]: e.target.value }))
-                      }}
-                      className="flex-1 text-center py-2 border border-gray-200 rounded-lg text-sm font-bold focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                ))}
-              </div>
-              <p className="text-xs text-gray-400 text-center">O 3° set é opcional</p>
-              <button
-                disabled={pendingSubmitting || !pendingResultScores.t1s1 || !pendingResultScores.t2s1 || !pendingResultScores.t1s2 || !pendingResultScores.t2s2}
-                onClick={async () => {
-                  setPendingSubmitting(true)
-                  const { submitGameResult } = await import('./lib/openGames')
-                  const res = await submitGameResult({
-                    gameId: pendingResultModal.game.id,
-                    t1Set1: parseInt(pendingResultScores.t1s1) || 0,
-                    t2Set1: parseInt(pendingResultScores.t2s1) || 0,
-                    t1Set2: parseInt(pendingResultScores.t1s2) || 0,
-                    t2Set2: parseInt(pendingResultScores.t2s2) || 0,
-                    t1Set3: parseInt(pendingResultScores.t1s3) || 0,
-                    t2Set3: parseInt(pendingResultScores.t2s3) || 0,
-                  })
-                  if (res.success) {
-                    alert(t.results.resultRegistered)
-                    setPendingResultModal(null)
-                    refreshPendingResults()
-                    onRefresh()
-                  } else {
-                    alert(res.error || 'Erro ao submeter resultado')
-                  }
-                  setPendingSubmitting(false)
-                }}
-                className="w-full py-3 bg-blue-600 text-white rounded-xl text-sm font-semibold disabled:opacity-50"
-              >
-                {pendingSubmitting ? 'A submeter...' : '✓ Submeter resultado'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal: Disputar Resultado (Homepage) */}
-      {pendingConfirmModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setPendingConfirmModal(null)}>
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-fade-in" onClick={e => e.stopPropagation()}>
-            <div className="p-4 border-b border-gray-100 flex items-center justify-between">
-              <h3 className="font-bold text-lg text-gray-900">📊 {t.results.disputeResult}</h3>
-              <button onClick={() => setPendingConfirmModal(null)} className="p-1">
-                <X className="w-5 h-5 text-gray-500" />
-              </button>
-            </div>
-            <div className="p-5 space-y-4">
-              {(() => {
-                const cp = pendingConfirmModal.game.players.filter((p: any) => p.status === 'confirmed')
-                const t1 = cp.filter((p: any) => (p.position || 0) <= 2)
-                const t2 = cp.filter((p: any) => (p.position || 0) > 2)
-                const r = pendingConfirmModal.result
-                const s1 = [r.team1_score_set1 || 0, r.team2_score_set1 || 0]
-                const s2 = [r.team1_score_set2 || 0, r.team2_score_set2 || 0]
-                const s3 = [r.team1_score_set3 || 0, r.team2_score_set3 || 0]
-                const sets1 = (s1[0] > s1[1] ? 1 : 0) + (s2[0] > s2[1] ? 1 : 0) + (s3[0] > s3[1] ? 1 : 0)
-                const sets2 = (s1[1] > s1[0] ? 1 : 0) + (s2[1] > s2[0] ? 1 : 0) + (s3[1] > s3[0] ? 1 : 0)
-                const team1Won = sets1 > sets2
-                return (
-                  <>
-                    <div className="flex items-center gap-4">
-                      <div className={`flex-1 text-center p-3 rounded-xl ${team1Won ? 'bg-green-50 border border-green-200' : 'bg-gray-50'}`}>
-                        <p className="text-xs font-bold text-blue-600 mb-1">Equipa 1 {team1Won ? '🏆' : ''}</p>
-                        {t1.map((p: any) => <p key={p.id} className="text-xs text-gray-700">{(p.name || '').split(' ')[0]}</p>)}
-                      </div>
-                      <span className="text-gray-300 font-bold">VS</span>
-                      <div className={`flex-1 text-center p-3 rounded-xl ${!team1Won ? 'bg-green-50 border border-green-200' : 'bg-gray-50'}`}>
-                        <p className="text-xs font-bold text-red-600 mb-1">Equipa 2 {!team1Won ? '🏆' : ''}</p>
-                        {t2.map((p: any) => <p key={p.id} className="text-xs text-gray-700">{(p.name || '').split(' ')[0]}</p>)}
-                      </div>
-                    </div>
-                    <div className="bg-gray-50 rounded-xl p-4">
-                      <div className="grid grid-cols-3 gap-3 text-center">
-                        <div><p className="text-[10px] text-gray-500 mb-1">Set 1</p><p className="text-lg font-bold">{r.team1_score_set1} - {r.team2_score_set1}</p></div>
-                        <div><p className="text-[10px] text-gray-500 mb-1">Set 2</p><p className="text-lg font-bold">{r.team1_score_set2} - {r.team2_score_set2}</p></div>
-                        {(r.team1_score_set3 > 0 || r.team2_score_set3 > 0) && (
-                          <div><p className="text-[10px] text-gray-500 mb-1">Set 3</p><p className="text-lg font-bold">{r.team1_score_set3} - {r.team2_score_set3}</p></div>
-                        )}
-                      </div>
-                      <p className="text-xs text-gray-400 text-center mt-2">Submetido pela Equipa {r.submitted_by_team}</p>
-                    </div>
-                  </>
-                )
-              })()}
-              {(() => {
-                const myPlayer = pendingConfirmModal.game.players.find((p: any) => p.user_id === userId || (player?.id && p.player_account_id === player.id))
-                const myTeam = myPlayer ? ((myPlayer.position || 0) <= 2 ? 1 : 2) : 0
-                const canDispute = myTeam !== 0 && myTeam !== pendingConfirmModal.result.submitted_by_team
-                if (!canDispute) {
-                  return (
-                    <div className="bg-green-50 border border-green-200 rounded-xl p-3 text-center">
-                      <p className="text-sm text-green-700 font-medium">✓ {t.results.resultRegistered}</p>
-                    </div>
-                  )
-                }
-                return (
-                  <div className="space-y-2">
-                    <p className="text-xs text-gray-500 text-center">O resultado já está registado. Discordas do resultado?</p>
-                    <button
-                      onClick={async () => {
-                        if (!confirm(t.results.disputePrompt)) return
-                        setPendingSubmitting(true)
-                        const { disputeGameResult } = await import('./lib/openGames')
-                        const res = await disputeGameResult(pendingConfirmModal.game.id)
-                        if (res.success) {
-                          alert(t.results.resultDisputed)
-                          setPendingConfirmModal(null)
-                          refreshPendingResults()
-                        } else {
-                          alert(res.error || t.results.disputeError)
-                        }
-                        setPendingSubmitting(false)
-                      }}
-                      disabled={pendingSubmitting}
-                      className="w-full py-3 bg-red-100 text-red-700 rounded-xl text-sm font-semibold hover:bg-red-200 disabled:opacity-50"
-                    >
-                      ✗ {t.results.disputeResult}
-                    </button>
-                  </div>
-                )
-              })()}
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Resultados Recentes – lista horizontal ao estilo Playtomic */}
       {d && d.recentMatches.length > 0 && (
@@ -7585,7 +7223,6 @@ function FindGameScreen({
   const [qrClubId, setQrClubId] = useState('')
   const [qrClubName, setQrClubName] = useState('')
   const [qrDate, setQrDate] = useState(new Date().toISOString().split('T')[0])
-  const [qrGameType, setQrGameType] = useState<'competitive' | 'friendly'>('competitive')
   const [qrPlayers, setQrPlayers] = useState<{ position: number; id: string; name: string; avatar_url: string | null; level: number | null }[]>([])
   const [qrScores, setQrScores] = useState({ t1s1: '', t2s1: '', t1s2: '', t2s2: '', t1s3: '', t2s3: '' })
   const [qrSearchQuery, setQrSearchQuery] = useState('')
@@ -7655,19 +7292,17 @@ function FindGameScreen({
     return () => clearTimeout(timeout)
   }, [qrSearchQuery, qrPlayers])
 
-  const openQuickResultModal = (prefill?: { clubId: string; clubName: string; date: string; gameType: 'competitive' | 'friendly'; players: typeof qrPlayers }) => {
+  const openQuickResultModal = (prefill?: { clubId: string; clubName: string; date: string; players: typeof qrPlayers }) => {
     if (prefill) {
       setQrClubId(prefill.clubId)
       setQrClubName(prefill.clubName)
       setQrDate(prefill.date)
-      setQrGameType(prefill.gameType)
       setQrPlayers(prefill.players)
       setQrStep(2)
     } else {
       setQrClubId('')
       setQrClubName('')
       setQrDate(new Date().toISOString().split('T')[0])
-      setQrGameType('competitive')
       setQrPlayers(player ? [{
         position: 1,
         id: player.id,
@@ -7698,7 +7333,6 @@ function FindGameScreen({
         playerAccountId: player?.id || null,
         clubId: qrClubId,
         scheduledAt,
-        gameType: qrGameType,
         players: qrPlayers.map(p => ({
           player_account_id: p.id,
           position: p.position,
@@ -7784,7 +7418,7 @@ function FindGameScreen({
     courts: { court_id: string; court_name: string; court_type: string | null; durations: number[]; price_60: number; price_90: number; price_120: number }[]
   } | null>(null)
   const [selectedCourtIdx, setSelectedCourtIdx] = useState<number>(0)
-  const [createGameType, setCreateGameType] = useState<'competitive' | 'friendly'>('friendly')
+  const [createGameType, setCreateGameType] = useState<'competitive' | 'friendly'>('competitive')
   const [createGender, setCreateGender] = useState<'all' | 'male' | 'female' | 'mixed'>('all')
   const [createDuration, setCreateDuration] = useState<number>(90)
   const [creating, setCreating] = useState(false)
@@ -8835,7 +8469,7 @@ function FindGameScreen({
         <div className="space-y-3">
           <div>
             <h2 className="text-lg font-bold text-gray-900">Resultados</h2>
-            <p className="text-xs text-gray-500">Introduza resultados em falta ou consulte resultados registados (disputa facultativa)</p>
+            <p className="text-xs text-gray-500">Regista resultados para atualizar o ranking. A equipa adversária pode disputar.</p>
           </div>
 
           {/* Quick Result Button */}
@@ -8982,7 +8616,6 @@ function FindGameScreen({
                               clubId: game.club_id,
                               clubName: game.club_name,
                               date: new Date().toISOString().split('T')[0],
-                              gameType: game.game_type,
                               players: confirmedPlayers.map(p => ({
                                 position: p.position || 0,
                                 id: p.player_account_id || '',
@@ -9186,28 +8819,9 @@ function FindGameScreen({
             </div>
 
             <div className="p-5 space-y-4">
-              {/* === STEP 1: Club + Date + Game Type === */}
+              {/* === STEP 1: Club + Date === */}
               {qrStep === 1 && (
                 <>
-                  {/* Game Type */}
-                  <div>
-                    <label className="text-sm font-semibold text-gray-700 mb-2 block">{t.common.gameType}</label>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => setQrGameType('competitive')}
-                        className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-colors ${qrGameType === 'competitive' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-600'}`}
-                      >
-                        🏆 {t.common.competitive}
-                      </button>
-                      <button
-                        onClick={() => setQrGameType('friendly')}
-                        className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-colors ${qrGameType === 'friendly' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'}`}
-                      >
-                        🤝 {t.common.friendly}
-                      </button>
-                    </div>
-                  </div>
-
                   {/* Date */}
                   <div>
                     <label className="text-sm font-semibold text-gray-700 mb-2 block">📅 {t.common.selectDate}</label>
@@ -9766,29 +9380,6 @@ function FindGameScreen({
                       {d} min
                     </button>
                   ))}
-                </div>
-              </div>
-
-              {/* Game Type */}
-              <div>
-                <label className="text-sm font-semibold text-gray-700 mb-2 block">Tipo de jogo</label>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setCreateGameType('friendly')}
-                    className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
-                      createGameType === 'friendly' ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                    }`}
-                  >
-                    🤝 Amigável
-                  </button>
-                  <button
-                    onClick={() => setCreateGameType('competitive')}
-                    className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
-                      createGameType === 'competitive' ? 'bg-amber-500 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                    }`}
-                  >
-                    🏆 Competitivo
-                  </button>
                 </div>
               </div>
 
@@ -10619,7 +10210,7 @@ function BookingScreen({
 
   // Step 3: Game config
   const [isPublic, setIsPublic] = useState(false)
-  const [gameType, setGameType] = useState<'competitive' | 'friendly'>('friendly')
+  const [gameType, setGameType] = useState<'competitive' | 'friendly'>('competitive')
   const [gender, setGender] = useState<'all' | 'male' | 'female' | 'mixed'>('all')
   const [duration, setDuration] = useState<number>(90)
 
@@ -11227,29 +10818,6 @@ function BookingScreen({
                   {d} min
                 </button>
               ))}
-            </div>
-          </div>
-
-          {/* Game Type */}
-          <div>
-            <label className="text-sm font-semibold text-gray-700 mb-2 block">🎯 {t.common.gameType}</label>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setGameType('friendly')}
-                className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
-                  gameType === 'friendly' ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                🤝 Amigável
-              </button>
-              <button
-                onClick={() => setGameType('competitive')}
-                className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
-                  gameType === 'competitive' ? 'bg-amber-500 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                🏆 Competitivo
-              </button>
             </div>
           </div>
 
@@ -13493,7 +13061,6 @@ function ProfileEditScreen({
     if (!editLocation.trim()) missing.push(t.settings.location)
     if (!editHand) missing.push(t.settings.preferredHand)
     if (!editPosition) missing.push(t.settings.courtPosition)
-    if (!editGameType) missing.push(t.settings.preferredGameType)
     if (!editPreferredTime) missing.push(t.settings.preferredTime)
 
     if (missing.length > 0) {
@@ -13514,7 +13081,7 @@ function ProfileEditScreen({
         preferred_hand: editHand as any,
         court_position: editPosition as any,
         bio: editBio.trim() || undefined,
-        game_type: editGameType as any,
+        game_type: 'competitive',
         preferred_time: editPreferredTime as any,
       }
 
@@ -13718,28 +13285,10 @@ function ProfileEditScreen({
               </div>
             </div>
 
-            {/* Tipo de Jogo Preferido */}
+            {/* Tipo de Jogo Preferido — apenas competitivo (todos contam para ranking) */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">{t.settings.preferredGameType} <span className="text-red-600">*</span></label>
-              <div className="grid grid-cols-3 gap-2">
-                {[
-                  { value: 'competitive', label: t.games.competitive },
-                  { value: 'friendly', label: t.games.friendly },
-                  { value: 'both', label: t.settings.both },
-                ].map((opt) => (
-                  <button
-                    key={opt.value}
-                    onClick={() => setEditGameType(editGameType === opt.value ? '' : opt.value)}
-                    className={`py-2 px-2 rounded-lg text-sm font-medium border transition-colors ${
-                      editGameType === opt.value
-                        ? 'bg-red-600 text-white border-red-600'
-                        : 'bg-white text-gray-700 border-gray-300 hover:border-red-300'
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">{t.settings.preferredGameType}</label>
+              <p className="text-sm text-gray-600 bg-gray-50 rounded-lg px-3 py-2 border border-gray-200">🏆 {t.games.competitive}</p>
             </div>
 
             {/* Horário Preferido */}

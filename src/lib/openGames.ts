@@ -3,6 +3,7 @@
  * Functions to fetch/create/join open games and get club availability.
  */
 import { supabase } from './supabase'
+import { normalizePhone } from './phoneUtils'
 import { notifyOpenGamePlayers, notifyGameCreator, sendPushToPlayer } from './pushNotifications'
 import { getTranslations } from './translations'
 import { calculateNewRatings, calculateReliability, calculateProtectedReliability } from './ratingEngine'
@@ -967,7 +968,7 @@ export async function createOpenGame(params: {
       court_id: params.courtId,
       scheduled_at: scheduledAtISO,
       duration_minutes: params.durationMinutes,
-      game_type: params.gameType,
+      game_type: 'competitive',
       gender: params.gender,
       level_min: levelMin,
       level_max: levelMax,
@@ -1216,7 +1217,7 @@ async function syncBookingPlayers(gameId: string) {
       const ps = playerSlots[i]
       if (!ps.name && !ps.phone) continue
 
-      const normalizedPhone = ps.phone ? ps.phone.replace(/[\s\-\(\)\.]/g, '').replace(/^00/, '+') : ''
+      const normalizedPhone = ps.phone ? normalizePhone(ps.phone) : ''
 
       let query = supabase
         .from('member_subscriptions')
@@ -2074,7 +2075,7 @@ export function canDisputeGameResult(
   resultCreatedAt?: string | null,
 ): boolean {
   const status = game._resultStatus
-  if (status !== 'confirmed' && status !== 'pending') return false
+  if (status !== 'confirmed') return false
 
   const myTeam = getPlayerTeamFromGame(game, userId, playerAccountId)
   const submittedByTeam = game._submittedByTeam
@@ -2101,7 +2102,7 @@ export function getResultGameAction(
   const status = game._resultStatus
   if (!status) return 'submit'
 
-  if (status === 'confirmed' || status === 'pending') {
+  if (status === 'confirmed') {
     return canDisputeGameResult(game, userId, playerAccountId) ? 'dispute' : 'none'
   }
 
@@ -2173,7 +2174,7 @@ export async function submitGameResult(params: {
     notifyOpenGamePlayers(params.gameId, myAccount?.id || null, {
       title: t.notifications.resultSubmitted,
       body: t.notifications.resultSubmittedBody,
-      url: '/?screen=games',
+      url: '/?screen=game-results',
       tag: `result-${params.gameId}`,
     })
   } catch {}
@@ -3762,8 +3763,7 @@ export async function fetchResultGamesForTab(
   return allGames.filter(g => {
     const action = getResultGameAction(g, userId, playerAccountId)
     if (action === 'submit' || action === 'dispute') return true
-    const status = (g as any)._resultStatus
-    return status === 'confirmed' || status === 'pending'
+    return (g as any)._resultStatus === 'confirmed'
   })
 }
 
@@ -3802,8 +3802,7 @@ export async function createQuickResultGame(params: {
   userId: string
   playerAccountId?: string | null
   clubId: string
-  scheduledAt: string      // ISO date string of when the game was played
-  gameType: 'competitive' | 'friendly'
+  scheduledAt: string
   players: { player_account_id: string; position: number; name: string | null }[]
   sets: { t1s1: number; t2s1: number; t1s2: number; t2s2: number; t1s3?: number; t2s3?: number }
 }): Promise<{ success: boolean; gameId?: string; error?: string }> {
@@ -3834,7 +3833,7 @@ export async function createQuickResultGame(params: {
       court_id: null,
       scheduled_at: params.scheduledAt,
       duration_minutes: 90,
-      game_type: params.gameType,
+      game_type: 'competitive',
       gender: 'all',
       level_min: levelMin,
       level_max: levelMax,
@@ -3905,13 +3904,11 @@ export async function createQuickResultGame(params: {
     return { success: false, error: resultError.message }
   }
 
-  // Process ratings if competitive
-  if (params.gameType === 'competitive') {
-    try {
-      await processOpenGameRating(game.id)
-    } catch (err) {
-      console.error('[QuickResult] Error processing rating:', err)
-    }
+  // Process ratings — todos os jogos contam para o ranking
+  try {
+    await processOpenGameRating(game.id)
+  } catch (err) {
+    console.error('[QuickResult] Error processing rating:', err)
   }
 
   return { success: true, gameId: game.id }
