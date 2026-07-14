@@ -819,7 +819,7 @@ export const translations = {
       yourName: 'O teu nome',
       phone: 'Telemóvel',
       phonePlaceholder: '912 345 678',
-      phoneHint: 'O indicativo do país será removido automaticamente',
+      phoneHint: 'Aceita qualquer país — use + indicativo internacional ou número local',
       email: 'Email',
       emailPlaceholder: 'email@exemplo.com',
       password: 'Password',

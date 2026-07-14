@@ -120,7 +120,7 @@ import {
   type ChatMessage,
 } from './lib/groupChat'
 import { isPushSupported, checkIsSubscribed, subscribeToPush, unsubscribeFromPush } from './lib/pushNotifications'
-import { normalizePhone } from './lib/phoneUtils'
+import { normalizePhone, isValidPhone } from './lib/phoneUtils'
 import {
   requestPartnerMatch,
   fetchPendingPartnerInvites,
@@ -13569,7 +13569,7 @@ function RegisterScreen({ onBack, onSuccess, returnTo }: {
 
       // Validações
       if (!name.trim()) { setError(t.register.nameRequired); setSaving(false); return }
-      if (!normalizedPhone || normalizedPhone.length < 9) { 
+      if (!isValidPhone(regPhone)) { 
         if (regPhone.trim() === '+' || (regPhone.trim().startsWith('+') && regPhone.trim().length < 4)) {
           setError(t.register.addCountryCode);
         } else {
@@ -13832,6 +13832,7 @@ function RegisterScreen({ onBack, onSuccess, returnTo }: {
                 setError('')
                 if (!name.trim()) { setError(t.register.nameRequired); return }
                 if (!regPhone.trim()) { setError(t.register.phoneRequired); return }
+                if (!isValidPhone(regPhone)) { setError(t.auth.invalidPhone); return }
                 if (!email.trim()) { setError(t.register.emailRequired); return }
                 if (regPassword.length < 6) { setError(t.register.passwordMin); return }
                 if (regPassword !== confirmPwd) { setError(t.register.passwordsMismatch); return }

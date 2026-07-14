@@ -1,21 +1,76 @@
-export function normalizePhone(phone: string): string {
-  let cleaned = phone.replace(/[\s\-\(\)\.]/g, '');
-  let hadPrefix = false;
-  if (cleaned.startsWith('+00')) { cleaned = cleaned.slice(3); hadPrefix = true; }
-  else if (cleaned.startsWith('+')) { cleaned = cleaned.slice(1); hadPrefix = true; }
-  else if (cleaned.startsWith('00')) { cleaned = cleaned.slice(2); hadPrefix = true; }
+/** Comprimento mínimo/máximo do número nacional após normalização (E.164). */
+export const MIN_PHONE_DIGITS = 6;
+export const MAX_PHONE_DIGITS = 15;
 
-  if (hadPrefix) {
-    cleaned = cleaned.replace(/^(351|352|353|354|355|356|357|358|359|370|371|372|373|374|375|376|377|378|380|381|382|383|385|386|387|389|420|421|423|212|213|216|244|245|258|297|298|299|852|853|855|856|880|886|960|961|962|963|964|965|966|967|968|971|972|973|974|975|976|977|992|993|994|995|996|997|998)(?=\d{7,})/, '');
-    cleaned = cleaned.replace(/^(20|27|30|31|32|33|34|36|39|40|41|43|44|45|46|47|48|49|51|52|53|54|55|56|57|58|60|61|62|63|64|65|66|81|82|84|86|90|91|92|93|94|95|98)(?=\d{7,})/, '');
-    cleaned = cleaned.replace(/^[17](?=\d{9,})/, '');
-  } else {
-    cleaned = cleaned.replace(/^351(?=[29]\d{8}$)/, '');
+/** Indicativos internacionais — ordem decrescente para longest-match. */
+const COUNTRY_CODES = [
+  '998', '996', '995', '994', '993', '992', '977', '976', '975', '974', '973', '972', '971',
+  '968', '967', '966', '965', '964', '963', '962', '961', '960', '886', '880', '856', '855',
+  '853', '852', '423', '421', '420', '389', '387', '386', '385', '383', '382', '381', '380',
+  '378', '377', '376', '375', '374', '373', '372', '371', '370', '359', '358', '357', '356',
+  '355', '354', '353', '352', '351', '299', '298', '297', '258', '245', '244', '216', '213', '212',
+  '98', '95', '94', '93', '92', '91', '90', '86', '84', '82', '81', '66', '65', '64', '63', '62',
+  '61', '60', '58', '57', '56', '55', '54', '53', '52', '51', '49', '48', '47', '46', '45', '44',
+  '43', '41', '40', '39', '36', '34', '33', '32', '31', '30', '27', '20',
+];
+
+function stripOneCountryCode(digits: string): string {
+  for (const code of COUNTRY_CODES) {
+    if (digits.startsWith(code) && digits.length > code.length + MIN_PHONE_DIGITS - 1) {
+      return digits.slice(code.length);
+    }
+  }
+  if (digits.startsWith('1') && digits.length >= 11) {
+    return digits.slice(1);
+  }
+  return digits;
+}
+
+/**
+ * Normaliza um número de telefone para armazenamento/comparação.
+ * Aceita formatos internacionais (+/00) e locais; remove no máximo UM indicativo.
+ */
+export function normalizePhone(phone: string): string {
+  if (!phone) return '';
+
+  let cleaned = phone.trim().replace(/[\s\-\(\)\.]/g, '');
+  let hadIntlPrefix = false;
+
+  if (cleaned.startsWith('+00')) {
+    cleaned = cleaned.slice(3);
+    hadIntlPrefix = true;
+  } else if (cleaned.startsWith('+')) {
+    cleaned = cleaned.slice(1);
+    hadIntlPrefix = true;
+  } else if (cleaned.startsWith('00')) {
+    cleaned = cleaned.slice(2);
+    hadIntlPrefix = true;
   }
 
-  if (cleaned.startsWith('0') && cleaned.length >= 9) {
-    cleaned = cleaned.slice(1);
+  cleaned = cleaned.replace(/\D/g, '');
+
+  if (hadIntlPrefix) {
+    cleaned = stripOneCountryCode(cleaned);
+  } else {
+    if (/^351[29]\d{8}$/.test(cleaned)) {
+      cleaned = cleaned.slice(3);
+    }
+    if (cleaned.startsWith('0') && cleaned.length > MIN_PHONE_DIGITS) {
+      cleaned = cleaned.slice(1);
+    }
+    // Número longo sem "+" explícito pode incluir indicativo (ex: 971551470524)
+    if (cleaned.length > 10) {
+      const stripped = stripOneCountryCode(cleaned);
+      if (stripped.length >= MIN_PHONE_DIGITS && stripped.length < cleaned.length) {
+        cleaned = stripped;
+      }
+    }
   }
 
   return cleaned;
+}
+
+export function isValidPhone(phone: string): boolean {
+  const normalized = normalizePhone(phone);
+  return normalized.length >= MIN_PHONE_DIGITS && normalized.length <= MAX_PHONE_DIGITS;
 }
