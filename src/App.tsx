@@ -131,7 +131,7 @@ import {
   type PartnerInvite,
   type PartnerMatchRequesterSummary,
 } from './lib/partnerMatch'
-import { fetchClientModules, type PlayerAppMode } from './lib/useClientModules'
+import { fetchClientModules, derivePlayerFeatures, EMPTY_MODULES, type ClientModulesResult } from './lib/useClientModules'
 
 type Screen = 'home' | 'games' | 'profile-view' | 'profile-edit' | 'club' | 'club-detail' | 'clubs-list' | 'compete' | 'community' | 'player-profile' | 'follows-list' | 'learn' | 'find-game' | 'game-results' | 'rewards' | 'booking' | 'payments' | 'group-detail' | 'rankings'
 
@@ -178,18 +178,34 @@ function App() {
     return 'landing'
   })
   const [languageDropdownOpen, setLanguageDropdownOpen] = useState(false)
-  const [playerMode, setPlayerMode] = useState<PlayerAppMode>('full')
-  const isLiteMode = playerMode === 'lite'
+  const [clientModules, setClientModules] = useState<ClientModulesResult>(EMPTY_MODULES)
+  const playerFeatures = useMemo(() => {
+    if (!player?.favorite_club_id) {
+      return {
+        isLiteMode: false,
+        canBook: true,
+        canFindGame: true,
+        canLearn: true,
+        canRewards: true,
+      }
+    }
+    return derivePlayerFeatures(clientModules)
+  }, [clientModules, player?.favorite_club_id])
+  const { isLiteMode, canBook, canFindGame, canLearn, canRewards } = playerFeatures
 
   useEffect(() => {
     if (!player?.favorite_club_id) {
-      setPlayerMode('full')
+      setClientModules(EMPTY_MODULES)
       return
     }
-    fetchClientModules('club', player.favorite_club_id).then(mods => {
-      setPlayerMode(mods.playerMode)
-    })
+    fetchClientModules('club', player.favorite_club_id).then(setClientModules)
   }, [player?.favorite_club_id])
+
+  useEffect(() => {
+    if (currentScreen === 'booking' && !canBook) setCurrentScreen('home')
+    if (currentScreen === 'find-game' && !canFindGame) setCurrentScreen('home')
+    if (currentScreen === 'learn' && !canLearn) setCurrentScreen('home')
+  }, [canBook, canFindGame, canLearn, currentScreen])
 
   useEffect(() => {
     const onPopState = () => {
@@ -814,6 +830,10 @@ function App() {
             onOpenRankings={() => setCurrentScreen('rankings')}
             onOpenGameResults={() => setCurrentScreen('game-results')}
             isLiteMode={isLiteMode}
+            canBook={canBook}
+            canFindGame={canFindGame}
+            canLearn={canLearn}
+            canRewards={canRewards}
           />
         )}
         {currentScreen === 'rankings' && (
@@ -824,7 +844,7 @@ function App() {
             onOpenPlayerProfile={(uid: string) => { setSelectedPlayerUserId(uid); setCurrentScreen('player-profile') }}
           />
         )}
-        {currentScreen === 'booking' && !isLiteMode && (
+        {currentScreen === 'booking' && canBook && (
           <BookingScreen
             player={player}
             userId={player?.user_id ?? null}
@@ -844,6 +864,7 @@ function App() {
             onOpenGameResults={() => setCurrentScreen('game-results')}
             initialTab={gamesInitialTab}
             isLiteMode={isLiteMode}
+            canFindGame={canFindGame}
           />
         )}
         {currentScreen === 'club' && (
@@ -873,7 +894,7 @@ function App() {
             }
           />
         )}
-        {currentScreen === 'learn' && (
+        {currentScreen === 'learn' && canLearn && (
           <LearnScreen
             userId={player?.user_id ?? null}
             playerAccountId={player?.id ?? null}
@@ -882,7 +903,7 @@ function App() {
             onOpenClub={(clubId: string) => { setSelectedClubId(clubId); setCurrentScreen('club-detail') }}
           />
         )}
-        {currentScreen === 'find-game' && !isLiteMode && (
+        {currentScreen === 'find-game' && canFindGame && (
           <FindGameScreen
             player={player}
             userId={authUserId || player?.user_id || null}
@@ -960,7 +981,7 @@ function App() {
             onOpenInfo={(type) => setShowInfoModal(type)}
           />
         )}
-        {currentScreen === 'rewards' && player && !isLiteMode && (
+        {currentScreen === 'rewards' && player && canRewards && (
           <RewardsScreen
             player={player}
             onBack={() => setCurrentScreen('home')}
@@ -3001,6 +3022,10 @@ function HomeScreen({
   onOpenRankings,
   onOpenGameResults,
   isLiteMode = false,
+  canBook = true,
+  canFindGame = true,
+  canLearn = true,
+  canRewards = true,
 }: {
   player: PlayerAccount | null
   dashboardData: PlayerDashboardData | null
@@ -3023,6 +3048,10 @@ function HomeScreen({
   onOpenRankings: () => void
   onOpenGameResults: () => void
   isLiteMode?: boolean
+  canBook?: boolean
+  canFindGame?: boolean
+  canLearn?: boolean
+  canRewards?: boolean
 }) {
   const { t } = useI18n()
   const [followingCount, setFollowingCount] = useState(0)
@@ -3046,7 +3075,7 @@ function HomeScreen({
   const [homeOpenGamesLoading, setHomeOpenGamesLoading] = useState(false)
 
   useEffect(() => {
-    if (!userId || !player?.level || isLiteMode) return
+    if (!userId || !player?.level || isLiteMode || !canFindGame) return
     let active = true
     const load = async () => {
       setHomeOpenGamesLoading(true)
@@ -3061,7 +3090,7 @@ function HomeScreen({
     }
     load()
     return () => { active = false }
-  }, [userId, player?.level, isLiteMode])
+  }, [userId, player?.level, isLiteMode, canFindGame])
 
   const d = dashboardData
   const name = d?.playerName || player?.name?.split(' ')[0] || t.common.player
@@ -3202,11 +3231,11 @@ function HomeScreen({
     <div className="space-y-6 animate-fade-in">
       {/* Quick Actions */}
       <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 sm:gap-3">
-        {!isLiteMode && <ActionButton icon={Calendar} label={t.home.book} color="lime" onClick={onOpenBooking} />}
+        {canBook && !isLiteMode && <ActionButton icon={Calendar} label={t.home.book} color="lime" onClick={onOpenBooking} />}
         {!isLiteMode && <ActionButton icon={Building2} label="Clubes" color="blue" onClick={onOpenClubsList} />}
         <ActionButton icon={TrendingUp} label={t.home.rankings} color="rose" onClick={onOpenRankings} />
         <ActionButton icon={Trophy} label={t.home.tournaments} color="amber" onClick={onOpenCompete} />
-        {isLiteMode ? (
+        {isLiteMode || !canFindGame ? (
           <ActionButton icon={Target} label={t.common.quickResult} color="emerald" emoji="📊" onClick={onOpenGameResults} />
         ) : (
           <>
@@ -3270,7 +3299,7 @@ function HomeScreen({
         )
       })()}
 
-      {isLiteMode && (
+      {(isLiteMode || !canFindGame) && (
         <button
           onClick={onOpenGameResults}
           className="w-full p-4 rounded-2xl bg-gradient-to-r from-green-600 to-emerald-600 text-white shadow-md hover:shadow-lg transition-shadow text-left"
@@ -3312,7 +3341,7 @@ function HomeScreen({
       </div>
 
       {/* Pontos Reward + Medalhas */}
-      {!isLiteMode && (
+      {canRewards && (!isLiteMode || !canBook) && (
       <div className={`rounded-xl shadow-sm overflow-hidden p-5 ${rewardTier.bgColor} cursor-pointer hover:shadow-md transition-shadow`} onClick={onOpenRewards}>
         <div className="flex items-center justify-between">
           <div>
@@ -3386,7 +3415,7 @@ function HomeScreen({
       </div>
 
       {/* Jogos Abertos — jogos disponíveis para o nível do jogador */}
-      {!isLiteMode && (homeOpenGames.length > 0 || homeOpenGamesLoading) && (
+      {canFindGame && !isLiteMode && (homeOpenGames.length > 0 || homeOpenGamesLoading) && (
         <div>
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
@@ -11135,6 +11164,7 @@ function GamesScreen({
   onOpenGameResults,
   initialTab,
   isLiteMode = false,
+  canFindGame = true,
 }: {
   player: PlayerAccount | null
   dashboardData: PlayerDashboardData | null
@@ -11145,6 +11175,7 @@ function GamesScreen({
   onOpenGameResults: () => void
   initialTab?: 'upcoming' | 'history'
   isLiteMode?: boolean
+  canFindGame?: boolean
 }) {
   const { t } = useI18n()
   const [activeTab, setActiveTab] = useState<'upcoming' | 'history'>(initialTab || 'upcoming')
@@ -11173,7 +11204,7 @@ function GamesScreen({
     <div className="space-y-4 animate-fade-in">
       <h1 className="text-2xl font-bold text-gray-900">{t.games.title}</h1>
 
-      {isLiteMode && (
+      {(isLiteMode || !canFindGame) && (
         <button
           onClick={onOpenGameResults}
           className="w-full py-3 bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-2xl text-sm font-bold hover:from-green-700 hover:to-emerald-700 transition-all shadow-md flex items-center justify-center gap-2"
@@ -11242,8 +11273,12 @@ function GamesScreen({
         <div className="card p-8 text-center">
           <span className="text-4xl mb-2 block">🎾</span>
           <h3 className="text-lg font-semibold text-gray-900 mb-1">Sem jogos</h3>
-          <p className="text-gray-500 text-sm mb-4">Cria um jogo ou inscreve-te num torneio para começar</p>
+          <p className="text-gray-500 text-sm mb-4">
+            {canFindGame ? 'Cria um jogo ou inscreve-te num torneio para começar' : 'Inscreve-te num torneio ou regista um resultado para começar'}
+          </p>
+          {canFindGame && (
           <button onClick={onOpenFindGame} className="px-6 py-3 btn-primary">Criar Jogo</button>
+          )}
         </div>
       )}
     </div>

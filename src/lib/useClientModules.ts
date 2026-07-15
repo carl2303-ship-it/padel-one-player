@@ -15,7 +15,28 @@ export interface ClientModulesResult {
   hasAiLight: boolean;
 }
 
-const EMPTY: ClientModulesResult = {
+export interface PlayerFeatureFlags {
+  isLiteMode: boolean;
+  canBook: boolean;
+  canFindGame: boolean;
+  canLearn: boolean;
+  canRewards: boolean;
+}
+
+/** Gestão completa do clube (manager): reservas, criar jogos, academia. Padel global fica sempre ativo. */
+export function derivePlayerFeatures(mods: ClientModulesResult): PlayerFeatureFlags {
+  const isLiteMode = mods.playerMode === 'lite';
+  const hasManager = mods.hasManager;
+  return {
+    isLiteMode,
+    canBook: hasManager,
+    canFindGame: hasManager,
+    canLearn: hasManager,
+    canRewards: mods.hasBar || hasManager,
+  };
+}
+
+export const EMPTY_MODULES: ClientModulesResult = {
   modules: [],
   playerMode: 'full',
   hasManager: false,
@@ -26,7 +47,7 @@ const EMPTY: ClientModulesResult = {
 };
 
 function parseModules(data: unknown): ClientModulesResult {
-  if (!data || typeof data !== 'object') return EMPTY;
+  if (!data || typeof data !== 'object') return EMPTY_MODULES;
   const obj = data as Record<string, unknown>;
   const modules = Array.isArray(obj.modules) ? (obj.modules as ModuleCode[]) : [];
   return {
@@ -41,12 +62,12 @@ function parseModules(data: unknown): ClientModulesResult {
 }
 
 export function useClientModules(entityType: EntityType | null, entityId: string | null) {
-  const [result, setResult] = useState<ClientModulesResult>(EMPTY);
+  const [result, setResult] = useState<ClientModulesResult>(EMPTY_MODULES);
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
     if (!entityType || !entityId) {
-      setResult(EMPTY);
+      setResult(EMPTY_MODULES);
       setLoading(false);
       return;
     }
@@ -58,7 +79,7 @@ export function useClientModules(entityType: EntityType | null, entityId: string
     if (!error && data) {
       setResult(parseModules(data));
     } else {
-      setResult(EMPTY);
+      setResult(EMPTY_MODULES);
     }
     setLoading(false);
   }, [entityType, entityId]);
@@ -83,6 +104,6 @@ export async function fetchClientModules(
     p_entity_type: entityType,
     p_entity_id: entityId,
   });
-  if (error || !data) return EMPTY;
+  if (error || !data) return EMPTY_MODULES;
   return parseModules(data);
 }
