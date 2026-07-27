@@ -995,7 +995,7 @@ function App() {
             onBack={() => setCurrentScreen('home')}
           />
         )}
-        {currentScreen === 'community' && player?.user_id && !isLiteMode && (
+        {currentScreen === 'community' && player?.user_id && (
           <CommunityScreen userId={player.user_id} playerAccountId={player.id} playerAvatar={player.avatar_url} playerName={player.name} onOpenPlayerProfile={(uid: string) => { setSelectedPlayerUserId(uid); setCurrentScreen('player-profile') }} onOpenGroup={(groupId: string) => { setSelectedGroupId(groupId); setCurrentScreen('group-detail') }} />
         )}
         {currentScreen === 'group-detail' && selectedGroupId && player?.user_id && (
@@ -1039,21 +1039,12 @@ function App() {
             active={currentScreen === 'home'} 
             onClick={() => setCurrentScreen('home')} 
           />
-          {!isLiteMode ? (
-            <NavItem 
-              icon={Users} 
-              label={t.menu.community} 
-              active={currentScreen === 'community'} 
-              onClick={() => setCurrentScreen('community')} 
-            />
-          ) : (
-            <NavItem 
-              icon={Trophy} 
-              label={t.home.tournaments} 
-              active={currentScreen === 'compete'} 
-              onClick={() => setCurrentScreen('compete')} 
-            />
-          )}
+          <NavItem 
+            icon={Users} 
+            label={t.menu.community} 
+            active={currentScreen === 'community'} 
+            onClick={() => setCurrentScreen('community')} 
+          />
           <NavItem 
             icon={User} 
             label={t.menu.profile} 
