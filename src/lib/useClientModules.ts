@@ -38,7 +38,7 @@ export function derivePlayerFeatures(mods: ClientModulesResult): PlayerFeatureFl
 
 export const EMPTY_MODULES: ClientModulesResult = {
   modules: [],
-  playerMode: 'full',
+  playerMode: 'lite',
   hasManager: false,
   hasTournaments: false,
   hasBar: false,

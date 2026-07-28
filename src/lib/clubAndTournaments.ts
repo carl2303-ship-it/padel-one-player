@@ -46,6 +46,65 @@ export async function fetchClubById(clubId: string): Promise<ClubDetail | null> 
   return data as ClubDetail | null
 }
 
+/** Clubes Full (módulo manager) num raio em km do jogador (default 50). */
+export interface NearbyFullClub {
+  id: string
+  name: string
+  city: string | null
+  country: string | null
+  address: string | null
+  logo_url: string | null
+  latitude: number
+  longitude: number
+  distance_km: number
+}
+
+export async function fetchNearbyFullClubs(
+  lat: number,
+  lng: number,
+  radiusKm = 50
+): Promise<NearbyFullClub[]> {
+  const { data, error } = await supabase.rpc('get_nearby_full_clubs', {
+    p_lat: lat,
+    p_lng: lng,
+    p_radius_km: radiusKm,
+  })
+  if (error || !data) {
+    console.warn('[fetchNearbyFullClubs]', error?.message)
+    return []
+  }
+  return data as NearbyFullClub[]
+}
+
+/** Actualiza lat/lng do jogador (GPS). */
+export async function updatePlayerLocation(
+  playerAccountId: string,
+  lat: number,
+  lng: number
+): Promise<void> {
+  await supabase
+    .from('player_accounts')
+    .update({ lat, lng })
+    .eq('id', playerAccountId)
+}
+
+/** Pede GPS do browser (sem tracking contínuo). */
+export function requestBrowserGeolocation(
+  timeoutMs = 10000
+): Promise<{ lat: number; lng: number } | null> {
+  return new Promise((resolve) => {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      resolve(null)
+      return
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      () => resolve(null),
+      { enableHighAccuracy: false, timeout: timeoutMs, maximumAge: 5 * 60 * 1000 }
+    )
+  })
+}
+
 /** Busca os IDs dos clubes onde o jogador joga. */
 export async function fetchPlayerClubs(playerAccountId: string): Promise<string[]> {
   const { data } = await supabase
@@ -83,7 +142,7 @@ export interface UpcomingTournamentFromTour {
   host_clubs_label?: string | null
   description?: string | null
   allow_public_registration?: boolean
-  visibility?: 'public' | 'invite_only'
+  visibility?: 'public' | 'players_only' | 'invite_only'
   format?: string | null
   round_robin_type?: string | null
   gender?: string | null
@@ -467,6 +526,7 @@ export async function fetchUpcomingTournaments(
     : Promise.resolve([])
 
   const [contactResults, nearbyResults] = await Promise.all([contactPromise, nearbyPromise])
+  const contactIds = new Set((contactResults as any[]).map((t: any) => t.id))
 
   for (const t of [...contactResults, ...nearbyResults]) {
     if (!seenIds.has(t.id)) {
@@ -475,7 +535,10 @@ export async function fetchUpcomingTournaments(
     }
   }
 
-  const allTournaments = [...(data || []), ...extraTournaments]
+  const allTournaments = [...(data || []), ...extraTournaments].filter((t: any) => {
+    if (t.visibility === 'players_only' && !contactIds.has(t.id)) return false
+    return true
+  })
   return enrichTournamentsWithHostClubLabels(allTournaments as Record<string, unknown>[])
 }
 

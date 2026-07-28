@@ -87,7 +87,7 @@ import {
   type FeedMatchItem,
   getUnifiedFeed,
 } from './lib/communityData'
-import { fetchAllClubs, fetchClubById, fetchUpcomingTournaments, fetchTournamentsByIds, fetchTournamentEnrolledCounts, fetchEnrolledByCategory, fetchTournamentFullDetail, getTournamentRegistrationUrl, fetchMyTournamentInvites, updateTournamentInviteStatus, fetchPlayerClubs, togglePlayerClub, type ClubDetail, type UpcomingTournamentFromTour, type EnrolledByCategory, type TournamentFullDetail } from './lib/clubAndTournaments'
+import { fetchAllClubs, fetchClubById, fetchUpcomingTournaments, fetchTournamentsByIds, fetchTournamentEnrolledCounts, fetchEnrolledByCategory, fetchTournamentFullDetail, getTournamentRegistrationUrl, fetchMyTournamentInvites, updateTournamentInviteStatus, fetchPlayerClubs, togglePlayerClub, fetchNearbyFullClubs, updatePlayerLocation, requestBrowserGeolocation, type ClubDetail, type UpcomingTournamentFromTour, type EnrolledByCategory, type TournamentFullDetail, type NearbyFullClub } from './lib/clubAndTournaments'
 import { fetchAvailableClasses, fetchMyClasses, enrollInClass, type Class as ClassData } from './lib/classes'
 import { preloadAllPlayerData, getCachedPlayerData } from './lib/playerDataCache'
 import { fetchLevelHistory, type LevelHistoryEntry } from './lib/levelHistory'
@@ -182,11 +182,11 @@ function App() {
   const playerFeatures = useMemo(() => {
     if (!player?.favorite_club_id) {
       return {
-        isLiteMode: false,
-        canBook: true,
-        canFindGame: true,
-        canLearn: true,
-        canRewards: true,
+        isLiteMode: true,
+        canBook: false,
+        canFindGame: false,
+        canLearn: false,
+        canRewards: false,
       }
     }
     return derivePlayerFeatures(clientModules)
@@ -200,6 +200,20 @@ function App() {
     }
     fetchClientModules('club', player.favorite_club_id).then(setClientModules)
   }, [player?.favorite_club_id])
+
+  // GPS pontual: actualiza lat/lng do jogador (descoberta zona 50 km)
+  useEffect(() => {
+    if (!player?.id || !isAuthenticated) return
+    let cancelled = false
+    ;(async () => {
+      const coords = await requestBrowserGeolocation()
+      if (!coords || cancelled) return
+      await updatePlayerLocation(player.id, coords.lat, coords.lng)
+      if (cancelled) return
+      setPlayer(prev => prev ? { ...prev, lat: coords.lat, lng: coords.lng } as any : prev)
+    })()
+    return () => { cancelled = true }
+  }, [player?.id, isAuthenticated])
 
   useEffect(() => {
     if (currentScreen === 'booking' && !canBook) setCurrentScreen('home')
@@ -621,6 +635,10 @@ function App() {
     }
 
     if (publicPage === 'login') {
+      const loginIntent = new URLSearchParams(window.location.search).get('intent')?.toLowerCase()
+      const registerPath = (loginIntent === 'full' || loginIntent === 'padel' || loginIntent === 'player')
+        ? '/register?mode=full'
+        : '/register'
       return <LoginScreen 
         phone={phone}
         setPhone={setPhone}
@@ -631,7 +649,7 @@ function App() {
         error={authError}
         isLoading={isAuthLoading}
         onLogin={handleLogin}
-        onRegister={() => navigateTo('register', '/register')}
+        onRegister={() => navigateTo('register', registerPath)}
       />
     }
 
@@ -3047,11 +3065,38 @@ function HomeScreen({
   const { t } = useI18n()
   const [followingCount, setFollowingCount] = useState(0)
   const [followersCount, setFollowersCount] = useState(0)
+  const [nearbyFullClubs, setNearbyFullClubs] = useState<NearbyFullClub[]>([])
+  const [nearbyClubsDismissed, setNearbyClubsDismissed] = useState(false)
+  const [activatingClubId, setActivatingClubId] = useState<string | null>(null)
+
   useEffect(() => {
     if (!userId) return
     getFollowingCount(userId).then(setFollowingCount)
     getFollowersCount(userId).then(setFollowersCount)
   }, [userId])
+
+  useEffect(() => {
+    const lat = (player as any)?.lat
+    const lng = (player as any)?.lng
+    if (lat == null || lng == null) return
+    let active = true
+    fetchNearbyFullClubs(Number(lat), Number(lng), 50).then((clubs) => {
+      if (!active) return
+      const already = new Set(player?.club_ids || [])
+      setNearbyFullClubs(clubs.filter((c) => !already.has(c.id)))
+    })
+    return () => { active = false }
+  }, [player?.lat, player?.lng, player?.club_ids])
+
+  const handleActivateNearbyClub = async (clubId: string) => {
+    setActivatingClubId(clubId)
+    try {
+      await onToggleClub(clubId, true)
+      setNearbyFullClubs((prev) => prev.filter((c) => c.id !== clubId))
+    } finally {
+      setActivatingClubId(null)
+    }
+  }
 
   const handlePlayerClick = async (playerName: string) => {
     const { findPlayerUserIdByName } = await import('./lib/classes')
@@ -3220,6 +3265,59 @@ function HomeScreen({
 
   return (
     <div className="space-y-6 animate-fade-in">
+      {/* Clubes Full perto (raio 50 km) */}
+      {!nearbyClubsDismissed && nearbyFullClubs.length > 0 && (
+        <div className="rounded-2xl border border-blue-200 bg-gradient-to-br from-blue-50 to-white p-4 shadow-sm">
+          <div className="flex items-start justify-between gap-3 mb-3">
+            <div>
+              <p className="text-sm font-bold text-gray-900">Clubes perto de ti</p>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Encontrámos {nearbyFullClubs.length} clube{nearbyFullClubs.length > 1 ? 's' : ''} com reservas a menos de 50 km.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setNearbyClubsDismissed(true)}
+              className="text-xs text-gray-400 hover:text-gray-600"
+            >
+              Fechar
+            </button>
+          </div>
+          <div className="space-y-2">
+            {nearbyFullClubs.slice(0, 5).map((club) => (
+              <div
+                key={club.id}
+                className="flex items-center gap-3 bg-white rounded-xl border border-gray-100 p-3"
+              >
+                <div className="w-10 h-10 rounded-lg bg-gray-100 overflow-hidden flex-shrink-0">
+                  {club.logo_url ? (
+                    <img src={club.logo_url} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-gray-400">
+                      <Building2 className="w-5 h-5" />
+                    </div>
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-gray-900 truncate">{club.name}</p>
+                  <p className="text-xs text-gray-500 truncate">
+                    {club.distance_km} km{club.city ? ` · ${club.city}` : ''}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  disabled={activatingClubId === club.id}
+                  onClick={() => handleActivateNearbyClub(club.id)}
+                  className="px-3 py-1.5 rounded-lg text-xs font-bold bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {activatingClubId === club.id ? '...' : 'Activar'}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Quick Actions */}
       <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 sm:gap-3">
         {canBook && !isLiteMode && <ActionButton icon={Calendar} label={t.home.book} color="lime" onClick={onOpenBooking} />}
@@ -5112,7 +5210,7 @@ function CompeteScreen({
       }
     })()
     return () => { active = false }
-  }, [clubIds, favoriteClubId, player?.id, d?.upcomingTournaments])
+  }, [clubIds, favoriteClubId, player?.id, player?.phone_number, (player as any)?.lat, (player as any)?.lng, d?.upcomingTournaments])
 
 
   // Buscar torneios disponíveis filtrados por género e nível
@@ -13544,8 +13642,19 @@ function RegisterScreen({ onBack, onSuccess, returnTo }: {
   returnTo?: string | null
 }) {
   const { t } = useI18n()
-  const [step, setStep] = useState<0 | 1 | 2 | 3>(0)
-  const [mode, setMode] = useState<'full' | 'bookOnly' | null>(null)
+
+  // Deep-link: /register?mode=full (universo Padel One) | ?mode=bookOnly (só reservar)
+  const initialModeFromUrl = (() => {
+    const raw = new URLSearchParams(window.location.search).get('mode')?.toLowerCase().trim()
+    if (!raw) return null
+    if (raw === 'full' || raw === 'padel' || raw === 'player' || raw === 'tournaments') return 'full' as const
+    if (raw === 'bookonly' || raw === 'book' || raw === 'reservar' || raw === 'booking') return 'bookOnly' as const
+    return null
+  })()
+  const modeLockedFromUrl = initialModeFromUrl !== null
+
+  const [step, setStep] = useState<0 | 1 | 2 | 3>(initialModeFromUrl ? 1 : 0)
+  const [mode, setMode] = useState<'full' | 'bookOnly' | null>(initialModeFromUrl)
   const [quizPage, setQuizPage] = useState(0) // 0-3 for the 4 quiz sub-pages
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -13721,6 +13830,7 @@ function RegisterScreen({ onBack, onSuccess, returnTo }: {
             else if (step === 2 && quizPage === 0) { setStep(1); setError('') }
             else if (step === 3 && mode === 'bookOnly') { setStep(1); setError('') }
             else if (step === 3) { setStep(2); setQuizPage(3); setError('') }
+            else if (step === 1 && modeLockedFromUrl) { onBack() }
             else if (step === 1) { setStep(0); setMode(null); setError('') }
             else onBack()
           }} className="p-1 -ml-1"><ArrowLeft className="w-6 h-6 text-gray-700" /></button>
