@@ -121,11 +121,13 @@ import {
 } from './lib/groupChat'
 import { isPushSupported, checkIsSubscribed, subscribeToPush, unsubscribeFromPush } from './lib/pushNotifications'
 import { normalizePhone, isValidPhone } from './lib/phoneUtils'
+import { resolveFourPlayerNames, getPartnerNamesFromMatch, isLikelyTeamLabel } from './lib/matchPlayerNames'
 import {
   requestPartnerMatch,
   fetchPendingPartnerInvites,
   fetchPartnerMatchRequesterSummary,
   acceptPartnerInvite,
+  confirmPartnerMatch,
   declinePartnerInvite,
   cancelPartnerRequest,
   type PartnerInvite,
@@ -143,11 +145,20 @@ function App() {
   const [currentScreen, setCurrentScreen] = useState<Screen>('home')
   const [pendingTournamentId, setPendingTournamentId] = useState<string | null>(null)
   const [selectedPlayerUserId, setSelectedPlayerUserId] = useState<string | null>(null)
+  const [selectedPlayerAccountId, setSelectedPlayerAccountId] = useState<string | null>(null)
+  const [selectedPlayerNameHint, setSelectedPlayerNameHint] = useState<string | null>(null)
   const [followsListUserId, setFollowsListUserId] = useState<string | null>(null) // For FollowsListScreen
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null)
   const [createGameForGroupId, setCreateGameForGroupId] = useState<string | null>(null)
   const [selectedClubId, setSelectedClubId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
+
+  const openPlayerProfile = (uid: string, opts?: { accountId?: string | null; nameHint?: string | null }) => {
+    setSelectedPlayerUserId(uid)
+    setSelectedPlayerAccountId(opts?.accountId ?? null)
+    setSelectedPlayerNameHint(opts?.nameHint ?? null)
+    setCurrentScreen('player-profile')
+  }
   
   // Auth states
   const [phone, setPhone] = useState('')
@@ -827,7 +838,7 @@ function App() {
               setCurrentScreen('games')
             }}
             onOpenFollowsList={(uid: string) => { setFollowsListUserId(uid); setCurrentScreen('follows-list') }}
-            onOpenPlayerProfile={(uid: string) => { setSelectedPlayerUserId(uid); setCurrentScreen('player-profile') }}
+            onOpenPlayerProfile={(uid: string, opts) => openPlayerProfile(uid, opts)}
             onOpenFindGame={() => setCurrentScreen('find-game')}
             onOpenRewards={() => setCurrentScreen('rewards')}
             onOpenBooking={() => setCurrentScreen('booking')}
@@ -859,7 +870,7 @@ function App() {
             userId={player?.user_id ?? null}
             playerAccountId={player?.id ?? null}
             onBack={() => setCurrentScreen('home')}
-            onOpenPlayerProfile={(uid: string) => { setSelectedPlayerUserId(uid); setCurrentScreen('player-profile') }}
+            onOpenPlayerProfile={(uid: string, opts) => openPlayerProfile(uid, opts)}
           />
         )}
         {currentScreen === 'booking' && canBook && (
@@ -867,7 +878,7 @@ function App() {
             player={player}
             userId={player?.user_id ?? null}
             onBack={() => setCurrentScreen('home')}
-            onOpenPlayerProfile={(uid: string) => { setSelectedPlayerUserId(uid); setCurrentScreen('player-profile') }}
+            onOpenPlayerProfile={(uid: string, opts) => openPlayerProfile(uid, opts)}
             onRefresh={refreshDashboard}
           />
         )}
@@ -877,7 +888,7 @@ function App() {
             dashboardData={effectiveDashboard}
             onRefresh={refreshDashboard}
             onBack={() => setCurrentScreen('home')}
-            onOpenPlayerProfile={(uid: string) => { setSelectedPlayerUserId(uid); setCurrentScreen('player-profile') }}
+            onOpenPlayerProfile={(uid: string, opts) => openPlayerProfile(uid, opts)}
             onOpenFindGame={() => setCurrentScreen('find-game')}
             onOpenGameResults={() => setCurrentScreen('game-results')}
             initialTab={gamesInitialTab}
@@ -917,7 +928,7 @@ function App() {
             userId={player?.user_id ?? null}
             playerAccountId={player?.id ?? null}
             onBack={() => setCurrentScreen('home')}
-            onOpenPlayerProfile={(uid: string) => { setSelectedPlayerUserId(uid); setCurrentScreen('player-profile') }}
+            onOpenPlayerProfile={(uid: string, opts) => openPlayerProfile(uid, opts)}
             onOpenClub={(clubId: string) => { setSelectedClubId(clubId); setCurrentScreen('club-detail') }}
           />
         )}
@@ -926,7 +937,7 @@ function App() {
             player={player}
             userId={authUserId || player?.user_id || null}
             onBack={() => { const wasGroup = !!createGameForGroupId; setCreateGameForGroupId(null); setCurrentScreen(wasGroup ? 'group-detail' : 'home') }}
-            onOpenPlayerProfile={(uid: string) => { setSelectedPlayerUserId(uid); setCurrentScreen('player-profile') }}
+            onOpenPlayerProfile={(uid: string, opts) => openPlayerProfile(uid, opts)}
             onRefresh={refreshDashboard}
             groupId={createGameForGroupId}
           />
@@ -936,7 +947,7 @@ function App() {
             player={player}
             userId={authUserId || player?.user_id || null}
             onBack={() => setCurrentScreen('home')}
-            onOpenPlayerProfile={(uid: string) => { setSelectedPlayerUserId(uid); setCurrentScreen('player-profile') }}
+            onOpenPlayerProfile={(uid: string, opts) => openPlayerProfile(uid, opts)}
             onRefresh={refreshDashboard}
             resultsOnly
           />
@@ -989,7 +1000,7 @@ function App() {
               setCurrentScreen('games')
             }}
             onOpenFollowsList={(uid: string) => { setFollowsListUserId(uid); setCurrentScreen('follows-list') }}
-            onOpenPlayerProfile={(uid: string) => { setSelectedPlayerUserId(uid); setCurrentScreen('player-profile') }}
+            onOpenPlayerProfile={(uid: string, opts) => openPlayerProfile(uid, opts)}
           />
         )}
         {currentScreen === 'profile-edit' && (
@@ -1014,7 +1025,7 @@ function App() {
           />
         )}
         {currentScreen === 'community' && player?.user_id && (
-          <CommunityScreen userId={player.user_id} playerAccountId={player.id} playerAvatar={player.avatar_url} playerName={player.name} onOpenPlayerProfile={(uid: string) => { setSelectedPlayerUserId(uid); setCurrentScreen('player-profile') }} onOpenGroup={(groupId: string) => { setSelectedGroupId(groupId); setCurrentScreen('group-detail') }} />
+          <CommunityScreen userId={player.user_id} playerAccountId={player.id} playerAvatar={player.avatar_url} playerName={player.name} onOpenPlayerProfile={(uid, opts) => openPlayerProfile(uid, opts)} onOpenGroup={(groupId: string) => { setSelectedGroupId(groupId); setCurrentScreen('group-detail') }} />
         )}
         {currentScreen === 'group-detail' && selectedGroupId && player?.user_id && (
           <GroupDetailScreen
@@ -1025,17 +1036,19 @@ function App() {
             playerAvatar={player.avatar_url}
             playerLevel={player.level}
             onBack={() => setCurrentScreen('community')}
-            onOpenPlayerProfile={(uid: string) => { setSelectedPlayerUserId(uid); setCurrentScreen('player-profile') }}
+            onOpenPlayerProfile={(uid: string, opts) => openPlayerProfile(uid, opts)}
             onCreateGroupGame={(gId: string) => { setCreateGameForGroupId(gId); setCurrentScreen('find-game') }}
           />
         )}
         {currentScreen === 'player-profile' && selectedPlayerUserId && player?.user_id && (
           <OtherPlayerProfileScreen
             targetUserId={selectedPlayerUserId}
+            preferredAccountId={selectedPlayerAccountId}
+            preferredName={selectedPlayerNameHint}
             myUserId={player.user_id}
             onBack={() => setCurrentScreen('community')}
             onOpenFollowsList={(uid: string) => { setFollowsListUserId(uid); setCurrentScreen('follows-list') }}
-            onOpenPlayerProfile={(uid: string) => { setSelectedPlayerUserId(uid); setCurrentScreen('player-profile') }}
+            onOpenPlayerProfile={(uid: string, opts) => openPlayerProfile(uid, opts)}
           />
         )}
         {currentScreen === 'follows-list' && followsListUserId && player?.user_id && (
@@ -1043,7 +1056,7 @@ function App() {
             targetUserId={followsListUserId}
             myUserId={player.user_id}
             onBack={() => setCurrentScreen('player-profile')}
-            onOpenPlayerProfile={(uid: string) => { setSelectedPlayerUserId(uid); setCurrentScreen('player-profile') }}
+            onOpenPlayerProfile={(uid: string, opts) => openPlayerProfile(uid, opts)}
           />
         )}
       </main>
@@ -1266,17 +1279,24 @@ function formatDateWithTime(s: string) {
   const time = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
   return `${date} | ${time}`
 }
-function parseTeamMembers(teamName: string): string[] {
-  if (!teamName?.trim()) return ['?']
-  const parts = teamName.split(/\s*\/\s*|\s*&\s*|,/).map((s) => s.trim()).filter(Boolean)
-  return parts.length >= 1 ? parts.slice(0, 2) : ['?']
-}
 function initialFor(name: string): string {
   const t = name.trim()
   if (!t) return '?'
-  const words = t.split(/\s+/).filter(Boolean)
+  // Display names like "Carlos/Padel1/BoostPadel" — use first segment only for initials
+  const primary = t.split(/\s*\/\s*/)[0]?.trim() || t
+  const words = primary.split(/\s+/).filter(Boolean)
   if (words.length >= 2) return (words[0][0] + words[words.length - 1][0]).toUpperCase().slice(0, 2)
-  return t.slice(0, 2).toUpperCase()
+  return primary.slice(0, 2).toUpperCase()
+}
+
+/** Short label under bubble — avoid showing "Carlos/Padel1/BoostPadel" as if it were 3 players */
+function shortPlayerLabel(name: string): string {
+  const t = (name || '').trim()
+  if (!t || t === '?') return t || '?'
+  const primary = t.split(/\s*\/\s*/)[0]?.trim() || t
+  const words = primary.split(/\s+/).filter(Boolean)
+  if (words.length <= 2) return primary
+  return `${words[0]} ${words[words.length - 1][0]}.`
 }
 
 // Tipos para os dados integrados do Tour (PlayerMatch = formato do dashboardData)
@@ -1372,22 +1392,17 @@ function parseSetScores(setStr: string): [string, string] | null {
   return a != null && b != null ? [a, b] : null
 }
 
-/** Garante 2 jogadores por equipa (padel = 4 jogadores). Fallback quando não há player1_name..player4_name. */
-function twoPlayersPerTeam(teamName: string): [string, string] {
-  const members = parseTeamMembers(teamName)
-  const a = members[0] || '?'
-  const b = members[1] || '?'
-  return [a, b]
-}
-
 function isCurrentPlayer(playerName: string, currentName?: string): boolean {
   if (!currentName) return false
   const p = (playerName || '').trim().toLowerCase()
   const c = (currentName || '').trim().toLowerCase()
   if (!p || !c) return false
   if (p === c) return true
+  const pPrimary = p.split(/\s*\/\s*/)[0]
+  const cPrimary = c.split(/\s*\/\s*/)[0]
+  if (pPrimary === cPrimary) return true
   // Match parcial: "Guilherme" vs "Guilherme Silva" ou vice-versa
-  return p.startsWith(c) || c.startsWith(p)
+  return p.startsWith(c) || c.startsWith(p) || pPrimary.startsWith(cPrimary) || cPrimary.startsWith(pPrimary)
 }
 
 function PlayerCircle({ name, bgClass, textClass, avatarUrl, currentPlayerName, onClick }: {
@@ -1430,10 +1445,13 @@ function GameCardPlaytomic({
   onPlayerClick?: (playerName: string) => void
 }) {
   const { t } = useI18n()
-  const p1 = match.player1_name ?? twoPlayersPerTeam(match.team1_name)[0]
-  const p2 = match.player2_name ?? twoPlayersPerTeam(match.team1_name)[1]
-  const p3 = match.player3_name ?? twoPlayersPerTeam(match.team2_name)[0]
-  const p4 = match.player4_name ?? twoPlayersPerTeam(match.team2_name)[1]
+  const [n1, n2, n3, n4] = resolveFourPlayerNames(match)
+  const matchAvatars = [
+    (match as any).player1_avatar as string | null | undefined,
+    (match as any).player2_avatar as string | null | undefined,
+    (match as any).player3_avatar as string | null | undefined,
+    (match as any).player4_avatar as string | null | undefined,
+  ]
   
   const setStrings = [match.set1, match.set2, match.set3].filter(Boolean) as string[]
   const parsedSets = setStrings.map(parseSetScores)
@@ -1448,24 +1466,30 @@ function GameCardPlaytomic({
   const scoreFontSize = numSets >= 3 ? 'text-base' : 'text-2xl'
   
   // Função para renderizar jogador com nível (dados do cache global — sem queries)
-  const renderPlayer = (name: string, bgClass: string, textClass: string) => {
-    const cached = getCachedPlayerData(name)
+  const renderPlayer = (name: string, bgClass: string, textClass: string, matchAvatar?: string | null) => {
+    const isPlaceholder = !name || name === '?' || isLikelyTeamLabel(name)
+    const cached = !isPlaceholder ? getCachedPlayerData(name) : null
     const level = cached?.level ?? undefined
     const colors = levelColors(level)
-    const avatarUrl = cached?.avatar_url ?? (isCurrentPlayer(name, currentPlayerName) ? currentPlayerAvatar : null)
-    
+    const avatarUrl =
+      matchAvatar ||
+      cached?.avatar_url ||
+      (!isPlaceholder && isCurrentPlayer(name, currentPlayerName) ? currentPlayerAvatar : null) ||
+      null
+    const canOpenProfile = Boolean(onPlayerClick && !isPlaceholder)
+
     return (
       <div className="flex flex-col items-center min-h-[96px]">
         <PlayerCircle 
-          name={name} 
+          name={isPlaceholder ? '?' : name} 
           bgClass={bgClass} 
           textClass={textClass} 
           avatarUrl={avatarUrl} 
           currentPlayerName={currentPlayerName}
-          onClick={onPlayerClick ? () => onPlayerClick(name) : undefined}
+          onClick={canOpenProfile ? () => onPlayerClick!(name) : undefined}
         />
-        <span className="text-[11px] text-gray-700 font-medium truncate max-w-[90px] mt-1.5 text-center leading-tight" title={name}>
-          {name}
+        <span className="text-[11px] text-gray-700 font-medium truncate max-w-[90px] mt-1.5 text-center leading-tight" title={isPlaceholder ? undefined : name}>
+          {isPlaceholder ? '—' : shortPlayerLabel(name)}
         </span>
         {level !== undefined && (
           <div 
@@ -1505,8 +1529,8 @@ function GameCardPlaytomic({
           {/* Equipa 1 – laranja */}
           <div className="flex items-start justify-between gap-4">
             <div className="grid grid-cols-2 gap-x-5 gap-y-0 flex-1 items-start">
-              {renderPlayer(p1, 'bg-orange-400', 'text-2xl font-bold text-white')}
-              {renderPlayer(p2, 'bg-orange-400', 'text-2xl font-bold text-white')}
+              {renderPlayer(n1, 'bg-orange-400', 'text-2xl font-bold text-white', matchAvatars[0])}
+              {renderPlayer(n2, 'bg-orange-400', 'text-2xl font-bold text-white', matchAvatars[1])}
             </div>
             {match.status === 'completed' && (hasSets || match.score1 != null) && (
               <div className={`flex items-center gap-1 flex-shrink-0 ${scoreContainerW} justify-end whitespace-nowrap`}>
@@ -1526,8 +1550,8 @@ function GameCardPlaytomic({
           {/* Equipa 2 – azul claro (grid igual para alinhar com equipa 1) */}
           <div className="flex items-start justify-between gap-4">
             <div className="grid grid-cols-2 gap-x-5 gap-y-0 flex-1 items-start">
-              {renderPlayer(p3, 'bg-sky-200', 'text-2xl font-bold text-sky-800')}
-              {renderPlayer(p4, 'bg-sky-200', 'text-2xl font-bold text-sky-800')}
+              {renderPlayer(n3, 'bg-sky-200', 'text-2xl font-bold text-sky-800', matchAvatars[2])}
+              {renderPlayer(n4, 'bg-sky-200', 'text-2xl font-bold text-sky-800', matchAvatars[3])}
             </div>
             {match.status === 'completed' && (hasSets || match.score1 != null) && (
               <div className={`flex items-center gap-1 flex-shrink-0 ${scoreContainerW} justify-end whitespace-nowrap`}>
@@ -2828,7 +2852,7 @@ function RankingsScreen({
   userId: string | null
   playerAccountId: string | null
   onBack: () => void
-  onOpenPlayerProfile: (userId: string) => void
+  onOpenPlayerProfile: (userId: string, opts?: { accountId?: string | null; nameHint?: string | null }) => void
 }) {
   const { t } = useI18n()
   const [scope, setScope] = useState<'general' | 'club'>('general')
@@ -2969,7 +2993,7 @@ function RankingRow({
   entry: import('./lib/playerRankings').RankingEntry
   isMe: boolean
   positionBadge: string
-  onOpenPlayerProfile: (userId: string) => void
+  onOpenPlayerProfile: (userId: string, opts?: { accountId?: string | null; nameHint?: string | null }) => void
 }) {
   const colors = levelColors(entry.level)
 
@@ -3046,7 +3070,7 @@ function HomeScreen({
   onOpenLearn: () => void
   onOpenGames: (tab?: 'upcoming' | 'history') => void
   onOpenFollowsList: (userId: string) => void
-  onOpenPlayerProfile: (userId: string) => void
+  onOpenPlayerProfile: (userId: string, opts?: { accountId?: string | null; nameHint?: string | null }) => void
   onOpenFindGame: () => void
   onOpenRewards: () => void
   onOpenBooking: () => void
@@ -3099,10 +3123,11 @@ function HomeScreen({
   }
 
   const handlePlayerClick = async (playerName: string) => {
-    const { findPlayerUserIdByName } = await import('./lib/classes')
-    const userId = await findPlayerUserIdByName(playerName)
-    if (userId) {
-      onOpenPlayerProfile(userId)
+    if (!playerName || isLikelyTeamLabel(playerName)) return
+    const { findPlayerAccountByName } = await import('./lib/classes')
+    const acc = await findPlayerAccountByName(playerName)
+    if (acc?.user_id) {
+      onOpenPlayerProfile(acc.user_id, { accountId: acc.id, nameHint: playerName })
     }
   }
 
@@ -3212,8 +3237,11 @@ function HomeScreen({
       const result = await acceptPartnerInvite(inv.id)
       await loadHomePartnerInvites()
       await onRefresh()
-      if (result?.checkoutUrl) window.open(result.checkoutUrl, '_blank', 'noopener,noreferrer')
-      alert(result?.checkoutUrl ? (t as any).partner?.pairCreatedPayment || 'Dupla criada. Complete o pagamento para confirmar.' : (t as any).partner?.pairCreatedSuccess || 'Dupla criada e inscrita com sucesso.')
+      alert(
+        result?.awaitingConfirmation
+          ? `Aceitaste o convite! Aguarda que ${result.requesterName || 'o parceiro'} confirme a inscrição da dupla.`
+          : ((t as any).partner?.pairCreatedSuccess || 'Dupla criada e inscrita com sucesso.'),
+      )
     } catch (error: any) {
       alert(error?.message || (t as any).partner?.acceptError || 'Não foi possível aceitar o convite.')
     }
@@ -3885,7 +3913,7 @@ function HomeScreen({
 }
 
 // ---------- Comunidade ----------
-function CommunityScreen({ userId, playerAccountId, playerAvatar, playerName, onOpenPlayerProfile, onOpenGroup }: { userId: string; playerAccountId: string; playerAvatar?: string | null; playerName?: string; onOpenPlayerProfile: (userId: string) => void; onOpenGroup: (groupId: string) => void }) {
+function CommunityScreen({ userId, playerAccountId, playerAvatar, playerName, onOpenPlayerProfile, onOpenGroup }: { userId: string; playerAccountId: string; playerAvatar?: string | null; playerName?: string; onOpenPlayerProfile: (userId: string, opts?: { accountId?: string | null; nameHint?: string | null }) => void; onOpenGroup: (groupId: string) => void }) {
   const { t } = useI18n()
   // Feed state
   const [suggestions, setSuggestions] = useState<CommunityPlayer[]>([])
@@ -3905,10 +3933,11 @@ function CommunityScreen({ userId, playerAccountId, playerAvatar, playerName, on
   const [creatingGroup, setCreatingGroup] = useState(false)
 
   const handlePlayerClick = async (playerNameClicked: string) => {
-    const { findPlayerUserIdByName } = await import('./lib/classes')
-    const foundUserId = await findPlayerUserIdByName(playerNameClicked)
-    if (foundUserId) {
-      onOpenPlayerProfile(foundUserId)
+    if (!playerNameClicked || isLikelyTeamLabel(playerNameClicked)) return
+    const { findPlayerAccountByName } = await import('./lib/classes')
+    const acc = await findPlayerAccountByName(playerNameClicked)
+    if (acc?.user_id) {
+      onOpenPlayerProfile(acc.user_id, { accountId: acc.id, nameHint: playerNameClicked })
     }
   }
 
@@ -5596,10 +5625,15 @@ function CompeteScreen({
     const params = new URLSearchParams(window.location.search)
     const deepTournamentId = params.get('tournament')
     const deepInviteId = params.get('partner_invite')
+    const deepConfirmId = params.get('partner_confirm')
     if (deepTournamentId) openTournamentDetail(deepTournamentId)
     if (deepInviteId) {
       setActiveTab('upcoming')
       fetchPartnerInvites()
+    }
+    if (deepConfirmId && deepTournamentId) {
+      // Requester landed from push — summary will show confirm button
+      setActiveTab('upcoming')
     }
   }, [])
 
@@ -5700,10 +5734,33 @@ function CompeteScreen({
     try {
       const result = await acceptPartnerInvite(invite.id)
       await fetchPartnerInvites()
-      if (result?.checkoutUrl) window.open(result.checkoutUrl, '_blank', 'noopener,noreferrer')
-      alert(result?.checkoutUrl ? (t as any).partner?.pairCreatedPayment || 'Dupla criada. Complete o pagamento para confirmar.' : (t as any).partner?.pairCreatedSuccess || 'Dupla criada e inscrita com sucesso.')
+      if (selectedTournamentDetail?.id) await loadPartnerRequestSummary(selectedTournamentDetail.id)
+      alert(
+        result?.awaitingConfirmation
+          ? `Aceitaste o convite! Aguarda que ${result.requesterName || 'o parceiro'} confirme a inscrição da dupla.`
+          : ((t as any).partner?.pairCreatedSuccess || 'Dupla criada e inscrita com sucesso.'),
+      )
     } catch (error: any) {
       alert(error?.message || (t as any).partner?.acceptError || 'Não foi possível aceitar o convite.')
+    }
+  }
+
+  const handleConfirmPartnerMatch = async (inviteId: string) => {
+    try {
+      const result = await confirmPartnerMatch(inviteId)
+      if (selectedTournamentDetail?.id) {
+        await loadPartnerRequestSummary(selectedTournamentDetail.id)
+        const refreshed = await fetchTournamentFullDetail(selectedTournamentDetail.id, player?.id)
+        if (refreshed) setSelectedTournamentDetail(refreshed)
+      }
+      if (result?.checkoutUrl) window.open(result.checkoutUrl, '_blank', 'noopener,noreferrer')
+      alert(
+        result?.checkoutUrl
+          ? 'Inscrição criada. Completa o pagamento para confirmar.'
+          : 'Inscrição da dupla confirmada com sucesso!',
+      )
+    } catch (error: any) {
+      alert(error?.message || 'Não foi possível confirmar a inscrição.')
     }
   }
 
@@ -5887,12 +5944,23 @@ function CompeteScreen({
                   </p>
                 )}
                 <p className="text-xs text-gray-700 mt-3 leading-relaxed">
-                  {partnerRequestSummary.pending > 0
-                    ? `Ainda há ${partnerRequestSummary.pending} convite(s) por responder — podes conseguir parceiro se alguém aceitar.`
-                    : partnerRequestSummary.accepted > 0
-                      ? 'Alguém aceitou o convite. Verifica a inscrição da dupla e o pagamento se o torneio for pago.'
-                      : 'Ninguém aceitou ainda e não há convites em espera. Podes usar «Encontrar parceiro» de novo para convidar outros jogadores.'}
+                  {partnerRequestSummary.status === 'awaiting_confirmation' && partnerRequestSummary.acceptedInviteId
+                    ? `${partnerRequestSummary.acceptedInviteeName || 'Um jogador'} aceitou o teu convite. Confirma a inscrição da dupla.`
+                    : partnerRequestSummary.pending > 0
+                      ? `Ainda há ${partnerRequestSummary.pending} convite(s) por responder — podes conseguir parceiro se alguém aceitar.`
+                      : partnerRequestSummary.accepted > 0
+                        ? 'Alguém aceitou o convite. Confirma a inscrição abaixo.'
+                        : 'Ninguém aceitou ainda e não há convites em espera. Podes usar «Encontrar parceiro» de novo para convidar outros jogadores.'}
                 </p>
+                {partnerRequestSummary.status === 'awaiting_confirmation' && partnerRequestSummary.acceptedInviteId && (
+                  <button
+                    type="button"
+                    onClick={() => void handleConfirmPartnerMatch(partnerRequestSummary.acceptedInviteId!)}
+                    className="mt-3 w-full py-3 px-3 text-sm font-semibold text-white bg-green-600 rounded-xl hover:bg-green-700 transition-colors"
+                  >
+                    Confirmar inscrição com {partnerRequestSummary.acceptedInviteeName || 'parceiro'}
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={async () => {
@@ -7313,7 +7381,7 @@ function FindGameScreen({
   player: PlayerAccount | null
   userId: string | null
   onBack: () => void
-  onOpenPlayerProfile: (userId: string) => void
+  onOpenPlayerProfile: (userId: string, opts?: { accountId?: string | null; nameHint?: string | null }) => void
   onRefresh?: () => Promise<void>
   groupId?: string | null
   resultsOnly?: boolean
@@ -9674,7 +9742,7 @@ function LearnScreen({
   userId: string | null
   playerAccountId: string | null
   onBack: () => void
-  onOpenPlayerProfile: (userId: string) => void
+  onOpenPlayerProfile: (userId: string, opts?: { accountId?: string | null; nameHint?: string | null }) => void
   onOpenClub: (clubId: string) => void
 }) {
   const { t } = useI18n()
@@ -10308,7 +10376,7 @@ function BookingScreen({
   player: PlayerAccount | null
   userId: string | null
   onBack: () => void
-  onOpenPlayerProfile: (userId: string) => void
+  onOpenPlayerProfile: (userId: string, opts?: { accountId?: string | null; nameHint?: string | null }) => void
   onRefresh?: () => Promise<void>
 }) {
   const { t } = useI18n()
@@ -11259,7 +11327,7 @@ function GamesScreen({
   dashboardData: PlayerDashboardData | null
   onRefresh: () => Promise<void>
   onBack: () => void
-  onOpenPlayerProfile: (userId: string) => void
+  onOpenPlayerProfile: (userId: string, opts?: { accountId?: string | null; nameHint?: string | null }) => void
   onOpenFindGame: () => void
   onOpenGameResults: () => void
   initialTab?: 'upcoming' | 'history'
@@ -11282,10 +11350,11 @@ function GamesScreen({
   const list = activeTab === 'upcoming' ? upcoming : recent
 
   const handlePlayerClick = async (playerName: string) => {
-    const { findPlayerUserIdByName } = await import('./lib/classes')
-    const userId = await findPlayerUserIdByName(playerName)
-    if (userId) {
-      onOpenPlayerProfile(userId)
+    if (!playerName || isLikelyTeamLabel(playerName)) return
+    const { findPlayerAccountByName } = await import('./lib/classes')
+    const acc = await findPlayerAccountByName(playerName)
+    if (acc?.user_id) {
+      onOpenPlayerProfile(acc.user_id, { accountId: acc.id, nameHint: playerName })
     }
   }
 
@@ -11375,22 +11444,8 @@ function GamesScreen({
 }
 
 /** Extrai nomes de jogadores de um match (excluindo o jogador atual). */
-function getOtherPlayersFromMatch(match: { player1_name?: string; player2_name?: string; player3_name?: string; player4_name?: string; team1_name?: string; team2_name?: string }, currentName?: string): string[] {
-  const names: string[] = []
-  const add = (n: string | undefined) => {
-    if (n && n.trim() && !isCurrentPlayer(n, currentName)) names.push(n.trim())
-  }
-  if (match.player1_name || match.player2_name || match.player3_name || match.player4_name) {
-    add(match.player1_name)
-    add(match.player2_name)
-    add(match.player3_name)
-    add(match.player4_name)
-  } else {
-    const [p1, p2] = parseTeamMembers(match.team1_name || '')
-    const [p3, p4] = parseTeamMembers(match.team2_name || '')
-    ;[p1, p2, p3, p4].forEach((p) => add(p !== '?' ? p : undefined))
-  }
-  return names
+function getOtherPlayersFromMatch(match: { player1_name?: string; player2_name?: string; player3_name?: string; player4_name?: string; team1_name?: string; team2_name?: string; my_side?: 1 | 2 }, currentName?: string): string[] {
+  return getPartnerNamesFromMatch(match, currentName)
 }
 
 // ---------- Group Detail Screen ----------
@@ -12039,7 +12094,7 @@ function FollowsListScreen({
   targetUserId: string
   myUserId: string
   onBack: () => void
-  onOpenPlayerProfile: (userId: string) => void
+  onOpenPlayerProfile: (userId: string, opts?: { accountId?: string | null; nameHint?: string | null }) => void
 }) {
   const [activeTab, setActiveTab] = useState<'following' | 'followers'>('following')
   const [followingList, setFollowingList] = useState<CommunityPlayer[]>([])
@@ -12156,16 +12211,20 @@ function FollowsListScreen({
 // ---------- Perfil de Outro Jogador (a partir da Comunidade) ----------
 function OtherPlayerProfileScreen({
   targetUserId,
+  preferredAccountId,
+  preferredName,
   myUserId,
   onBack,
   onOpenFollowsList,
   onOpenPlayerProfile,
 }: {
   targetUserId: string
+  preferredAccountId?: string | null
+  preferredName?: string | null
   myUserId: string
   onBack: () => void
   onOpenFollowsList: (userId: string) => void
-  onOpenPlayerProfile: (userId: string) => void
+  onOpenPlayerProfile: (userId: string, opts?: { accountId?: string | null; nameHint?: string | null }) => void
 }) {
   const { t } = useI18n()
   const [profile, setProfile] = useState<PlayerProfile | null>(null)
@@ -12176,12 +12235,15 @@ function OtherPlayerProfileScreen({
 
   useEffect(() => {
     setLoading(true)
-    getPlayerProfile(targetUserId, myUserId).then((p) => {
+    getPlayerProfile(targetUserId, myUserId, {
+      accountId: preferredAccountId,
+      preferredName,
+    }).then((p) => {
       setProfile(p)
       setIsFollowing(p?.isFollowedByMe ?? false)
       setLoading(false)
     })
-  }, [targetUserId, myUserId])
+  }, [targetUserId, myUserId, preferredAccountId, preferredName])
   
   // Buscar avatar e nome do utilizador atual
   useEffect(() => {
@@ -12216,10 +12278,11 @@ function OtherPlayerProfileScreen({
   }
 
   const handlePlayerClick = async (playerName: string) => {
-    const { findPlayerUserIdByName } = await import('./lib/classes')
-    const foundUserId = await findPlayerUserIdByName(playerName)
-    if (foundUserId) {
-      onOpenPlayerProfile(foundUserId)
+    if (!playerName || isLikelyTeamLabel(playerName)) return
+    const { findPlayerAccountByName } = await import('./lib/classes')
+    const acc = await findPlayerAccountByName(playerName)
+    if (acc?.user_id) {
+      onOpenPlayerProfile(acc.user_id, { accountId: acc.id, nameHint: playerName })
     }
   }
   
@@ -12232,6 +12295,7 @@ function OtherPlayerProfileScreen({
       const { supabase } = await import('./lib/supabase')
       const avatars: Record<string, string | null> = {}
       for (const { name } of profile.topPlayers) {
+        if (isLikelyTeamLabel(name)) continue
         const { data: account } = await supabase
           .from('player_accounts')
           .select('avatar_url')
@@ -12477,11 +12541,11 @@ function OtherPlayerProfileScreen({
           <Users className="w-5 h-5 text-red-600" />
           {t.learn.playersYouPlayWith}
         </h2>
-        {profile.topPlayers.length > 0 ? (
+        {profile.topPlayers.filter(({ name }) => !isLikelyTeamLabel(name)).length > 0 ? (
           <div className="overflow-x-auto pb-2 -mx-4 px-4 sm:mx-0 sm:px-0 snap-x snap-mandatory scroll-smooth">
             <div className="flex gap-3" style={{ width: 'max-content' }}>
-              {profile.topPlayers.map(({ name, count }) => {
-                const { firstName } = splitName(name)
+              {profile.topPlayers.filter(({ name }) => !isLikelyTeamLabel(name)).map(({ name, count }) => {
+                const display = shortPlayerLabel(name)
                 return (
                 <div 
                   key={name} 
@@ -12495,7 +12559,7 @@ function OtherPlayerProfileScreen({
                       <span className="text-white font-bold text-sm">{getInitials(name)}</span>
                     )}
                   </div>
-                  <p className="font-semibold text-gray-900 text-xs leading-tight">{firstName}</p>
+                  <p className="font-semibold text-gray-900 text-xs leading-tight">{display}</p>
                   <p className="text-[10px] text-gray-500 mt-1">{count} jogos</p>
                 </div>
                 )
@@ -12550,7 +12614,7 @@ function ProfileViewScreen({
   userId: string | null
   onOpenGames: (tab?: 'upcoming' | 'history') => void
   onOpenFollowsList: (userId: string) => void
-  onOpenPlayerProfile: (userId: string) => void
+  onOpenPlayerProfile: (userId: string, opts?: { accountId?: string | null; nameHint?: string | null }) => void
 }) {
   const { t } = useI18n()
   const d = dashboardData
@@ -12570,10 +12634,11 @@ function ProfileViewScreen({
   const upcomingMatches = (d?.upcomingMatches ?? []).slice(0, 5)
 
   const handlePlayerClick = async (playerName: string) => {
-    const { findPlayerUserIdByName } = await import('./lib/classes')
-    const foundUserId = await findPlayerUserIdByName(playerName)
-    if (foundUserId) {
-      onOpenPlayerProfile(foundUserId)
+    if (!playerName || isLikelyTeamLabel(playerName)) return
+    const { findPlayerAccountByName } = await import('./lib/classes')
+    const acc = await findPlayerAccountByName(playerName)
+    if (acc?.user_id) {
+      onOpenPlayerProfile(acc.user_id, { accountId: acc.id, nameHint: playerName })
     }
   }
 
@@ -12582,6 +12647,7 @@ function ProfileViewScreen({
   const playerCountMap = new Map<string, number>()
   allRecentMatches.forEach((match) => {
     getOtherPlayersFromMatch(match, player?.name).forEach((name) => {
+      if (isLikelyTeamLabel(name)) return
       playerCountMap.set(name, (playerCountMap.get(name) || 0) + 1)
     })
   })
@@ -13007,7 +13073,7 @@ function ProfileViewScreen({
           <div className="overflow-x-auto pb-2 -mx-4 px-4 sm:mx-0 sm:px-0 snap-x snap-mandatory scroll-smooth">
             <div className="flex gap-3" style={{ width: 'max-content' }}>
               {topPlayers.map(({ name, count }) => {
-                const { firstName } = splitName(name)
+                const display = shortPlayerLabel(name)
                 return (
                 <div 
                   key={name} 
@@ -13021,7 +13087,7 @@ function ProfileViewScreen({
                       <span className="text-white font-bold text-sm">{getInitials(name)}</span>
                     )}
                   </div>
-                  <p className="font-semibold text-gray-900 text-xs leading-tight">{firstName}</p>
+                  <p className="font-semibold text-gray-900 text-xs leading-tight">{display}</p>
                   <p className="text-[10px] text-gray-500 mt-1">{count} jogos</p>
                 </div>
                 )

@@ -69,33 +69,51 @@ export async function preloadAllPlayerData(): Promise<void> {
  * 
  * Ordem de matching:
  * 1. Nome exato (case-insensitive)
- * 2. Primeiro + último nome
- * 3. Primeiro nome (se único match)
+ * 2. Segmento primário antes de "/" (Carlos/Padel1 → Carlos)
+ * 3. Primeiro + último nome
+ * 4. Primeiro nome (se único match)
  */
 export function getCachedPlayerData(name: string): CachedPlayerData | null {
-  if (!cache || !name || name === 'TBD') return null
+  if (!cache || !name || name === 'TBD' || name === '?') return null
   const norm = normalize(name)
+  const primary = normalize(name.split(/\s*\/\s*/)[0] || name)
 
   // 1. Match exato
-  const exact = cache.get(norm)
+  const exact = cache.get(norm) || (primary !== norm ? cache.get(primary) : null)
   if (exact) return exact
 
-  // 2. Primeiro + último nome
-  const parts = norm.split(/\s+/)
+  // 2. Contas com slash cujo segmento primário bate
+  if (primary.length >= 2) {
+    const primaryHits: CachedPlayerData[] = []
+    for (const [key, val] of cache) {
+      const keyPrimary = key.split(/\s*\/\s*/)[0]
+      if (keyPrimary === primary || key === primary) primaryHits.push(val)
+    }
+    if (primaryHits.length === 1) return primaryHits[0]
+    // Prefer exact full-name containment
+    const contained = primaryHits.find((v) => normalize(v.name).startsWith(primary))
+    if (contained) return contained
+  }
+
+  // 3. Primeiro + último nome
+  const parts = primary.split(/\s+/)
   if (parts.length >= 2) {
     const first = parts[0]
     const last = parts[parts.length - 1]
     for (const [key, val] of cache) {
-      if (key.startsWith(first) && key.includes(last)) return val
+      const keyPrimary = key.split(/\s*\/\s*/)[0]
+      if (keyPrimary.startsWith(first) && keyPrimary.includes(last)) return val
     }
   }
 
-  // 3. Primeiro nome (se resultado único)
+  // 4. Primeiro nome (se resultado único)
   if (parts.length >= 1) {
     const first = parts[0]
+    if (first.length < 3) return null
     const matches: CachedPlayerData[] = []
     for (const [key, val] of cache) {
-      if (key.startsWith(first + ' ') || key === first) matches.push(val)
+      const keyPrimary = key.split(/\s*\/\s*/)[0]
+      if (keyPrimary.startsWith(first + ' ') || keyPrimary === first) matches.push(val)
     }
     if (matches.length === 1) return matches[0]
   }

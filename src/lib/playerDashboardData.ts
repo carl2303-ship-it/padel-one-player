@@ -26,6 +26,12 @@ export interface PlayerMatch {
   player2_name?: string
   player3_name?: string
   player4_name?: string
+  player1_avatar?: string | null
+  player2_avatar?: string | null
+  player3_avatar?: string | null
+  player4_avatar?: string | null
+  /** 1 = jogador atual na equipa 1; 2 = na equipa 2 */
+  my_side?: 1 | 2
   score1: number | null
   score2: number | null
   status: string
@@ -451,55 +457,63 @@ export async function fetchPlayerDashboardData(
       if (m.team2_id) teamIdsFromMatches.add(m.team2_id)
     })
     
-    const teamPlayerNamesMap = new Map<string, { player1_name?: string; player2_name?: string }>()
+    const teamPlayerNamesMap = new Map<string, {
+      player1_name?: string
+      player2_name?: string
+      player1_avatar?: string | null
+      player2_avatar?: string | null
+    }>()
     if (teamIdsFromMatches.size > 0) {
       const { data: teamsWithPlayers } = await supabase
         .from('teams')
-        .select('id, player1_id, player2_id, player1:players!teams_player1_id_fkey(id, name), player2:players!teams_player2_id_fkey(id, name)')
+        .select('id, player1_id, player2_id, player1:players!teams_player1_id_fkey(id, name, player_account_id), player2:players!teams_player2_id_fkey(id, name, player_account_id)')
         .in('id', Array.from(teamIdsFromMatches))
-      
+
       if (teamsWithPlayers) {
-        // Primeiro, tentar usar as relações
+        const accountIds = new Set<string>()
+        const playerIdsNeeded = new Set<string>()
         teamsWithPlayers.forEach((t: any) => {
-          const p1Name = t.player1?.name
-          const p2Name = t.player2?.name
-          if (p1Name || p2Name) {
-            teamPlayerNamesMap.set(t.id, { player1_name: p1Name, player2_name: p2Name })
-          }
+          if (t.player1?.player_account_id) accountIds.add(t.player1.player_account_id)
+          if (t.player2?.player_account_id) accountIds.add(t.player2.player_account_id)
+          if (!t.player1?.name && t.player1_id) playerIdsNeeded.add(t.player1_id)
+          if (!t.player2?.name && t.player2_id) playerIdsNeeded.add(t.player2_id)
         })
-        
-        // Se ainda faltam nomes, buscar diretamente pelos IDs
-        const missingPlayerIds = new Set<string>()
-        teamsWithPlayers.forEach((t: any) => {
-          const cached = teamPlayerNamesMap.get(t.id)
-          if (t.player1_id && !cached?.player1_name) missingPlayerIds.add(t.player1_id)
-          if (t.player2_id && !cached?.player2_name) missingPlayerIds.add(t.player2_id)
-        })
-        
-        if (missingPlayerIds.size > 0) {
+
+        const playerById = new Map<string, { name?: string; player_account_id?: string }>()
+        if (playerIdsNeeded.size > 0) {
           const { data: missingPlayers } = await supabase
             .from('players')
-            .select('id, name')
-            .in('id', Array.from(missingPlayerIds))
-          
-          if (missingPlayers) {
-            const playerNamesById = new Map<string, string>()
-            missingPlayers.forEach((p: any) => playerNamesById.set(p.id, p.name))
-            
-            teamsWithPlayers.forEach((t: any) => {
-              const cached = teamPlayerNamesMap.get(t.id) || {}
-              if (t.player1_id && !cached.player1_name) {
-                cached.player1_name = playerNamesById.get(t.player1_id)
-              }
-              if (t.player2_id && !cached.player2_name) {
-                cached.player2_name = playerNamesById.get(t.player2_id)
-              }
-              if (cached.player1_name || cached.player2_name) {
-                teamPlayerNamesMap.set(t.id, cached)
-              }
-            })
-          }
+            .select('id, name, player_account_id')
+            .in('id', Array.from(playerIdsNeeded))
+          ;(missingPlayers || []).forEach((p: any) => {
+            playerById.set(p.id, p)
+            if (p.player_account_id) accountIds.add(p.player_account_id)
+          })
         }
+
+        const accountById = new Map<string, { name: string; avatar_url: string | null }>()
+        if (accountIds.size > 0) {
+          const { data: accounts } = await supabase
+            .from('player_accounts')
+            .select('id, name, avatar_url')
+            .in('id', Array.from(accountIds))
+          ;(accounts || []).forEach((a: any) => accountById.set(a.id, { name: a.name, avatar_url: a.avatar_url }))
+        }
+
+        teamsWithPlayers.forEach((t: any) => {
+          const p1Fallback = t.player1_id ? playerById.get(t.player1_id) : null
+          const p2Fallback = t.player2_id ? playerById.get(t.player2_id) : null
+          const p1AccId = t.player1?.player_account_id || p1Fallback?.player_account_id
+          const p2AccId = t.player2?.player_account_id || p2Fallback?.player_account_id
+          const p1Acc = p1AccId ? accountById.get(p1AccId) : null
+          const p2Acc = p2AccId ? accountById.get(p2AccId) : null
+          teamPlayerNamesMap.set(t.id, {
+            player1_name: p1Acc?.name || t.player1?.name || p1Fallback?.name,
+            player2_name: p2Acc?.name || t.player2?.name || p2Fallback?.name,
+            player1_avatar: p1Acc?.avatar_url ?? null,
+            player2_avatar: p2Acc?.avatar_url ?? null,
+          })
+        })
       }
     }
 
@@ -514,13 +528,16 @@ export async function fetchPlayerDashboardData(
       const team2Name = isIndividual
         ? `${m.p3?.name || 'TBD'}${m.p4 ? ' / ' + m.p4.name : ''}`
         : m.team2?.name || 'TBD'
-      
-      // Para jogos por equipas, usar o mapa de fallback se as relações falharem
+
       let p1Name: string | undefined
       let p2Name: string | undefined
       let p3Name: string | undefined
       let p4Name: string | undefined
-      
+      let p1Avatar: string | null | undefined
+      let p2Avatar: string | null | undefined
+      let p3Avatar: string | null | undefined
+      let p4Avatar: string | null | undefined
+
       if (isIndividual) {
         p1Name = m.p1?.name
         p2Name = m.p2?.name
@@ -529,11 +546,15 @@ export async function fetchPlayerDashboardData(
       } else {
         const team1Players = m.team1_id ? teamPlayerNamesMap.get(m.team1_id) : null
         const team2Players = m.team2_id ? teamPlayerNamesMap.get(m.team2_id) : null
-        
+
         p1Name = (m.team1 as any)?.t1p1?.name || team1Players?.player1_name
         p2Name = (m.team1 as any)?.t1p2?.name || team1Players?.player2_name
         p3Name = (m.team2 as any)?.t2p1?.name || team2Players?.player1_name
         p4Name = (m.team2 as any)?.t2p2?.name || team2Players?.player2_name
+        p1Avatar = team1Players?.player1_avatar
+        p2Avatar = team1Players?.player2_avatar
+        p3Avatar = team2Players?.player1_avatar
+        p4Avatar = team2Players?.player2_avatar
       }
       const team1Sets = [
         (m.team1_score_set1 || 0) > (m.team2_score_set1 || 0) ? 1 : 0,
@@ -546,13 +567,20 @@ export async function fetchPlayerDashboardData(
         (m.team2_score_set3 || 0) > (m.team1_score_set3 || 0) ? 1 : 0,
       ].reduce((a, b) => a + b, 0)
       let is_winner: boolean | undefined
+      let my_side: 1 | 2 | undefined
       if (m.status === 'completed' && (team1Sets > 0 || team2Sets > 0)) {
         const isPlayerInTeam1 = isIndividual
           ? playerIds.includes(m.p1?.id) || playerIds.includes(m.p2?.id)
           : teamIds.includes(m.team1?.id)
+        my_side = isPlayerInTeam1 ? 1 : 2
         is_winner = isPlayerInTeam1 ? team1Sets > team2Sets : team2Sets > team1Sets
         if (is_winner) wins++
         else losses++
+      } else {
+        const isPlayerInTeam1 = isIndividual
+          ? playerIds.includes(m.p1?.id) || playerIds.includes(m.p2?.id)
+          : teamIds.includes(m.team1?.id)
+        my_side = isPlayerInTeam1 ? 1 : 2
       }
       const set1 =
         m.team1_score_set1 != null && m.team2_score_set1 != null
@@ -578,6 +606,11 @@ export async function fetchPlayerDashboardData(
         player2_name: p2Name ?? undefined,
         player3_name: p3Name ?? undefined,
         player4_name: p4Name ?? undefined,
+        player1_avatar: p1Avatar,
+        player2_avatar: p2Avatar,
+        player3_avatar: p3Avatar,
+        player4_avatar: p4Avatar,
+        my_side,
         score1: team1Sets,
         score2: team2Sets,
         status: m.status,
@@ -615,6 +648,11 @@ export async function fetchPlayerDashboardData(
         player2_name: r.player2_name,
         player3_name: r.player3_name,
         player4_name: r.player4_name,
+        player1_avatar: (r as any).player1_avatar,
+        player2_avatar: (r as any).player2_avatar,
+        player3_avatar: (r as any).player3_avatar,
+        player4_avatar: (r as any).player4_avatar,
+        my_side: (r as any).my_side,
         score1: r.score1,
         score2: r.score2,
         status: r.status,

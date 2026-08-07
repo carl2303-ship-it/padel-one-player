@@ -18,58 +18,113 @@ export async function findPlayerUserIdByPhone(phone: string | null): Promise<str
   return playerAccount?.user_id || null
 }
 
-/** Busca user_id do player_account pelo nome */
-export async function findPlayerUserIdByName(name: string | null): Promise<string | null> {
+/** Busca conta de jogador pelo nome (preferir match exacto; devolve id da conta). */
+export async function findPlayerAccountByName(
+  name: string | null,
+): Promise<{ id: string; user_id: string; name: string } | null> {
   if (!name || name.trim().length === 0) return null
   const trimmed = name.trim()
-  
-  // 1. Busca exata pelo nome
-  const { data: exact } = await supabase
-    .from('player_accounts')
-    .select('user_id')
-    .eq('name', trimmed)
-    .limit(1)
-    .maybeSingle()
-  if (exact?.user_id) return exact.user_id
-  
-  // 2. Busca case-insensitive
-  const { data: ilike } = await supabase
-    .from('player_accounts')
-    .select('user_id')
-    .ilike('name', trimmed)
-    .limit(1)
-    .maybeSingle()
-  if (ilike?.user_id) return ilike.user_id
+  if (trimmed === '?' || trimmed === 'TBD') return null
+  if (/^[A-ZÁÉÍÓÚ]{1,4}$/.test(trimmed) && trimmed.length <= 3) return null
+  if (/^wild\s*card/i.test(trimmed)) return null
 
-  // 3. Busca por primeiro + último nome (caso o nome no jogo seja abreviado)
-  const parts = trimmed.split(/\s+/)
+  const candidates = [
+    trimmed,
+    ...(trimmed.includes('/') ? [trimmed.split(/\s*\/\s*/)[0].trim()] : []),
+  ].filter((c, i, arr) => c && arr.indexOf(c) === i)
+
+  const pick = (rows: { id: string; user_id: string; name: string }[] | null) => {
+    if (!rows?.length) return null
+    // Never return wild-card placeholder accounts for a real name click
+    const real = rows.filter((r) => r.user_id && !/^wild\s*card/i.test(r.name || ''))
+    const pool = real.length ? real : rows.filter((r) => r.user_id)
+    if (!pool.length) return null
+    // Prefer exact name match (case-insensitive)
+    const exact = pool.find((r) => (r.name || '').trim().toLowerCase() === trimmed.toLowerCase())
+    return exact || pool[0]
+  }
+
+  for (const candidate of candidates) {
+    const { data: exact } = await supabase
+      .from('player_accounts')
+      .select('id, user_id, name')
+      .eq('name', candidate)
+      .limit(5)
+    const hit = pick(exact)
+    if (hit) return hit
+
+    const { data: ilike } = await supabase
+      .from('player_accounts')
+      .select('id, user_id, name')
+      .ilike('name', candidate)
+      .limit(5)
+    const hit2 = pick(ilike)
+    if (hit2) return hit2
+
+    if (candidate.length >= 3) {
+      const { data: starts } = await supabase
+        .from('player_accounts')
+        .select('id, user_id, name')
+        .ilike('name', `${candidate}%`)
+        .limit(10)
+      const primaryHit = (starts || []).find((r) => {
+        const primary = (r.name || '').split(/\s*\/\s*/)[0].trim().toLowerCase()
+        return primary === candidate.toLowerCase()
+      })
+      if (primaryHit?.user_id) {
+        const chosen = pick([primaryHit])
+        if (chosen) return chosen
+      }
+      if (starts && starts.length === 1) {
+        const chosen = pick(starts)
+        if (chosen) return chosen
+      }
+    }
+  }
+
+  const primary = candidates[0]
+  const parts = primary.split(/\s+/)
   if (parts.length >= 2) {
     const firstName = parts[0]
     const lastName = parts[parts.length - 1]
     const { data: partial } = await supabase
       .from('player_accounts')
-      .select('user_id')
+      .select('id, user_id, name')
       .ilike('name', `${firstName}%${lastName}%`)
-      .limit(1)
-      .maybeSingle()
-    if (partial?.user_id) return partial.user_id
+      .limit(10)
+    // Require both first and last to appear as whole tokens — pick best exact-ish match
+    const scored = (partial || [])
+      .filter((r) => r.user_id && !/^wild\s*card/i.test(r.name || ''))
+      .map((r) => {
+        const n = (r.name || '').trim().toLowerCase()
+        const score =
+          (n === primary.toLowerCase() ? 100 : 0) +
+          (n.startsWith(firstName.toLowerCase()) ? 10 : 0) +
+          (n.includes(lastName.toLowerCase()) ? 10 : 0)
+        return { r, score }
+      })
+      .sort((a, b) => b.score - a.score)
+    if (scored[0] && scored[0].score >= 20) return scored[0].r
   }
 
-  // 4. Busca só por primeiro nome (última tentativa)
-  if (parts.length >= 1) {
-    const firstName = parts[0]
+  // Last resort: unique first-name match (never wild cards)
+  if (parts.length >= 1 && parts[0].length >= 3) {
     const { data: byFirst } = await supabase
       .from('player_accounts')
-      .select('user_id, name')
-      .ilike('name', `${firstName}%`)
-      .limit(5)
-    // Se só houver 1 resultado, é esse
-    if (byFirst && byFirst.length === 1 && byFirst[0].user_id) {
-      return byFirst[0].user_id
-    }
+      .select('id, user_id, name')
+      .ilike('name', `${parts[0]}%`)
+      .limit(10)
+    const real = (byFirst || []).filter((r) => r.user_id && !/^wild\s*card/i.test(r.name || ''))
+    if (real.length === 1) return real[0]
   }
 
   return null
+}
+
+/** Busca user_id do player_account pelo nome */
+export async function findPlayerUserIdByName(name: string | null): Promise<string | null> {
+  const acc = await findPlayerAccountByName(name)
+  return acc?.user_id || null
 }
 
 /** Buscar dados completos do jogador (user_id, level, category, avatar) por nome - com fallback inteligente */

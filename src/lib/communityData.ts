@@ -1,6 +1,7 @@
 import { supabase } from './supabase'
 import { sendPushToPlayer } from './pushNotifications'
 import { getTranslations } from './translations'
+import { getPartnerNamesFromMatch, isLikelyTeamLabel } from './matchPlayerNames'
 
 // ============================================
 // Helpers
@@ -19,7 +20,8 @@ function isTestPlayer(name?: string): boolean {
 /** Retorna as iniciais do nome (primeira letra do nome + primeira letra do apelido) */
 export function getInitials(name?: string): string {
   if (!name) return '?'
-  const parts = name.trim().split(/\s+/)
+  const primary = name.trim().split(/\s*\/\s*/)[0]?.trim() || name.trim()
+  const parts = primary.split(/\s+/).filter(Boolean)
   if (parts.length === 1) return parts[0].charAt(0).toUpperCase()
   return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase()
 }
@@ -497,6 +499,35 @@ export async function getFeedMatches(userId: string): Promise<FeedMatchItem[]> {
     if (matchesData.length > 0) {
       const playerIdSet = new Set(playerIds)
 
+      // Fallback: resolve player names from teams when nested relations are empty
+      const teamIdsFromMatches = new Set<string>()
+      for (const m of matchesData) {
+        if (m.team1_id) teamIdsFromMatches.add(m.team1_id)
+        if (m.team2_id) teamIdsFromMatches.add(m.team2_id)
+      }
+      const teamPlayerNamesMap = new Map<string, { player1_name?: string; player2_name?: string }>()
+      if (teamIdsFromMatches.size > 0) {
+        const { data: teamsWithPlayers } = await supabase
+          .from('teams')
+          .select('id, player1_id, player2_id, player1:players!teams_player1_id_fkey(id, name), player2:players!teams_player2_id_fkey(id, name)')
+          .in('id', Array.from(teamIdsFromMatches))
+        for (const t of teamsWithPlayers || []) {
+          const row = t as any
+          let p1N = row.player1?.name as string | undefined
+          let p2N = row.player2?.name as string | undefined
+          if ((!p1N && row.player1_id) || (!p2N && row.player2_id)) {
+            const missing = [row.player1_id, row.player2_id].filter(Boolean)
+            if (missing.length) {
+              const { data: pls } = await supabase.from('players').select('id, name').in('id', missing)
+              const byId = new Map((pls || []).map((p: any) => [p.id, p.name]))
+              if (!p1N && row.player1_id) p1N = byId.get(row.player1_id)
+              if (!p2N && row.player2_id) p2N = byId.get(row.player2_id)
+            }
+          }
+          teamPlayerNamesMap.set(row.id, { player1_name: p1N, player2_name: p2N })
+        }
+      }
+
       for (const m of matchesData) {
         const isIndividual = m.p1 || m.p2 || m.p3 || m.p4
 
@@ -521,17 +552,20 @@ export async function getFeedMatches(userId: string): Promise<FeedMatchItem[]> {
         const followedAccount = accountById.get(followedAccountId)
         if (!followedAccount) continue
 
+        const team1Players = m.team1_id ? teamPlayerNamesMap.get(m.team1_id) : null
+        const team2Players = m.team2_id ? teamPlayerNamesMap.get(m.team2_id) : null
+
+        const p1Name = isIndividual ? m.p1?.name : ((m.team1 as any)?.t1p1?.name || team1Players?.player1_name)
+        const p2Name = isIndividual ? m.p2?.name : ((m.team1 as any)?.t1p2?.name || team1Players?.player2_name)
+        const p3Name = isIndividual ? m.p3?.name : ((m.team2 as any)?.t2p1?.name || team2Players?.player1_name)
+        const p4Name = isIndividual ? m.p4?.name : ((m.team2 as any)?.t2p2?.name || team2Players?.player2_name)
+
         const team1Name = isIndividual
-          ? `${m.p1?.name || 'TBD'}${m.p2 ? ' / ' + m.p2.name : ''}`
+          ? `${p1Name || 'TBD'}${p2Name ? ' / ' + p2Name : ''}`
           : m.team1?.name || 'TBD'
         const team2Name = isIndividual
-          ? `${m.p3?.name || 'TBD'}${m.p4 ? ' / ' + m.p4.name : ''}`
+          ? `${p3Name || 'TBD'}${p4Name ? ' / ' + p4Name : ''}`
           : m.team2?.name || 'TBD'
-
-        const p1Name = isIndividual ? m.p1?.name : (m.team1 as any)?.t1p1?.name
-        const p2Name = isIndividual ? m.p2?.name : (m.team1 as any)?.t1p2?.name
-        const p3Name = isIndividual ? m.p3?.name : (m.team2 as any)?.t2p1?.name
-        const p4Name = isIndividual ? m.p4?.name : (m.team2 as any)?.t2p2?.name
 
         const team1Sets = [
           (m.team1_score_set1 || 0) > (m.team2_score_set1 || 0) ? 1 : 0,
@@ -901,14 +935,41 @@ export interface PlayerProfile {
   favoriteClub: FavoriteClub | null
 }
 
-export async function getPlayerProfile(targetUserId: string, myUserId: string): Promise<PlayerProfile | null> {
-  // 1) Fetch player_accounts data
-  const { data: pa } = await supabase
-    .from('player_accounts')
-    .select('id, user_id, name, avatar_url, level, level_reliability_percent, player_category, location, bio, preferred_hand, court_position, game_type, preferred_time, birth_date, wins, losses, points, favorite_club_id, phone_number')
-    .eq('user_id', targetUserId)
-    .limit(1)
-    .single()
+export async function getPlayerProfile(
+  targetUserId: string,
+  myUserId: string,
+  opts?: { accountId?: string | null; preferredName?: string | null },
+): Promise<PlayerProfile | null> {
+  const fields =
+    'id, user_id, name, avatar_url, level, level_reliability_percent, player_category, location, bio, preferred_hand, court_position, game_type, preferred_time, birth_date, wins, losses, points, favorite_club_id, phone_number'
+
+  // 1) Fetch the correct player_accounts row.
+  // Several placeholder/legacy accounts can share the same user_id — never pick at random.
+  let pa: any = null
+  if (opts?.accountId) {
+    const { data } = await supabase.from('player_accounts').select(fields).eq('id', opts.accountId).maybeSingle()
+    pa = data
+  }
+  if (!pa && opts?.preferredName) {
+    const preferred = opts.preferredName.trim().toLowerCase()
+    const { data: byUser } = await supabase.from('player_accounts').select(fields).eq('user_id', targetUserId)
+    pa =
+      (byUser || []).find((a: any) => (a.name || '').trim().toLowerCase() === preferred) ||
+      (byUser || []).find((a: any) => (a.name || '').trim().toLowerCase().startsWith(preferred.split(/\s*\/\s*/)[0])) ||
+      null
+  }
+  if (!pa) {
+    const { data: byUser } = await supabase.from('player_accounts').select(fields).eq('user_id', targetUserId)
+    const rows = byUser || []
+    if (rows.length === 1) {
+      pa = rows[0]
+    } else if (rows.length > 1) {
+      // Prefer real player accounts over Wild Card placeholders
+      pa =
+        rows.find((a: any) => !/^wild\s*card/i.test(a.name || '')) ||
+        rows[0]
+    }
+  }
 
   if (!pa) return null
 
@@ -989,22 +1050,85 @@ export async function getPlayerProfile(targetUserId: string, myUserId: string): 
         const teamIdSet = new Set(teamIds)
         const playerIdSet = new Set(playerIds)
 
+        // Fallback: resolve player names from teams when nested relations are empty
+        const teamIdsFromMatches = new Set<string>()
+        for (const m of matchesData as any[]) {
+          if (m.team1_id) teamIdsFromMatches.add(m.team1_id)
+          if (m.team2_id) teamIdsFromMatches.add(m.team2_id)
+        }
+        const teamPlayerNamesMap = new Map<string, {
+          player1_name?: string
+          player2_name?: string
+          player1_avatar?: string | null
+          player2_avatar?: string | null
+        }>()
+        if (teamIdsFromMatches.size > 0) {
+          const { data: teamsWithPlayers } = await supabase
+            .from('teams')
+            .select('id, player1_id, player2_id, player1:players!teams_player1_id_fkey(id, name, player_account_id), player2:players!teams_player2_id_fkey(id, name, player_account_id)')
+            .in('id', Array.from(teamIdsFromMatches))
+
+          const accountIds = new Set<string>()
+          const playerIdsNeeded = new Set<string>()
+          for (const t of teamsWithPlayers || []) {
+            const row = t as any
+            if (row.player1?.player_account_id) accountIds.add(row.player1.player_account_id)
+            if (row.player2?.player_account_id) accountIds.add(row.player2.player_account_id)
+            if (!row.player1?.name && row.player1_id) playerIdsNeeded.add(row.player1_id)
+            if (!row.player2?.name && row.player2_id) playerIdsNeeded.add(row.player2_id)
+          }
+          const playerById = new Map<string, { name?: string; player_account_id?: string }>()
+          if (playerIdsNeeded.size > 0) {
+            const { data: pls } = await supabase.from('players').select('id, name, player_account_id').in('id', Array.from(playerIdsNeeded))
+            ;(pls || []).forEach((p: any) => {
+              playerById.set(p.id, p)
+              if (p.player_account_id) accountIds.add(p.player_account_id)
+            })
+          }
+          const accountById = new Map<string, { name: string; avatar_url: string | null }>()
+          if (accountIds.size > 0) {
+            const { data: accounts } = await supabase.from('player_accounts').select('id, name, avatar_url').in('id', Array.from(accountIds))
+            ;(accounts || []).forEach((a: any) => accountById.set(a.id, { name: a.name, avatar_url: a.avatar_url }))
+          }
+          for (const t of teamsWithPlayers || []) {
+            const row = t as any
+            const p1Fallback = row.player1_id ? playerById.get(row.player1_id) : null
+            const p2Fallback = row.player2_id ? playerById.get(row.player2_id) : null
+            const p1AccId = row.player1?.player_account_id || p1Fallback?.player_account_id
+            const p2AccId = row.player2?.player_account_id || p2Fallback?.player_account_id
+            const p1Acc = p1AccId ? accountById.get(p1AccId) : null
+            const p2Acc = p2AccId ? accountById.get(p2AccId) : null
+            teamPlayerNamesMap.set(row.id, {
+              player1_name: p1Acc?.name || row.player1?.name || p1Fallback?.name,
+              player2_name: p2Acc?.name || row.player2?.name || p2Fallback?.name,
+              player1_avatar: p1Acc?.avatar_url ?? null,
+              player2_avatar: p2Acc?.avatar_url ?? null,
+            })
+          }
+        }
+
         for (const m of (matchesData as any[])) {
           if (m.status !== 'completed') continue
 
           const isIndividual = m.p1 || m.p2 || m.p3 || m.p4
 
+          const team1Players = m.team1_id ? teamPlayerNamesMap.get(m.team1_id) : null
+          const team2Players = m.team2_id ? teamPlayerNamesMap.get(m.team2_id) : null
+          const p1Name = isIndividual ? m.p1?.name : ((m.team1 as any)?.t1p1?.name || team1Players?.player1_name)
+          const p2Name = isIndividual ? m.p2?.name : ((m.team1 as any)?.t1p2?.name || team1Players?.player2_name)
+          const p3Name = isIndividual ? m.p3?.name : ((m.team2 as any)?.t2p1?.name || team2Players?.player1_name)
+          const p4Name = isIndividual ? m.p4?.name : ((m.team2 as any)?.t2p2?.name || team2Players?.player2_name)
+          const p1Avatar = isIndividual ? null : team1Players?.player1_avatar
+          const p2Avatar = isIndividual ? null : team1Players?.player2_avatar
+          const p3Avatar = isIndividual ? null : team2Players?.player1_avatar
+          const p4Avatar = isIndividual ? null : team2Players?.player2_avatar
+
           const team1Name = isIndividual
-            ? `${m.p1?.name || 'TBD'}${m.p2 ? ' / ' + m.p2.name : ''}`
+            ? `${p1Name || 'TBD'}${p2Name ? ' / ' + p2Name : ''}`
             : m.team1?.name || 'TBD'
           const team2Name = isIndividual
-            ? `${m.p3?.name || 'TBD'}${m.p4 ? ' / ' + m.p4.name : ''}`
+            ? `${p3Name || 'TBD'}${p4Name ? ' / ' + p4Name : ''}`
             : m.team2?.name || 'TBD'
-
-          const p1Name = isIndividual ? m.p1?.name : (m.team1 as any)?.t1p1?.name
-          const p2Name = isIndividual ? m.p2?.name : (m.team1 as any)?.t1p2?.name
-          const p3Name = isIndividual ? m.p3?.name : (m.team2 as any)?.t2p1?.name
-          const p4Name = isIndividual ? m.p4?.name : (m.team2 as any)?.t2p2?.name
 
           // Set scores
           const team1Sets = [
@@ -1043,6 +1167,11 @@ export async function getPlayerProfile(targetUserId: string, myUserId: string): 
             player2_name: isPlayerInTeam1 ? p2Name : p4Name,
             player3_name: isPlayerInTeam1 ? p3Name : p1Name,
             player4_name: isPlayerInTeam1 ? p4Name : p2Name,
+            player1_avatar: isPlayerInTeam1 ? p1Avatar : p3Avatar,
+            player2_avatar: isPlayerInTeam1 ? p2Avatar : p4Avatar,
+            player3_avatar: isPlayerInTeam1 ? p3Avatar : p1Avatar,
+            player4_avatar: isPlayerInTeam1 ? p4Avatar : p2Avatar,
+            my_side: 1,
             score1: isPlayerInTeam1 ? team1Sets : team2Sets,
             score2: isPlayerInTeam1 ? team2Sets : team1Sets,
             set1: isPlayerInTeam1 ? set1 : (set1 ? set1.split('-').reverse().join('-') : undefined),
@@ -1050,11 +1179,21 @@ export async function getPlayerProfile(targetUserId: string, myUserId: string): 
             set3: isPlayerInTeam1 ? set3 : (set3 ? set3.split('-').reverse().join('-') : undefined),
             is_winner: isWinner,
             played_at: m.scheduled_time,
-          })
+          } as any)
 
-          // Count other players for topPlayers
-          const allNames = [p1Name, p2Name, p3Name, p4Name].filter(n => n && n !== playerName) as string[]
-          allNames.forEach(n => topPlayersMap.set(n, (topPlayersMap.get(n) || 0) + 1))
+          // Count partners only (same team)
+          getPartnerNamesFromMatch(
+            {
+              team1_name: isPlayerInTeam1 ? team1Name : team2Name,
+              team2_name: isPlayerInTeam1 ? team2Name : team1Name,
+              player1_name: isPlayerInTeam1 ? p1Name : p3Name,
+              player2_name: isPlayerInTeam1 ? p2Name : p4Name,
+              player3_name: isPlayerInTeam1 ? p3Name : p1Name,
+              player4_name: isPlayerInTeam1 ? p4Name : p2Name,
+              my_side: 1,
+            },
+            playerName,
+          ).forEach((n) => topPlayersMap.set(n, (topPlayersMap.get(n) || 0) + 1))
         }
       }
     }
@@ -1090,9 +1229,9 @@ export async function getPlayerProfile(targetUserId: string, myUserId: string): 
 
       const ogPaIds = [...new Set((ogAllPlayers || []).map((p: any) => p.player_account_id).filter(Boolean))]
       const { data: ogAccounts } = ogPaIds.length > 0
-        ? await supabase.from('player_accounts').select('id, name').in('id', ogPaIds)
+        ? await supabase.from('player_accounts').select('id, name, avatar_url').in('id', ogPaIds)
         : { data: [] }
-      const ogAccountMap = new Map((ogAccounts || []).map((a: any) => [a.id, a.name]))
+      const ogAccountMap = new Map((ogAccounts || []).map((a: any) => [a.id, { name: a.name as string, avatar_url: a.avatar_url as string | null }]))
 
       const ogClubIds = [...new Set((ogGames || []).map((g: any) => g.club_id).filter(Boolean))]
       const { data: ogClubs } = ogClubIds.length > 0
@@ -1109,11 +1248,15 @@ export async function getPlayerProfile(targetUserId: string, myUserId: string): 
           .sort((a: any, b: any) => a.position - b.position)
         if (gamePlayers.length < 4) continue
 
-        const getName = (paId: string) => ogAccountMap.get(paId) || '?'
-        const p1Name = getName(gamePlayers[0].player_account_id)
-        const p2Name = getName(gamePlayers[1].player_account_id)
-        const p3Name = getName(gamePlayers[2].player_account_id)
-        const p4Name = getName(gamePlayers[3].player_account_id)
+        const getInfo = (paId: string) => ogAccountMap.get(paId) || { name: '?', avatar_url: null }
+        const i1 = getInfo(gamePlayers[0].player_account_id)
+        const i2 = getInfo(gamePlayers[1].player_account_id)
+        const i3 = getInfo(gamePlayers[2].player_account_id)
+        const i4 = getInfo(gamePlayers[3].player_account_id)
+        const p1Name = i1.name
+        const p2Name = i2.name
+        const p3Name = i3.name
+        const p4Name = i4.name
 
         const isInTeam1 = gamePlayers[0].player_account_id === pa.id || gamePlayers[1].player_account_id === pa.id
 
@@ -1143,6 +1286,11 @@ export async function getPlayerProfile(targetUserId: string, myUserId: string): 
           player2_name: isInTeam1 ? p2Name : p4Name,
           player3_name: isInTeam1 ? p3Name : p1Name,
           player4_name: isInTeam1 ? p4Name : p2Name,
+          player1_avatar: isInTeam1 ? i1.avatar_url : i3.avatar_url,
+          player2_avatar: isInTeam1 ? i2.avatar_url : i4.avatar_url,
+          player3_avatar: isInTeam1 ? i3.avatar_url : i1.avatar_url,
+          player4_avatar: isInTeam1 ? i4.avatar_url : i2.avatar_url,
+          my_side: 1,
           score1: isInTeam1 ? t1Sets : t2Sets,
           score2: isInTeam1 ? t2Sets : t1Sets,
           set1: isInTeam1 ? s1 : s1.split('-').reverse().join('-'),
@@ -1153,16 +1301,27 @@ export async function getPlayerProfile(targetUserId: string, myUserId: string): 
           is_open_game: true,
         } as any)
 
-        const allNames = [p1Name, p2Name, p3Name, p4Name].filter(n => n && n !== playerName)
-        allNames.forEach(n => topPlayersMap.set(n, (topPlayersMap.get(n) || 0) + 1))
+        getPartnerNamesFromMatch(
+          {
+            team1_name: isInTeam1 ? `${p1Name} / ${p2Name}` : `${p3Name} / ${p4Name}`,
+            team2_name: isInTeam1 ? `${p3Name} / ${p4Name}` : `${p1Name} / ${p2Name}`,
+            player1_name: isInTeam1 ? p1Name : p3Name,
+            player2_name: isInTeam1 ? p2Name : p4Name,
+            player3_name: isInTeam1 ? p3Name : p1Name,
+            player4_name: isInTeam1 ? p4Name : p2Name,
+            my_side: 1,
+          },
+          playerName,
+        ).forEach((n) => topPlayersMap.set(n, (topPlayersMap.get(n) || 0) + 1))
       }
 
       recentMatches.sort((a, b) => new Date(b.played_at || 0).getTime() - new Date(a.played_at || 0).getTime())
     }
   }
 
-  // Build topPlayers
+  // Build topPlayers — only real person names
   const topPlayers: TopPlayer[] = Array.from(topPlayersMap.entries())
+    .filter(([name]) => name && !isLikelyTeamLabel(name) && name !== '?')
     .sort((a, b) => b[1] - a[1])
     .slice(0, 10)
     .map(([name, count]) => ({ name, count }))

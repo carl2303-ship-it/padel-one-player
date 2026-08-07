@@ -22,12 +22,16 @@ export type PartnerInvite = {
 /** Resumo dos convites que o utilizador enviou (pedido em aberto neste torneio). */
 export type PartnerMatchRequesterSummary = {
   requestId: string;
+  status: string;
   invitationsTotal: number;
   pending: number;
   accepted: number;
   declined: number;
   expired: number;
   cancelled: number;
+  /** Quando status = awaiting_confirmation */
+  acceptedInviteId?: string | null;
+  acceptedInviteeName?: string | null;
 };
 
 async function callFn<T = any>(name: string, payload: any): Promise<T> {
@@ -83,8 +87,18 @@ export async function requestPartnerMatch(params: {
   return callFn("request-partner-match", params);
 }
 
-export async function acceptPartnerInvite(inviteId: string): Promise<{ checkoutUrl?: string | null }> {
+export async function acceptPartnerInvite(inviteId: string): Promise<{
+  awaitingConfirmation?: boolean;
+  checkoutUrl?: string | null;
+  inviteeName?: string;
+  requesterName?: string;
+  tournamentName?: string;
+}> {
   return callFn("accept-partner-invite", { inviteId });
+}
+
+export async function confirmPartnerMatch(inviteId: string): Promise<{ checkoutUrl?: string | null; teamId?: string }> {
+  return callFn("confirm-partner-match", { inviteId });
 }
 
 export async function declinePartnerInvite(inviteId: string): Promise<void> {
@@ -96,7 +110,7 @@ export async function cancelPartnerRequest(requestId: string): Promise<void> {
     .from("partner_match_requests")
     .update({ status: "cancelled", updated_at: new Date().toISOString() })
     .eq("id", requestId)
-    .eq("status", "open");
+    .in("status", ["open", "awaiting_confirmation"]);
 
   if (reqErr) throw new Error(reqErr.message);
 
@@ -104,7 +118,7 @@ export async function cancelPartnerRequest(requestId: string): Promise<void> {
     .from("partner_match_invites")
     .update({ status: "cancelled", updated_at: new Date().toISOString() })
     .eq("request_id", requestId)
-    .eq("status", "pending");
+    .in("status", ["pending", "accepted"]);
 }
 
 export async function fetchPendingPartnerInvites(playerAccountId: string): Promise<PartnerInvite[]> {
@@ -221,21 +235,25 @@ export async function fetchPartnerMatchRequesterSummary(tournamentId: string): P
 
   const { data: req, error: reqErr } = await supabase
     .from("partner_match_requests")
-    .select("id")
+    .select("id, status")
     .eq("tournament_id", tournamentId)
     .eq("requester_user_id", userId)
-    .eq("status", "open")
+    .in("status", ["open", "awaiting_confirmation"])
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
 
   if (reqErr || !req) return null;
 
-  const { data: rows, error: invErr } = await supabase.from("partner_match_invites").select("status").eq("request_id", req.id);
+  const { data: rows, error: invErr } = await supabase
+    .from("partner_match_invites")
+    .select("id, status, invitee_player_account_id")
+    .eq("request_id", req.id);
 
   if (invErr || !rows?.length) {
     return {
       requestId: req.id,
+      status: req.status,
       invitationsTotal: 0,
       pending: 0,
       accepted: 0,
@@ -250,13 +268,18 @@ export async function fetchPartnerMatchRequesterSummary(tournamentId: string): P
     declined = 0,
     expired = 0,
     cancelled = 0;
+  let acceptedInviteId: string | null = null;
+  let acceptedInviteeAccountId: string | null = null;
   for (const row of rows) {
-    switch ((row as { status: string }).status) {
+    const r = row as { id: string; status: string; invitee_player_account_id: string };
+    switch (r.status) {
       case "pending":
         pending++;
         break;
       case "accepted":
         accepted++;
+        acceptedInviteId = r.id;
+        acceptedInviteeAccountId = r.invitee_player_account_id;
         break;
       case "declined":
         declined++;
@@ -272,14 +295,27 @@ export async function fetchPartnerMatchRequesterSummary(tournamentId: string): P
     }
   }
 
+  let acceptedInviteeName: string | null = null;
+  if (acceptedInviteeAccountId) {
+    const { data: pa } = await supabase
+      .from("player_accounts")
+      .select("name")
+      .eq("id", acceptedInviteeAccountId)
+      .maybeSingle();
+    acceptedInviteeName = pa?.name ?? null;
+  }
+
   return {
     requestId: req.id,
+    status: req.status,
     invitationsTotal: rows.length,
     pending,
     accepted,
     declined,
     expired,
     cancelled,
+    acceptedInviteId,
+    acceptedInviteeName,
   };
 }
 

@@ -3736,6 +3736,7 @@ export async function fetchConfirmedOpenGameResults(userId: string, playerAccoun
       player2_avatar: p2.avatar_url,
       player3_avatar: p3.avatar_url,
       player4_avatar: p4.avatar_url,
+      my_side: myTeam === 1 || myTeam === 2 ? myTeam : undefined,
       score1: sets1,
       score2: sets2,
       status: 'completed',
