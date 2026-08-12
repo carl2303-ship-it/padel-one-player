@@ -94,6 +94,10 @@ export interface FeedMatchItem {
   player2_name?: string
   player3_name?: string
   player4_name?: string
+  player1_avatar?: string | null
+  player2_avatar?: string | null
+  player3_avatar?: string | null
+  player4_avatar?: string | null
   score1: number | null
   score2: number | null
   status: string
@@ -505,26 +509,54 @@ export async function getFeedMatches(userId: string): Promise<FeedMatchItem[]> {
         if (m.team1_id) teamIdsFromMatches.add(m.team1_id)
         if (m.team2_id) teamIdsFromMatches.add(m.team2_id)
       }
-      const teamPlayerNamesMap = new Map<string, { player1_name?: string; player2_name?: string }>()
+      const teamPlayerNamesMap = new Map<string, {
+        player1_name?: string
+        player2_name?: string
+        player1_avatar?: string | null
+        player2_avatar?: string | null
+      }>()
       if (teamIdsFromMatches.size > 0) {
         const { data: teamsWithPlayers } = await supabase
           .from('teams')
-          .select('id, player1_id, player2_id, player1:players!teams_player1_id_fkey(id, name), player2:players!teams_player2_id_fkey(id, name)')
+          .select('id, player1_id, player2_id, player1:players!teams_player1_id_fkey(id, name, player_account_id), player2:players!teams_player2_id_fkey(id, name, player_account_id)')
           .in('id', Array.from(teamIdsFromMatches))
+
+        const feedAccountIds = new Set<string>()
+        const playerIdsNeeded = new Set<string>()
         for (const t of teamsWithPlayers || []) {
           const row = t as any
-          let p1N = row.player1?.name as string | undefined
-          let p2N = row.player2?.name as string | undefined
-          if ((!p1N && row.player1_id) || (!p2N && row.player2_id)) {
-            const missing = [row.player1_id, row.player2_id].filter(Boolean)
-            if (missing.length) {
-              const { data: pls } = await supabase.from('players').select('id, name').in('id', missing)
-              const byId = new Map((pls || []).map((p: any) => [p.id, p.name]))
-              if (!p1N && row.player1_id) p1N = byId.get(row.player1_id)
-              if (!p2N && row.player2_id) p2N = byId.get(row.player2_id)
-            }
-          }
-          teamPlayerNamesMap.set(row.id, { player1_name: p1N, player2_name: p2N })
+          if (row.player1?.player_account_id) feedAccountIds.add(row.player1.player_account_id)
+          if (row.player2?.player_account_id) feedAccountIds.add(row.player2.player_account_id)
+          if (!row.player1?.name && row.player1_id) playerIdsNeeded.add(row.player1_id)
+          if (!row.player2?.name && row.player2_id) playerIdsNeeded.add(row.player2_id)
+        }
+        const playerById = new Map<string, { name?: string; player_account_id?: string }>()
+        if (playerIdsNeeded.size > 0) {
+          const { data: pls } = await supabase.from('players').select('id, name, player_account_id').in('id', Array.from(playerIdsNeeded))
+          ;(pls || []).forEach((p: any) => {
+            playerById.set(p.id, p)
+            if (p.player_account_id) feedAccountIds.add(p.player_account_id)
+          })
+        }
+        const feedAccountById = new Map<string, { name: string; avatar_url: string | null }>()
+        if (feedAccountIds.size > 0) {
+          const { data: accounts } = await supabase.from('player_accounts').select('id, name, avatar_url').in('id', Array.from(feedAccountIds))
+          ;(accounts || []).forEach((a: any) => feedAccountById.set(a.id, { name: a.name, avatar_url: a.avatar_url }))
+        }
+        for (const t of teamsWithPlayers || []) {
+          const row = t as any
+          const p1Fallback = row.player1_id ? playerById.get(row.player1_id) : null
+          const p2Fallback = row.player2_id ? playerById.get(row.player2_id) : null
+          const p1AccId = row.player1?.player_account_id || p1Fallback?.player_account_id
+          const p2AccId = row.player2?.player_account_id || p2Fallback?.player_account_id
+          const p1Acc = p1AccId ? feedAccountById.get(p1AccId) : null
+          const p2Acc = p2AccId ? feedAccountById.get(p2AccId) : null
+          teamPlayerNamesMap.set(row.id, {
+            player1_name: p1Acc?.name || row.player1?.name || p1Fallback?.name,
+            player2_name: p2Acc?.name || row.player2?.name || p2Fallback?.name,
+            player1_avatar: p1Acc?.avatar_url ?? null,
+            player2_avatar: p2Acc?.avatar_url ?? null,
+          })
         }
       }
 
@@ -555,10 +587,11 @@ export async function getFeedMatches(userId: string): Promise<FeedMatchItem[]> {
         const team1Players = m.team1_id ? teamPlayerNamesMap.get(m.team1_id) : null
         const team2Players = m.team2_id ? teamPlayerNamesMap.get(m.team2_id) : null
 
-        const p1Name = isIndividual ? m.p1?.name : ((m.team1 as any)?.t1p1?.name || team1Players?.player1_name)
-        const p2Name = isIndividual ? m.p2?.name : ((m.team1 as any)?.t1p2?.name || team1Players?.player2_name)
-        const p3Name = isIndividual ? m.p3?.name : ((m.team2 as any)?.t2p1?.name || team2Players?.player1_name)
-        const p4Name = isIndividual ? m.p4?.name : ((m.team2 as any)?.t2p2?.name || team2Players?.player2_name)
+        // Prefer player_accounts names (via teamPlayerNamesMap) over nested players.name labels
+        const p1Name = isIndividual ? m.p1?.name : (team1Players?.player1_name || (m.team1 as any)?.t1p1?.name)
+        const p2Name = isIndividual ? m.p2?.name : (team1Players?.player2_name || (m.team1 as any)?.t1p2?.name)
+        const p3Name = isIndividual ? m.p3?.name : (team2Players?.player1_name || (m.team2 as any)?.t2p1?.name)
+        const p4Name = isIndividual ? m.p4?.name : (team2Players?.player2_name || (m.team2 as any)?.t2p2?.name)
 
         const team1Name = isIndividual
           ? `${p1Name || 'TBD'}${p2Name ? ' / ' + p2Name : ''}`
@@ -607,6 +640,10 @@ export async function getFeedMatches(userId: string): Promise<FeedMatchItem[]> {
           player2_name: p2Name,
           player3_name: p3Name,
           player4_name: p4Name,
+          player1_avatar: isIndividual ? null : team1Players?.player1_avatar,
+          player2_avatar: isIndividual ? null : team1Players?.player2_avatar,
+          player3_avatar: isIndividual ? null : team2Players?.player1_avatar,
+          player4_avatar: isIndividual ? null : team2Players?.player2_avatar,
           score1: team1Sets,
           score2: team2Sets,
           status: m.status,
@@ -1114,10 +1151,11 @@ export async function getPlayerProfile(
 
           const team1Players = m.team1_id ? teamPlayerNamesMap.get(m.team1_id) : null
           const team2Players = m.team2_id ? teamPlayerNamesMap.get(m.team2_id) : null
-          const p1Name = isIndividual ? m.p1?.name : ((m.team1 as any)?.t1p1?.name || team1Players?.player1_name)
-          const p2Name = isIndividual ? m.p2?.name : ((m.team1 as any)?.t1p2?.name || team1Players?.player2_name)
-          const p3Name = isIndividual ? m.p3?.name : ((m.team2 as any)?.t2p1?.name || team2Players?.player1_name)
-          const p4Name = isIndividual ? m.p4?.name : ((m.team2 as any)?.t2p2?.name || team2Players?.player2_name)
+          // Prefer player_accounts names (via teamPlayerNamesMap) over nested players.name labels
+          const p1Name = isIndividual ? m.p1?.name : (team1Players?.player1_name || (m.team1 as any)?.t1p1?.name)
+          const p2Name = isIndividual ? m.p2?.name : (team1Players?.player2_name || (m.team1 as any)?.t1p2?.name)
+          const p3Name = isIndividual ? m.p3?.name : (team2Players?.player1_name || (m.team2 as any)?.t2p1?.name)
+          const p4Name = isIndividual ? m.p4?.name : (team2Players?.player2_name || (m.team2 as any)?.t2p2?.name)
           const p1Avatar = isIndividual ? null : team1Players?.player1_avatar
           const p2Avatar = isIndividual ? null : team1Players?.player2_avatar
           const p3Avatar = isIndividual ? null : team2Players?.player1_avatar

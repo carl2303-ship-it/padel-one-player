@@ -547,10 +547,11 @@ export async function fetchPlayerDashboardData(
         const team1Players = m.team1_id ? teamPlayerNamesMap.get(m.team1_id) : null
         const team2Players = m.team2_id ? teamPlayerNamesMap.get(m.team2_id) : null
 
-        p1Name = (m.team1 as any)?.t1p1?.name || team1Players?.player1_name
-        p2Name = (m.team1 as any)?.t1p2?.name || team1Players?.player2_name
-        p3Name = (m.team2 as any)?.t2p1?.name || team2Players?.player1_name
-        p4Name = (m.team2 as any)?.t2p2?.name || team2Players?.player2_name
+        // Prefer player_accounts names (via teamPlayerNamesMap) over nested players.name labels
+        p1Name = team1Players?.player1_name || (m.team1 as any)?.t1p1?.name
+        p2Name = team1Players?.player2_name || (m.team1 as any)?.t1p2?.name
+        p3Name = team2Players?.player1_name || (m.team2 as any)?.t2p1?.name
+        p4Name = team2Players?.player2_name || (m.team2 as any)?.t2p2?.name
         p1Avatar = team1Players?.player1_avatar
         p2Avatar = team1Players?.player2_avatar
         p3Avatar = team2Players?.player1_avatar
