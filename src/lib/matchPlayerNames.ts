@@ -8,12 +8,15 @@ export function isLikelyTeamLabel(name: string | null | undefined, teamName?: st
   const n = name.trim()
   if (!n || n === '?' || n === 'TBD') return true
   if (/^jogador\s*\d*$/i.test(n) || /^player\s*\d*$/i.test(n)) return true
+  if (/^wild\s*card$/i.test(n) || /^tbd$/i.test(n)) return true
   // Very short all-caps / acronyms used as team codes (RP, FM, AB)
   if (/^[A-ZÁÉÍÓÚ]{1,3}$/.test(n)) return true
   // Company-style / generic team names
   if (/\b(lda|ltd|sa|team|equipa)\b/i.test(n)) return true
-  // Explicit pair separators with spaces: "Ana / Pedro"
+  // Explicit pair separators: "Ana / Pedro", "Ana & Pedro", "Ana, Pedro"
   if (/\s\/\s|\s&\s|,\s|\s-\s/.test(n)) return true
+  // Compound club-style labels with multiple slashes ("Carlos/Padel1/BoostPadel")
+  if ((n.match(/\//g) || []).length >= 2) return true
   // Exact match to team name only when that name itself looks like a team label
   if (teamName && n.toLowerCase() === teamName.trim().toLowerCase()) {
     const t = teamName.trim()

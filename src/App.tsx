@@ -591,7 +591,7 @@ function App() {
   }
 
   // DADOS EFETIVOS: merge dashboardData (client-side) + edgeEnrichedData (edge function)
-  // Edge function tem SEMPRE prioridade — bypassa RLS, tem nomes correctos
+  // Edge enriquece stats/visibilidade; nomes das bolinhas preferem resolução client (RPC + player_accounts)
   // NOTA: Este useMemo TEM de estar ANTES de qualquer return condicional (Rules of Hooks)
   const effectiveDashboard = useMemo(() => {
     if (!dashboardData) return null

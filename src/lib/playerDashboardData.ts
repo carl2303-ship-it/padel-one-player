@@ -3,6 +3,11 @@
  * Lê da mesma base Supabase; os dados ficam nos dois lados (Tour e Player).
  */
 import { supabase } from './supabase'
+import {
+  resolveTeamPlayerNamesMap,
+  resolveIndividualPlayerNames,
+  preferResolvedMatchNames,
+} from './resolveTeamPlayerNames'
 
 export interface TournamentSummary {
   id: string
@@ -450,72 +455,22 @@ export async function fetchPlayerDashboardData(
       return result
     }
 
-    // FALLBACK: Buscar nomes dos jogadores das equipas diretamente se as relações falharem
+    // Resolve nomes reais via RPC (bypassa RLS) + player_accounts — joins aninhados falham em cross-tournament
     const teamIdsFromMatches = new Set<string>()
+    const individualPlayersForNames: Array<{ id?: string | null; name?: string | null }> = []
     matchesData.forEach((m: any) => {
       if (m.team1_id) teamIdsFromMatches.add(m.team1_id)
       if (m.team2_id) teamIdsFromMatches.add(m.team2_id)
+      if (m.p1) individualPlayersForNames.push(m.p1)
+      if (m.p2) individualPlayersForNames.push(m.p2)
+      if (m.p3) individualPlayersForNames.push(m.p3)
+      if (m.p4) individualPlayersForNames.push(m.p4)
     })
-    
-    const teamPlayerNamesMap = new Map<string, {
-      player1_name?: string
-      player2_name?: string
-      player1_avatar?: string | null
-      player2_avatar?: string | null
-    }>()
-    if (teamIdsFromMatches.size > 0) {
-      const { data: teamsWithPlayers } = await supabase
-        .from('teams')
-        .select('id, player1_id, player2_id, player1:players!teams_player1_id_fkey(id, name, player_account_id), player2:players!teams_player2_id_fkey(id, name, player_account_id)')
-        .in('id', Array.from(teamIdsFromMatches))
 
-      if (teamsWithPlayers) {
-        const accountIds = new Set<string>()
-        const playerIdsNeeded = new Set<string>()
-        teamsWithPlayers.forEach((t: any) => {
-          if (t.player1?.player_account_id) accountIds.add(t.player1.player_account_id)
-          if (t.player2?.player_account_id) accountIds.add(t.player2.player_account_id)
-          if (!t.player1?.name && t.player1_id) playerIdsNeeded.add(t.player1_id)
-          if (!t.player2?.name && t.player2_id) playerIdsNeeded.add(t.player2_id)
-        })
-
-        const playerById = new Map<string, { name?: string; player_account_id?: string }>()
-        if (playerIdsNeeded.size > 0) {
-          const { data: missingPlayers } = await supabase
-            .from('players')
-            .select('id, name, player_account_id')
-            .in('id', Array.from(playerIdsNeeded))
-          ;(missingPlayers || []).forEach((p: any) => {
-            playerById.set(p.id, p)
-            if (p.player_account_id) accountIds.add(p.player_account_id)
-          })
-        }
-
-        const accountById = new Map<string, { name: string; avatar_url: string | null }>()
-        if (accountIds.size > 0) {
-          const { data: accounts } = await supabase
-            .from('player_accounts')
-            .select('id, name, avatar_url')
-            .in('id', Array.from(accountIds))
-          ;(accounts || []).forEach((a: any) => accountById.set(a.id, { name: a.name, avatar_url: a.avatar_url }))
-        }
-
-        teamsWithPlayers.forEach((t: any) => {
-          const p1Fallback = t.player1_id ? playerById.get(t.player1_id) : null
-          const p2Fallback = t.player2_id ? playerById.get(t.player2_id) : null
-          const p1AccId = t.player1?.player_account_id || p1Fallback?.player_account_id
-          const p2AccId = t.player2?.player_account_id || p2Fallback?.player_account_id
-          const p1Acc = p1AccId ? accountById.get(p1AccId) : null
-          const p2Acc = p2AccId ? accountById.get(p2AccId) : null
-          teamPlayerNamesMap.set(t.id, {
-            player1_name: p1Acc?.name || t.player1?.name || p1Fallback?.name,
-            player2_name: p2Acc?.name || t.player2?.name || p2Fallback?.name,
-            player1_avatar: p1Acc?.avatar_url ?? null,
-            player2_avatar: p2Acc?.avatar_url ?? null,
-          })
-        })
-      }
-    }
+    const [teamPlayerNamesMap, individualNamesMap] = await Promise.all([
+      resolveTeamPlayerNamesMap(teamIdsFromMatches),
+      resolveIndividualPlayerNames(individualPlayersForNames),
+    ])
 
     // Process matchesData from the combined queries above
     let wins = 0
@@ -539,15 +494,23 @@ export async function fetchPlayerDashboardData(
       let p4Avatar: string | null | undefined
 
       if (isIndividual) {
-        p1Name = m.p1?.name
-        p2Name = m.p2?.name
-        p3Name = m.p3?.name
-        p4Name = m.p4?.name
+        const r1 = m.p1?.id ? individualNamesMap.get(m.p1.id) : null
+        const r2 = m.p2?.id ? individualNamesMap.get(m.p2.id) : null
+        const r3 = m.p3?.id ? individualNamesMap.get(m.p3.id) : null
+        const r4 = m.p4?.id ? individualNamesMap.get(m.p4.id) : null
+        p1Name = r1?.name || m.p1?.name
+        p2Name = r2?.name || m.p2?.name
+        p3Name = r3?.name || m.p3?.name
+        p4Name = r4?.name || m.p4?.name
+        p1Avatar = r1?.avatar_url
+        p2Avatar = r2?.avatar_url
+        p3Avatar = r3?.avatar_url
+        p4Avatar = r4?.avatar_url
       } else {
         const team1Players = m.team1_id ? teamPlayerNamesMap.get(m.team1_id) : null
         const team2Players = m.team2_id ? teamPlayerNamesMap.get(m.team2_id) : null
 
-        // Prefer player_accounts names (via teamPlayerNamesMap) over nested players.name labels
+        // Prefer resolved names (RPC + player_accounts); nested joins only as weak fallback
         p1Name = team1Players?.player1_name || (m.team1 as any)?.t1p1?.name
         p2Name = team1Players?.player2_name || (m.team1 as any)?.t1p2?.name
         p3Name = team2Players?.player1_name || (m.team2 as any)?.t2p1?.name
@@ -794,20 +757,39 @@ export async function enrichDashboardWithEdgeFunction(currentDashboardData?: Pla
       }
       console.log('[Dashboard] Edge Function stats (final):', enriched.stats)
     }
-    // Merge recent matches from edge function (bypasses RLS)
+    // Merge recent matches from edge function (bypasses RLS for stats/visibility)
+    // BUT prefer client-resolved player names (RPC + player_accounts) when edge still
+    // returns team labels / placeholders — that was the persistent "bolinhas" bug.
     if (edgeData.recentMatches?.length) {
+      const clientMatches = currentDashboardData?.recentMatches || []
+      const clientById = new Map(clientMatches.map((m) => [m.id, m]))
+      const clientByOpenId = new Map(
+        clientMatches
+          .filter((m) => m.open_game_id)
+          .map((m) => [m.open_game_id as string, m]),
+      )
+      const findClient = (em: PlayerMatch) =>
+        clientById.get(em.id) ||
+        (em.open_game_id ? clientByOpenId.get(em.open_game_id) : undefined) ||
+        (typeof em.id === 'string' && em.id.startsWith('open_result_')
+          ? clientByOpenId.get(em.id.replace(/^open_result_/, ''))
+          : undefined)
+
+      const mergeNames = (edgeMatches: PlayerMatch[]) =>
+        edgeMatches.map((em) => preferResolvedMatchNames(findClient(em), em))
+
       // Check if Edge Function already includes open games
       const edgeOpenGames = edgeData.recentMatches.filter((m: any) => m.is_open_game)
       
       if (edgeOpenGames.length > 0) {
-        // Edge Function v2+ already includes open games - use directly
-        enriched.recentMatches = edgeData.recentMatches
+        // Edge Function v2+ already includes open games - use directly (with name merge)
+        enriched.recentMatches = mergeNames(edgeData.recentMatches)
           .sort((a: any, b: any) => new Date(b.start_time).getTime() - new Date(a.start_time).getTime())
         console.log('[Dashboard] Edge Function recentMatches (includes open games):', edgeData.recentMatches.length, '(', edgeOpenGames.length, 'open games)')
       } else {
         // Edge Function v1 - merge with client-side open games
         const currentOpenGames = (currentDashboardData?.recentMatches || []).filter(m => m.is_open_game)
-        const allMatches = [...edgeData.recentMatches, ...currentOpenGames]
+        const allMatches = [...mergeNames(edgeData.recentMatches), ...currentOpenGames]
           .sort((a, b) => new Date(b.start_time).getTime() - new Date(a.start_time).getTime())
         enriched.recentMatches = allMatches
         console.log('[Dashboard] Edge Function recentMatches:', edgeData.recentMatches.length, '+ open games:', currentOpenGames.length, '= total:', allMatches.length)
