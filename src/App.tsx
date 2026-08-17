@@ -13928,9 +13928,12 @@ function RegisterScreen({ onBack, onSuccess, returnTo }: {
   }
 
   // Calcular nível baseado nas 12 respostas
-  // Fórmula: Nível = 0.5 + (score * 5.0 / 36)
-  // 0 pts → 0.50 | 18 pts → 3.00 | 30 pts → 4.67 | 36 pts → 5.50
-  // Ninguém pode ser > 5.50 via questionário
+  // Fórmula: Nível = 0.5 + (score * 4.0 / 36)
+  // 0 pts → 0.50 | 18 pts → 2.50 | 30 pts → 3.83 | 36 pts → 4.50
+  // Ninguém pode ser > 4.50 via questionário; fiabilidade inicial = 10%
+  const QUIZ_MAX_LEVEL = 4.5
+  const QUIZ_INITIAL_RELIABILITY = 10
+
   const calculateLevel = (): number => {
     if (mode === 'bookOnly') return 1.0
 
@@ -13943,8 +13946,8 @@ function RegisterScreen({ onBack, onSuccess, returnTo }: {
       ? (totalScore / answeredCount) * 12
       : totalScore
 
-    const level = 0.5 + (normalizedScore * 5.0 / 36)
-    return Math.round(Math.min(5.5, Math.max(0.5, level)) * 100) / 100
+    const level = 0.5 + (normalizedScore * 4.0 / 36)
+    return Math.round(Math.min(QUIZ_MAX_LEVEL, Math.max(0.5, level)) * 100) / 100
   }
 
   const handleRegister = async () => {
@@ -14373,7 +14376,7 @@ function RegisterScreen({ onBack, onSuccess, returnTo }: {
                 </div>
                 <div>
                   <p className="text-gray-500">{t.register.reliability}</p>
-                  <p className="font-medium text-amber-600">10%</p>
+                  <p className="font-medium text-amber-600">{QUIZ_INITIAL_RELIABILITY}%</p>
                 </div>
               </div>
             </div>
