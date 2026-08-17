@@ -2,6 +2,12 @@
  * Clube favorito (APC) e próximos torneios – dados da mesma base (Manager/Tour).
  */
 import { supabase } from './supabase'
+import { parsePersonNamesFromTeamLabel } from './matchPlayerNames'
+import {
+  resolveTeamPlayerNamesMap,
+  resolveIndividualPlayerNames,
+  type TeamPlayerNames,
+} from './resolveTeamPlayerNames'
 
 export interface ClubDetail {
   id: string
@@ -232,10 +238,158 @@ export function getTournamentEnrolledUrl(tournamentId: string): string {
   return `${TOUR_APP_URL}/?register=${tournamentId}&enrolled=1`
 }
 
+export interface EnrolledPlayer {
+  name: string
+  avatar_url?: string | null
+  user_id?: string | null
+  account_id?: string | null
+}
+
+export interface EnrolledItem {
+  id: string
+  name: string
+  player1_name?: string
+  player2_name?: string
+  player_names?: string[]
+  players: EnrolledPlayer[]
+}
+
 export interface EnrolledByCategory {
   category_id: string
   category_name: string
-  items: { id: string; name: string; player1_name?: string; player2_name?: string; player_names?: string[] }[]
+  items: EnrolledItem[]
+}
+
+function playersFromTeamResolution(teamName: string, resolved?: TeamPlayerNames): EnrolledPlayer[] {
+  const out: EnrolledPlayer[] = []
+  if (resolved?.player1_name) {
+    out.push({
+      name: resolved.player1_name,
+      avatar_url: resolved.player1_avatar,
+      user_id: resolved.player1_user_id,
+      account_id: resolved.player1_account_id,
+    })
+  }
+  if (resolved?.player2_name) {
+    out.push({
+      name: resolved.player2_name,
+      avatar_url: resolved.player2_avatar,
+      user_id: resolved.player2_user_id,
+      account_id: resolved.player2_account_id,
+    })
+  }
+  if (out.length === 0) {
+    const [a, b] = parsePersonNamesFromTeamLabel(teamName)
+    if (a) out.push({ name: a })
+    if (b) out.push({ name: b })
+  }
+  return out
+}
+
+async function loadEnrolledTeams(tournamentId: string, categoryId?: string): Promise<EnrolledItem[]> {
+  let query = supabase
+    .from('teams')
+    .select('id, name, player1_id, player2_id')
+    .eq('tournament_id', tournamentId)
+    .order('name')
+  if (categoryId) query = query.eq('category_id', categoryId)
+  const { data: teams } = await query
+  if (!teams?.length) return []
+  const resolved = await resolveTeamPlayerNamesMap(teams.map((t: any) => t.id))
+  return teams.map((t: any) => {
+    const r = resolved.get(t.id)
+    const players = playersFromTeamResolution(t.name, r)
+    return {
+      id: t.id,
+      name: t.name,
+      player1_name: players[0]?.name,
+      player2_name: players[1]?.name,
+      players,
+    }
+  })
+}
+
+async function loadEnrolledIndividuals(tournamentId: string, categoryId?: string): Promise<EnrolledItem[]> {
+  let query = supabase
+    .from('players')
+    .select('id, name, player_account_id')
+    .eq('tournament_id', tournamentId)
+    .order('name')
+  if (categoryId) query = query.eq('category_id', categoryId)
+  const { data: players } = await query
+  if (!players?.length) return []
+  const resolved = await resolveIndividualPlayerNames(players.map((p: any) => ({ id: p.id, name: p.name })))
+  return players.map((p: any) => {
+    const r = resolved.get(p.id)
+    const name = r?.name || p.name
+    const person: EnrolledPlayer = {
+      name,
+      avatar_url: r?.avatar_url ?? null,
+      user_id: r?.user_id ?? null,
+      account_id: r?.account_id || p.player_account_id || null,
+    }
+    return { id: p.id, name, player1_name: name, players: name ? [person] : [] }
+  })
+}
+
+async function loadEnrolledSuperTeams(tournamentId: string, categoryId?: string): Promise<EnrolledItem[]> {
+  let query = supabase
+    .from('super_teams')
+    .select('id, name, super_team_players:super_team_players(name, player_account_id)')
+    .eq('tournament_id', tournamentId)
+    .order('name')
+  if (categoryId) query = query.eq('category_id', categoryId)
+  const { data: superTeams, error } = await query
+  let rows = superTeams
+  if (error) {
+    let fallback = supabase
+      .from('super_teams')
+      .select('id, name, super_team_players:super_team_players(name)')
+      .eq('tournament_id', tournamentId)
+      .order('name')
+    if (categoryId) fallback = fallback.eq('category_id', categoryId)
+    rows = (await fallback).data
+  }
+  if (!rows?.length) return []
+
+  const accountIds = new Set<string>()
+  for (const st of rows as any[]) {
+    for (const p of st.super_team_players || []) {
+      if (p.player_account_id) accountIds.add(p.player_account_id)
+    }
+  }
+  const accountById = new Map<string, { name: string; avatar_url: string | null; user_id: string | null }>()
+  if (accountIds.size > 0) {
+    const { data: accounts } = await supabase
+      .from('player_accounts')
+      .select('id, name, avatar_url, user_id')
+      .in('id', Array.from(accountIds))
+    ;(accounts || []).forEach((a: any) => {
+      accountById.set(a.id, { name: a.name, avatar_url: a.avatar_url ?? null, user_id: a.user_id ?? null })
+    })
+  }
+
+  return (rows as any[]).map((st) => {
+    const players: EnrolledPlayer[] = (st.super_team_players || [])
+      .map((p: any) => {
+        const acc = p.player_account_id ? accountById.get(p.player_account_id) : null
+        const name = acc?.name || p.name
+        if (!name) return null
+        return {
+          name,
+          avatar_url: acc?.avatar_url ?? null,
+          user_id: acc?.user_id ?? null,
+          account_id: p.player_account_id || null,
+        } as EnrolledPlayer
+      })
+      .filter(Boolean)
+    return {
+      id: st.id,
+      name: st.name,
+      player_names: players.map((p) => p.name),
+      players,
+    }
+  })
 }
 
 /** Inscritos por categoria – jogadores individuais ou equipas, ordenados por categoria. */
@@ -257,123 +411,29 @@ export async function fetchEnrolledByCategory(tournamentId: string): Promise<Enr
     tournament?.format === 'individual_groups_knockout'
   const isSuperTeams = tournament?.format === 'super_teams'
 
+  const loadItems = (categoryId?: string) => {
+    if (isSuperTeams) return loadEnrolledSuperTeams(tournamentId, categoryId)
+    if (isIndividual) return loadEnrolledIndividuals(tournamentId, categoryId)
+    return loadEnrolledTeams(tournamentId, categoryId)
+  }
+
   if (!categories || categories.length === 0) {
-    const items: EnrolledByCategory['items'] = []
-    if (isSuperTeams) {
-      const { data: superTeams } = await supabase
-        .from('super_teams')
-        .select('id, name, super_team_players:super_team_players(name)')
-        .eq('tournament_id', tournamentId)
-        .order('name')
-      if (superTeams) {
-        for (const st of superTeams as any[]) {
-          const playerNames = (st.super_team_players || []).map((p: any) => p.name).filter(Boolean)
-          items.push({ id: st.id, name: st.name, player_names: playerNames })
-        }
-      }
-    } else if (isIndividual) {
-      const { data: players } = await supabase
-        .from('players')
-        .select('id, name')
-        .eq('tournament_id', tournamentId)
-        .order('name')
-      if (players) {
-        for (const p of players as any[]) items.push({ id: p.id, name: p.name })
-      }
-    } else {
-      const { data: teams } = await supabase
-        .from('teams')
-        .select('id, name, player1:players!teams_player1_id_fkey(name), player2:players!teams_player2_id_fkey(name)')
-        .eq('tournament_id', tournamentId)
-        .order('name')
-      if (teams) {
-        for (const tm of teams as any[]) {
-          items.push({ id: tm.id, name: tm.name, player1_name: tm.player1?.name, player2_name: tm.player2?.name })
-        }
-      }
-    }
-    if (items.length === 0) {
-      const { data: allPlayers } = await supabase
-        .from('players')
-        .select('id, name')
-        .eq('tournament_id', tournamentId)
-        .order('name')
-      if (allPlayers) {
-        for (const p of allPlayers as any[]) items.push({ id: p.id, name: p.name })
-      }
+    let items = await loadItems()
+    if (items.length === 0 && !isIndividual) {
+      items = await loadEnrolledIndividuals(tournamentId)
     }
     if (items.length === 0) return []
     return [{ category_id: 'all', category_name: 'Jogadores', items }]
   }
 
   const result: EnrolledByCategory[] = []
-
   for (const cat of categories) {
-    const items: EnrolledByCategory['items'] = []
-
-    if (isSuperTeams) {
-      const { data: superTeams } = await supabase
-        .from('super_teams')
-        .select(`
-          id,
-          name,
-          super_team_players:super_team_players(name)
-        `)
-        .eq('tournament_id', tournamentId)
-        .eq('category_id', cat.id)
-        .order('name')
-
-      if (superTeams) {
-        for (const st of superTeams as any[]) {
-          const playerNames = (st.super_team_players || []).map((p: any) => p.name).filter(Boolean)
-          items.push({ id: st.id, name: st.name, player_names: playerNames })
-        }
-      }
-    } else if (isIndividual) {
-      const { data: players } = await supabase
-        .from('players')
-        .select('id, name')
-        .eq('tournament_id', tournamentId)
-        .eq('category_id', cat.id)
-        .order('name')
-
-      if (players) {
-        for (const p of players as any[]) {
-          items.push({ id: p.id, name: p.name })
-        }
-      }
-    } else {
-      const { data: teams } = await supabase
-        .from('teams')
-        .select(`
-          id,
-          name,
-          player1:players!teams_player1_id_fkey(name),
-          player2:players!teams_player2_id_fkey(name)
-        `)
-        .eq('tournament_id', tournamentId)
-        .eq('category_id', cat.id)
-        .order('name')
-
-      if (teams) {
-        for (const t of teams as any[]) {
-          items.push({
-            id: t.id,
-            name: t.name,
-            player1_name: t.player1?.name,
-            player2_name: t.player2?.name,
-          })
-        }
-      }
-    }
-
     result.push({
       category_id: cat.id,
       category_name: cat.name,
-      items,
+      items: await loadItems(cat.id),
     })
   }
-
   return result
 }
 

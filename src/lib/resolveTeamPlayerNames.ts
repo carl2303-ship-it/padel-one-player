@@ -11,11 +11,17 @@ export type TeamPlayerNames = {
   player2_name?: string
   player1_avatar?: string | null
   player2_avatar?: string | null
+  player1_user_id?: string | null
+  player2_user_id?: string | null
+  player1_account_id?: string | null
+  player2_account_id?: string | null
 }
 
 export type ResolvedPerson = {
   name?: string
   avatar_url?: string | null
+  user_id?: string | null
+  account_id?: string | null
 }
 
 function cleanPersonName(name: string | null | undefined, teamName?: string | null): string | undefined {
@@ -87,14 +93,16 @@ export async function resolveTeamPlayerNamesMap(
   }
 
   // 3) player_accounts — authoritative display name + avatar
-  const accountById = new Map<string, { name: string; avatar_url: string | null }>()
+  const accountById = new Map<string, { name: string; avatar_url: string | null; user_id: string | null }>()
   if (accountIds.size > 0) {
     const { data: accounts } = await supabase
       .from('player_accounts')
-      .select('id, name, avatar_url')
+      .select('id, name, avatar_url, user_id')
       .in('id', Array.from(accountIds))
     ;(accounts || []).forEach((a: any) => {
-      if (a?.id && a?.name) accountById.set(a.id, { name: a.name, avatar_url: a.avatar_url ?? null })
+      if (a?.id && a?.name) {
+        accountById.set(a.id, { name: a.name, avatar_url: a.avatar_url ?? null, user_id: a.user_id ?? null })
+      }
     })
   }
 
@@ -103,10 +111,24 @@ export async function resolveTeamPlayerNamesMap(
       if (!playerId) return {}
       const meta = playerMeta.get(playerId)
       const acc = meta?.player_account_id ? accountById.get(meta.player_account_id) : null
-      if (acc?.name) return { name: acc.name, avatar_url: acc.avatar_url }
+      if (acc?.name) {
+        return {
+          name: acc.name,
+          avatar_url: acc.avatar_url,
+          user_id: acc.user_id,
+          account_id: meta?.player_account_id ?? null,
+        }
+      }
       const raw = namesByPlayerId.get(playerId)
       const cleaned = cleanPersonName(raw, t.name)
-      if (cleaned) return { name: cleaned, avatar_url: null }
+      if (cleaned) {
+        return {
+          name: cleaned,
+          avatar_url: null,
+          user_id: null,
+          account_id: meta?.player_account_id ?? null,
+        }
+      }
       return {}
     }
 
@@ -125,6 +147,10 @@ export async function resolveTeamPlayerNamesMap(
       player2_name: cleanPersonName(p2.name, t.name),
       player1_avatar: p1.avatar_url ?? null,
       player2_avatar: p2.avatar_url ?? null,
+      player1_user_id: p1.user_id ?? null,
+      player2_user_id: p2.user_id ?? null,
+      player1_account_id: p1.account_id ?? null,
+      player2_account_id: p2.account_id ?? null,
     })
   }
 
@@ -153,14 +179,16 @@ export async function resolveIndividualPlayerNames(
     if (p.player_account_id) accountIds.add(p.player_account_id)
   })
 
-  const accountById = new Map<string, { name: string; avatar_url: string | null }>()
+  const accountById = new Map<string, { name: string; avatar_url: string | null; user_id: string | null }>()
   if (accountIds.size > 0) {
     const { data: accounts } = await supabase
       .from('player_accounts')
-      .select('id, name, avatar_url')
+      .select('id, name, avatar_url, user_id')
       .in('id', Array.from(accountIds))
     ;(accounts || []).forEach((a: any) => {
-      if (a?.id && a?.name) accountById.set(a.id, { name: a.name, avatar_url: a.avatar_url ?? null })
+      if (a?.id && a?.name) {
+        accountById.set(a.id, { name: a.name, avatar_url: a.avatar_url ?? null, user_id: a.user_id ?? null })
+      }
     })
   }
 
@@ -169,7 +197,14 @@ export async function resolveIndividualPlayerNames(
     const acc = meta?.player_account_id ? accountById.get(meta.player_account_id) : null
     const fallback = players.find((p) => p.id === id)?.name || meta?.name
     const name = cleanPersonName(acc?.name || fallback)
-    if (name) result.set(id, { name, avatar_url: acc?.avatar_url ?? null })
+    if (name) {
+      result.set(id, {
+        name,
+        avatar_url: acc?.avatar_url ?? null,
+        user_id: acc?.user_id ?? null,
+        account_id: meta?.player_account_id ?? null,
+      })
+    }
   }
 
   return result

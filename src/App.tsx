@@ -87,7 +87,7 @@ import {
   type FeedMatchItem,
   getUnifiedFeed,
 } from './lib/communityData'
-import { fetchAllClubs, fetchClubById, fetchUpcomingTournaments, fetchTournamentsByIds, fetchTournamentEnrolledCounts, fetchEnrolledByCategory, fetchTournamentFullDetail, getTournamentRegistrationUrl, fetchMyTournamentInvites, updateTournamentInviteStatus, fetchPlayerClubs, togglePlayerClub, fetchNearbyFullClubs, updatePlayerLocation, requestBrowserGeolocation, type ClubDetail, type UpcomingTournamentFromTour, type EnrolledByCategory, type TournamentFullDetail, type NearbyFullClub } from './lib/clubAndTournaments'
+import { fetchAllClubs, fetchClubById, fetchUpcomingTournaments, fetchTournamentsByIds, fetchTournamentEnrolledCounts, fetchEnrolledByCategory, fetchTournamentFullDetail, getTournamentRegistrationUrl, fetchMyTournamentInvites, updateTournamentInviteStatus, fetchPlayerClubs, togglePlayerClub, fetchNearbyFullClubs, updatePlayerLocation, requestBrowserGeolocation, type ClubDetail, type UpcomingTournamentFromTour, type EnrolledByCategory, type EnrolledItem, type EnrolledPlayer, type TournamentFullDetail, type NearbyFullClub } from './lib/clubAndTournaments'
 import { fetchAvailableClasses, fetchMyClasses, enrollInClass, type Class as ClassData } from './lib/classes'
 import { preloadAllPlayerData, getCachedPlayerData } from './lib/playerDataCache'
 import { fetchLevelHistory, type LevelHistoryEntry } from './lib/levelHistory'
@@ -921,6 +921,7 @@ function App() {
                   }
                 : undefined
             }
+            onOpenPlayerProfile={(uid: string, opts) => openPlayerProfile(uid, opts)}
           />
         )}
         {currentScreen === 'learn' && canLearn && (
@@ -1426,6 +1427,53 @@ function PlayerCircle({ name, bgClass, textClass, avatarUrl, currentPlayerName, 
       ) : (
         <span className={textClass}>{initialFor(name)}</span>
       )}
+    </div>
+  )
+}
+
+function enrolledPlayersOf(item: EnrolledItem): EnrolledPlayer[] {
+  if (item.players?.length) return item.players.filter((p) => p?.name)
+  const fromPair = [item.player1_name, item.player2_name].filter(Boolean).map((name) => ({ name: name as string }))
+  if (fromPair.length) return fromPair
+  if (item.player_names?.length) return item.player_names.filter(Boolean).map((name) => ({ name }))
+  return item.name ? [{ name: item.name }] : []
+}
+
+function EnrolledItemRow({
+  item,
+  index,
+  onPlayerClick,
+}: {
+  item: EnrolledItem
+  index: number
+  onPlayerClick?: (player: EnrolledPlayer) => void
+}) {
+  const players = enrolledPlayersOf(item)
+  return (
+    <div className="flex items-start gap-3 py-2.5 px-3 bg-gray-50 rounded-xl">
+      <span className="text-xs font-semibold text-gray-400 w-5 text-right pt-5">{index + 1}</span>
+      <div className="flex flex-wrap gap-x-5 gap-y-2 flex-1">
+        {players.map((p, i) => {
+          const isPlaceholder = !p.name || p.name === '?' || isLikelyTeamLabel(p.name)
+          const cached = !isPlaceholder ? getCachedPlayerData(p.name) : null
+          const avatarUrl = p.avatar_url || cached?.avatar_url || null
+          const canOpen = Boolean(onPlayerClick && !isPlaceholder)
+          return (
+            <div key={`${item.id}-${i}-${p.name}`} className="flex flex-col items-center min-h-[96px]">
+              <PlayerCircle
+                name={isPlaceholder ? '?' : p.name}
+                bgClass={i % 2 === 0 ? 'bg-orange-400' : 'bg-sky-200'}
+                textClass={i % 2 === 0 ? 'text-xl font-bold text-white' : 'text-xl font-bold text-sky-800'}
+                avatarUrl={avatarUrl}
+                onClick={canOpen ? () => onPlayerClick!(p) : undefined}
+              />
+              <span className="text-[11px] text-gray-700 font-medium truncate max-w-[90px] mt-1.5 text-center leading-tight" title={isPlaceholder ? undefined : p.name}>
+                {isPlaceholder ? '—' : shortPlayerLabel(p.name)}
+              </span>
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }
@@ -5088,6 +5136,7 @@ function CompeteScreen({
   initialTournamentId,
   onInitialTournamentConsumed,
   onOpenCommunityGroupChat,
+  onOpenPlayerProfile,
 }: {
   dashboardData: PlayerDashboardData | null
   favoriteClubId: string | null
@@ -5099,6 +5148,7 @@ function CompeteScreen({
   initialTournamentId?: string | null
   onInitialTournamentConsumed?: () => void
   onOpenCommunityGroupChat?: (groupId: string) => void
+  onOpenPlayerProfile?: (userId: string, opts?: { accountId?: string | null; nameHint?: string | null }) => void
 }) {
   const { t } = useI18n()
   const [activeTab, setActiveTab] = useState<'upcoming' | 'leagues' | 'history'>('upcoming')
@@ -5521,6 +5571,19 @@ function CompeteScreen({
       setEnrolledData([])
     }
     setEnrolledLoading(false)
+  }
+
+  const handleEnrolledPlayerClick = async (p: EnrolledPlayer) => {
+    if (!p?.name || isLikelyTeamLabel(p.name)) return
+    if (p.user_id && onOpenPlayerProfile) {
+      onOpenPlayerProfile(p.user_id, { accountId: p.account_id, nameHint: p.name })
+      return
+    }
+    const { findPlayerAccountByName } = await import('./lib/classes')
+    const acc = await findPlayerAccountByName(p.name)
+    if (acc?.user_id && onOpenPlayerProfile) {
+      onOpenPlayerProfile(acc.user_id, { accountId: acc.id, nameHint: p.name })
+    }
   }
 
   const openTournamentDetail = async (tournamentId: string) => {
@@ -6137,6 +6200,18 @@ function CompeteScreen({
                                   onOpenChallengeChat={onOpenCommunityGroupChat}
                                 />
                               )}
+                              {cat.items.length > 0 && (
+                                <div className="space-y-1.5">
+                                  {cat.items.map((item, idx) => (
+                                    <EnrolledItemRow
+                                      key={item.id}
+                                      item={item}
+                                      index={idx}
+                                      onPlayerClick={handleEnrolledPlayerClick}
+                                    />
+                                  ))}
+                                </div>
+                              )}
                               {hasGroupsOrMatches && catDetail ? (
                                 <>
                                   {Object.keys(catDetail.groups).length > 0 && (
@@ -6246,30 +6321,7 @@ function CompeteScreen({
                                     </div>
                                   )}
                                 </>
-                              ) : (
-                                <div className="space-y-1.5">
-                                  {cat.items.map((item, idx) => (
-                                    <div key={item.id} className="flex items-center gap-3 py-2 px-3 bg-gray-50 rounded-lg">
-                                      <span className="text-xs font-semibold text-gray-400 w-5 text-right">{idx + 1}</span>
-                                      <div className="flex-1 min-w-0">
-                                        {item.player_names?.length ? (
-                                          <p className="text-sm text-gray-900 font-medium truncate">{item.name}</p>
-                                        ) : item.player1_name || item.player2_name ? (
-                                          <div>
-                                            <p className="text-sm text-gray-900 font-medium truncate">{item.name}</p>
-                                            <p className="text-xs text-gray-500 truncate">{[item.player1_name, item.player2_name].filter(Boolean).join(' / ')}</p>
-                                          </div>
-                                        ) : (
-                                          <p className="text-sm text-gray-900 font-medium truncate">{item.name}</p>
-                                        )}
-                                        {item.player_names && item.player_names.length > 0 && (
-                                          <p className="text-xs text-gray-500 truncate">{item.player_names.join(' · ')}</p>
-                                        )}
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
+                              ) : null}
                             </div>
                           )}
                         </div>
@@ -7270,15 +7322,12 @@ function CompeteScreen({
                       </h3>
                       <ul className="space-y-1.5">
                         {cat.items.map((item, idx) => (
-                          <li key={item.id} className="text-sm text-gray-900 py-1.5 px-3 bg-gray-50 rounded-lg">
-                            <span className="font-medium text-gray-600">{idx + 1}.</span>{' '}
-                            {item.player_names?.length ? (
-                              <span>{item.player_names.join(' · ')}</span>
-                            ) : item.player1_name != null || item.player2_name != null ? (
-                              <span>{[item.player1_name, item.player2_name].filter(Boolean).join(' / ')}</span>
-                            ) : (
-                              <span>{item.name}</span>
-                            )}
+                          <li key={item.id}>
+                            <EnrolledItemRow
+                              item={item}
+                              index={idx}
+                              onPlayerClick={handleEnrolledPlayerClick}
+                            />
                           </li>
                         ))}
                       </ul>
