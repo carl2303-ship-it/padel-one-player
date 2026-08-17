@@ -1459,6 +1459,7 @@ function EnrolledItemRow({
           const cached = !isPlaceholder ? getCachedPlayerData(p.name) : null
           const avatarUrl = p.avatar_url || cached?.avatar_url || null
           const canOpen = Boolean(onPlayerClick && !isPlaceholder)
+          const openProfile = canOpen ? () => onPlayerClick!(p) : undefined
           return (
             <div key={`${item.id}-${i}-${p.name}`} className="flex flex-col items-center min-h-[96px]">
               <PlayerCircle
@@ -1466,11 +1467,17 @@ function EnrolledItemRow({
                 bgClass={i % 2 === 0 ? 'bg-orange-400' : 'bg-sky-200'}
                 textClass={i % 2 === 0 ? 'text-xl font-bold text-white' : 'text-xl font-bold text-sky-800'}
                 avatarUrl={avatarUrl}
-                onClick={canOpen ? () => onPlayerClick!(p) : undefined}
+                onClick={openProfile}
               />
-              <span className="text-[11px] text-gray-700 font-medium truncate max-w-[90px] mt-1.5 text-center leading-tight" title={isPlaceholder ? undefined : p.name}>
+              <button
+                type="button"
+                disabled={!canOpen}
+                onClick={openProfile}
+                className={`text-[11px] text-gray-700 font-medium truncate max-w-[90px] mt-1.5 text-center leading-tight ${canOpen ? 'hover:text-red-600 cursor-pointer' : ''}`}
+                title={isPlaceholder ? undefined : p.name}
+              >
                 {isPlaceholder ? '—' : shortPlayerLabel(p.name)}
-              </span>
+              </button>
             </div>
           )
         })}
@@ -1521,7 +1528,7 @@ function PlayerPreviewPopup({
   const avatarUrl = data?.avatar_url || player.avatar_url || getCachedPlayerData(player.name)?.avatar_url || null
   const displayName = data?.name || player.name
 
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-4 bg-black/50"
       onClick={onClose}
@@ -1613,12 +1620,13 @@ function PlayerPreviewPopup({
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 
 /** Card ao estilo Playtomic: layout vertical – equipa 1 em cima, resultado no meio, equipa 2 em baixo; nomes abaixo de cada bolinha; troféu ao lado do resultado da equipa vencedora */
-function GameCardPlaytomic({ 
+function GameCardPlaytomic({
   match, 
   fullWidth, 
   currentPlayerAvatar, 
@@ -5973,12 +5981,17 @@ function CompeteScreen({
   }
 
   // Se o detalhe do torneio está aberto, mostra a página de detalhe
+  const playerPreviewModal = (
+    <PlayerPreviewPopup player={previewPlayer} onClose={() => setPreviewPlayer(null)} />
+  )
+
   if (selectedTournamentDetail || selectedTournamentLoading) {
     const td = selectedTournamentDetail
     const enrolledIds = new Set((d?.upcomingTournaments ?? []).map((t) => t.id))
     const isEnrolled = td ? enrolledIds.has(td.id) : false
 
     return (
+      <>
       <div className="space-y-4 animate-fade-in">
         <button
           onClick={() => { setSelectedTournamentDetail(null); setSelectedTournamentLoading(false) }}
@@ -6584,10 +6597,13 @@ function CompeteScreen({
           </div>
         )}
       </div>
+      {playerPreviewModal}
+    </>
     )
   }
 
   return (
+    <>
     <div className="space-y-4 animate-fade-in">
       <button onClick={onBack} className="flex items-center gap-2 text-gray-600 hover:text-gray-900">
         <ArrowLeft className="w-5 h-5" /> {t.common.back}
@@ -7549,9 +7565,10 @@ function CompeteScreen({
         </div>
       )}
 
-      <PlayerPreviewPopup player={previewPlayer} onClose={() => setPreviewPlayer(null)} />
+      {playerPreviewModal}
 
     </div>
+    </>
   )
 }
 
