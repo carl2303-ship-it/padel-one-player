@@ -88,6 +88,7 @@ import {
   getUnifiedFeed,
 } from './lib/communityData'
 import { fetchAllClubs, fetchClubById, fetchUpcomingTournaments, fetchTournamentsByIds, fetchTournamentEnrolledCounts, fetchEnrolledByCategory, fetchTournamentFullDetail, getTournamentRegistrationUrl, fetchMyTournamentInvites, updateTournamentInviteStatus, fetchPlayerClubs, togglePlayerClub, fetchNearbyFullClubs, updatePlayerLocation, requestBrowserGeolocation, type ClubDetail, type UpcomingTournamentFromTour, type EnrolledByCategory, type EnrolledItem, type EnrolledPlayer, type TournamentFullDetail, type NearbyFullClub } from './lib/clubAndTournaments'
+import { fetchPlayerPreview, type PlayerPreviewData } from './lib/playerPreview'
 import { fetchAvailableClasses, fetchMyClasses, enrollInClass, type Class as ClassData } from './lib/classes'
 import { preloadAllPlayerData, getCachedPlayerData } from './lib/playerDataCache'
 import { fetchLevelHistory, type LevelHistoryEntry } from './lib/levelHistory'
@@ -1473,6 +1474,144 @@ function EnrolledItemRow({
             </div>
           )
         })}
+      </div>
+    </div>
+  )
+}
+
+function PlayerPreviewPopup({
+  player,
+  onClose,
+}: {
+  player: EnrolledPlayer | null
+  onClose: () => void
+}) {
+  const { t } = useI18n()
+  const [data, setData] = useState<PlayerPreviewData | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (!player) {
+      setData(null)
+      return
+    }
+    let active = true
+    setLoading(true)
+    fetchPlayerPreview({
+      accountId: player.account_id,
+      userId: player.user_id,
+      nameHint: player.name,
+    })
+      .then((preview) => {
+        if (active) setData(preview)
+      })
+      .finally(() => {
+        if (active) setLoading(false)
+      })
+    return () => {
+      active = false
+    }
+  }, [player])
+
+  if (!player) return null
+
+  const colors = levelColors(data?.level)
+  const totalMatches = (data?.wins ?? 0) + (data?.losses ?? 0)
+  const winRate = totalMatches > 0 ? Math.round(((data?.wins ?? 0) / totalMatches) * 100) : 0
+  const avatarUrl = data?.avatar_url || player.avatar_url || getCachedPlayerData(player.name)?.avatar_url || null
+  const displayName = data?.name || player.name
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center p-4 bg-black/50"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-2xl w-full max-w-sm shadow-xl overflow-hidden animate-slide-up"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="p-5">
+          <div className="flex items-start justify-between gap-3 mb-4">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-14 h-14 rounded-full overflow-hidden bg-gray-900 flex-shrink-0 flex items-center justify-center">
+                {avatarUrl ? (
+                  <img src={avatarUrl} alt={displayName} className="w-full h-full object-cover" />
+                ) : (
+                  <span className="text-white font-bold text-lg">{getInitials(displayName)}</span>
+                )}
+              </div>
+              <div className="min-w-0">
+                <h3 className="font-bold text-gray-900 truncate">{displayName}</h3>
+                {loading ? (
+                  <div className="h-4 w-16 bg-gray-100 rounded animate-pulse mt-1" />
+                ) : data?.level != null ? (
+                  <p className="text-sm font-semibold text-red-600 mt-0.5">Nível {data.level.toFixed(2)}</p>
+                ) : (
+                  <p className="text-sm text-gray-400 mt-0.5">Nível —</p>
+                )}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+              aria-label="Fechar"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          {loading ? (
+            <div className="flex justify-center py-8">
+              <div className="w-8 h-8 border-2 border-red-600 border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : (
+            <>
+              {data?.level != null && (
+                <div
+                  className="rounded-xl p-4 mb-4 text-center"
+                  style={
+                    colors?.hex
+                      ? { background: `linear-gradient(135deg, ${colors.hex} 0%, ${colors.hexTo} 100%)` }
+                      : undefined
+                  }
+                >
+                  <p className={`text-3xl font-bold ${colors?.hex ? 'text-white' : 'text-red-600'}`}>
+                    {data.level.toFixed(2)}
+                  </p>
+                  <p className={`text-xs mt-1 ${colors?.hex ? 'text-white/90' : 'text-gray-500'}`}>
+                    {t.home?.level || 'Nível'}
+                  </p>
+                </div>
+              )}
+
+              <div className="grid grid-cols-3 gap-2 mb-4">
+                <div className="bg-gray-50 rounded-xl p-3 text-center">
+                  <p className="text-xl font-bold text-gray-900">{totalMatches}</p>
+                  <p className="text-[10px] text-gray-500 font-medium">Jogos</p>
+                </div>
+                <div className="bg-gray-50 rounded-xl p-3 text-center">
+                  <p className="text-xl font-bold text-green-600">{data?.wins ?? 0}</p>
+                  <p className="text-[10px] text-gray-500 font-medium">Vitórias</p>
+                </div>
+                <div className="bg-gray-50 rounded-xl p-3 text-center">
+                  <p className="text-xl font-bold text-gray-900">{winRate}%</p>
+                  <p className="text-[10px] text-gray-500 font-medium">Taxa</p>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between bg-amber-50 border border-amber-100 rounded-xl px-4 py-3">
+                <div className="flex items-center gap-2">
+                  <TrendingUp className="w-5 h-5 text-amber-600" />
+                  <span className="text-sm font-medium text-gray-700">{t.home?.rankings || 'Ranking'}</span>
+                </div>
+                <span className="text-lg font-bold text-amber-700">
+                  {data?.rankingPosition != null ? `#${data.rankingPosition}` : '—'}
+                </span>
+              </div>
+            </>
+          )}
+        </div>
       </div>
     </div>
   )
@@ -5166,6 +5305,7 @@ function CompeteScreen({
   const [viewingEnrolled, setViewingEnrolled] = useState<{ id: string; name: string } | null>(null)
   const [enrolledData, setEnrolledData] = useState<EnrolledByCategory[]>([])
   const [enrolledLoading, setEnrolledLoading] = useState(false)
+  const [previewPlayer, setPreviewPlayer] = useState<EnrolledPlayer | null>(null)
   const [pastTournamentDetails, setPastTournamentDetails] = useState<Record<string, { standings: any[]; myMatches: any[]; playerPosition?: number; tournamentName: string; categoryStandings?: Record<string, { categoryName: string; standings: any[]; myMatches: any[]; allMatches: any[]; playerPosition?: number }> }>>({})
   const [pastTournamentLoading, setPastTournamentLoading] = useState(false)
   const [leaguesDirect, setLeaguesDirect] = useState<PlayerDashboardData['leagueStandings']>([])
@@ -5573,17 +5713,9 @@ function CompeteScreen({
     setEnrolledLoading(false)
   }
 
-  const handleEnrolledPlayerClick = async (p: EnrolledPlayer) => {
+  const handleEnrolledPlayerClick = (p: EnrolledPlayer) => {
     if (!p?.name || isLikelyTeamLabel(p.name)) return
-    if (p.user_id && onOpenPlayerProfile) {
-      onOpenPlayerProfile(p.user_id, { accountId: p.account_id, nameHint: p.name })
-      return
-    }
-    const { findPlayerAccountByName } = await import('./lib/classes')
-    const acc = await findPlayerAccountByName(p.name)
-    if (acc?.user_id && onOpenPlayerProfile) {
-      onOpenPlayerProfile(acc.user_id, { accountId: acc.id, nameHint: p.name })
-    }
+    setPreviewPlayer(p)
   }
 
   const openTournamentDetail = async (tournamentId: string) => {
@@ -7416,6 +7548,8 @@ function CompeteScreen({
           </div>
         </div>
       )}
+
+      <PlayerPreviewPopup player={previewPlayer} onClose={() => setPreviewPlayer(null)} />
 
     </div>
   )
