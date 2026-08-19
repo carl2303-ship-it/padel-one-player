@@ -121,7 +121,15 @@ import {
   type ChatMessage,
 } from './lib/groupChat'
 import { isPushSupported, checkIsSubscribed, subscribeToPush, unsubscribeFromPush } from './lib/pushNotifications'
-import { normalizePhone, isValidPhone } from './lib/phoneUtils'
+import {
+  normalizePhone,
+  isValidPhone,
+  composeInternationalPhone,
+  COUNTRY_DIAL_CODES,
+  defaultCountryIso,
+  dialCodeForIso,
+  formatPhoneDisplay,
+} from './lib/phoneUtils'
 import { resolveFourPlayerNames, getPartnerNamesFromMatch, isLikelyTeamLabel } from './lib/matchPlayerNames'
 import {
   requestPartnerMatch,
@@ -13911,7 +13919,7 @@ function RegisterScreen({ onBack, onSuccess, returnTo }: {
   onSuccess: (playerAccount: any) => void
   returnTo?: string | null
 }) {
-  const { t } = useI18n()
+  const { t, language } = useI18n()
 
   // Deep-link: /register?mode=full (universo Padel One) | ?mode=bookOnly (só reservar)
   const initialModeFromUrl = (() => {
@@ -13932,6 +13940,7 @@ function RegisterScreen({ onBack, onSuccess, returnTo }: {
   // Step 1: Dados pessoais
   const [name, setName] = useState('')
   const [regPhone, setRegPhone] = useState('')
+  const [regCountryIso, setRegCountryIso] = useState(() => defaultCountryIso(language))
   const [gender, setGender] = useState<'M' | 'F'>('M')
   const [email, setEmail] = useState('')
   const [regPassword, setRegPassword] = useState('')
@@ -13972,17 +13981,13 @@ function RegisterScreen({ onBack, onSuccess, returnTo }: {
     setSaving(true)
 
     try {
-      // Normalizar telefone
-      const normalizedPhone = normalizePhone(regPhone)
+      const fullPhone = composeInternationalPhone(dialCodeForIso(regCountryIso), regPhone)
+      const normalizedPhone = normalizePhone(fullPhone)
 
       // Validações
       if (!name.trim()) { setError(t.register.nameRequired); setSaving(false); return }
-      if (!isValidPhone(regPhone)) { 
-        if (regPhone.trim() === '+' || (regPhone.trim().startsWith('+') && regPhone.trim().length < 4)) {
-          setError(t.register.addCountryCode);
-        } else {
-          setError(t.auth.invalidPhone);
-        }
+      if (!isValidPhone(fullPhone)) { 
+        setError(t.register.addCountryCode);
         setSaving(false); 
         return 
       }
@@ -14179,9 +14184,23 @@ function RegisterScreen({ onBack, onSuccess, returnTo }: {
             </div>
             <div>
               <label className="text-sm font-medium text-gray-700 mb-1 block">{t.register.phone}</label>
-              <div className="relative">
-                <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                <input value={regPhone} onChange={e => setRegPhone(e.target.value)} placeholder={t.register.phonePlaceholder} type="tel" className="w-full pl-11 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-red-500/20 focus:border-red-500" />
+              <div className="flex gap-2">
+                <select
+                  value={regCountryIso}
+                  onChange={e => setRegCountryIso(e.target.value)}
+                  aria-label={t.register.addCountryCode}
+                  className="w-[9.5rem] shrink-0 py-3 pl-2 pr-1 bg-gray-50 border border-gray-200 rounded-xl text-sm font-medium text-gray-800 focus:ring-2 focus:ring-red-500/20 focus:border-red-500"
+                >
+                  {COUNTRY_DIAL_CODES.map(c => (
+                    <option key={c.iso} value={c.iso}>
+                      {c.flag} +{c.dial} {c.name}
+                    </option>
+                  ))}
+                </select>
+                <div className="relative flex-1 min-w-0">
+                  <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                  <input value={regPhone} onChange={e => setRegPhone(e.target.value)} placeholder={t.register.phonePlaceholder} type="tel" inputMode="tel" className="w-full pl-11 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-red-500/20 focus:border-red-500" />
+                </div>
               </div>
               <p className="mt-1 text-xs text-gray-500">
                 {t.register.phoneHint}
@@ -14241,12 +14260,13 @@ function RegisterScreen({ onBack, onSuccess, returnTo }: {
                 setError('')
                 if (!name.trim()) { setError(t.register.nameRequired); return }
                 if (!regPhone.trim()) { setError(t.register.phoneRequired); return }
-                if (!isValidPhone(regPhone)) { setError(t.auth.invalidPhone); return }
+                const fullPhone = composeInternationalPhone(dialCodeForIso(regCountryIso), regPhone)
+                if (!isValidPhone(fullPhone)) { setError(t.register.addCountryCode); return }
                 if (!email.trim()) { setError(t.register.emailRequired); return }
                 if (regPassword.length < 6) { setError(t.register.passwordMin); return }
                 if (regPassword !== confirmPwd) { setError(t.register.passwordsMismatch); return }
 
-                const checkPhone = normalizePhone(regPhone)
+                const checkPhone = normalizePhone(fullPhone)
                 const { data: dupPhone } = await supabase
                   .from('player_accounts')
                   .select('id')
@@ -14385,7 +14405,7 @@ function RegisterScreen({ onBack, onSuccess, returnTo }: {
               <div className="border-t pt-3 grid grid-cols-2 gap-3 text-sm">
                 <div>
                   <p className="text-gray-500">{t.register.phoneLabel}</p>
-                  <p className="font-medium">{regPhone}</p>
+                  <p className="font-medium">{formatPhoneDisplay(composeInternationalPhone(dialCodeForIso(regCountryIso), regPhone)) || regPhone}</p>
                 </div>
                 <div>
                   <p className="text-gray-500">{t.register.estimatedLevel}</p>
