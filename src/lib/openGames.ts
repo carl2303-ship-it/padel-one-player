@@ -2523,7 +2523,48 @@ async function processOpenGameRating(gameId: string): Promise<void> {
 // Award reward points for game actions
 // ============================
 
-export async function awardGameRewardPoints(gameId: string, actionType: string, specificPlayerAccountId?: string): Promise<void> {
+/** Clubs with at least one active reward rule (cached per session). */
+let clubsWithActiveRewards: Set<string> | null = null
+/** action keys "clubId:actionType" known to have no active rule. */
+const missingActiveRuleKeys = new Set<string>()
+/** Players for whom we already ran the retroactive pass this session. */
+const retroactiveDoneForPlayer = new Set<string>()
+
+async function clubHasActiveRewardRules(clubId: string): Promise<boolean> {
+  if (clubsWithActiveRewards?.has(clubId)) return true
+  const { data } = await supabase
+    .from('reward_rules')
+    .select('id')
+    .eq('club_id', clubId)
+    .eq('is_active', true)
+    .limit(1)
+  if (data && data.length > 0) {
+    if (!clubsWithActiveRewards) clubsWithActiveRewards = new Set()
+    clubsWithActiveRewards.add(clubId)
+    return true
+  }
+  return false
+}
+
+async function hasActiveRuleForAction(clubId: string, actionType: string): Promise<boolean> {
+  const key = `${clubId}:${actionType}`
+  if (missingActiveRuleKeys.has(key)) return false
+  const { data } = await supabase
+    .from('reward_rules')
+    .select('id')
+    .eq('club_id', clubId)
+    .eq('action_type', actionType)
+    .eq('is_active', true)
+    .limit(1)
+  if (!data || data.length === 0) {
+    missingActiveRuleKeys.add(key)
+    return false
+  }
+  return true
+}
+
+/** @returns true only when points were actually awarded */
+export async function awardGameRewardPoints(gameId: string, actionType: string, specificPlayerAccountId?: string): Promise<boolean> {
   // Get the game's club
   const { data: game, error: gameError } = await supabase
     .from('open_games')
@@ -2533,8 +2574,12 @@ export async function awardGameRewardPoints(gameId: string, actionType: string, 
 
   if (!game || !game.club_id) {
     console.error('[Rewards] Cannot award points - game not found or no club_id:', gameId, gameError)
-    return
+    return false
   }
+
+  // Skip entirely when the club has no active reward programme
+  if (!(await clubHasActiveRewardRules(game.club_id))) return false
+  if (!(await hasActiveRuleForAction(game.club_id, actionType))) return false
 
   let playerAccountId = specificPlayerAccountId
 
@@ -2543,7 +2588,7 @@ export async function awardGameRewardPoints(gameId: string, actionType: string, 
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) {
       console.error('[Rewards] Cannot award points - no auth user')
-      return
+      return false
     }
 
     const { data: pa } = await supabase
@@ -2554,20 +2599,9 @@ export async function awardGameRewardPoints(gameId: string, actionType: string, 
 
     if (!pa) {
       console.error('[Rewards] Cannot award points - no player_account for user:', user.id)
-      return
+      return false
     }
     playerAccountId = pa.id
-  }
-
-  // Check if the club has reward rules configured
-  const { data: existingRules } = await supabase
-    .from('reward_rules')
-    .select('id')
-    .eq('club_id', game.club_id)
-    .limit(1)
-
-  if (!existingRules || existingRules.length === 0) {
-    return
   }
 
   // Award the reward points
@@ -2580,14 +2614,29 @@ export async function awardGameRewardPoints(gameId: string, actionType: string, 
 
   if (rpcError) {
     console.error('[Rewards] RPC error awarding', actionType, 'for game', gameId, ':', rpcError)
-  } else {
-    const result = rpcResult as any
-    if (result?.success) {
-      console.log('[Rewards] ✅ Awarded', actionType, ':', result.points_earned, 'pts → total:', result.new_total, '(tier:', result.tier, ')')
-    } else {
-      console.warn('[Rewards] ⚠️ Award failed for', actionType, ':', result?.error || 'unknown error')
-    }
+    return false
   }
+
+  const result = rpcResult as any
+  if (result?.success) {
+    console.log('[Rewards] ✅ Awarded', actionType, ':', result.points_earned, 'pts → total:', result.new_total, '(tier:', result.tier, ')')
+    return true
+  }
+
+  // Expected cases (already awarded / inactive rule) — don't spam the console
+  const errMsg = String(result?.error || '')
+  if (
+    errMsg.includes('já atribuídos') ||
+    errMsg.includes('Sem regra de reward')
+  ) {
+    if (errMsg.includes('Sem regra de reward')) {
+      missingActiveRuleKeys.add(`${game.club_id}:${actionType}`)
+    }
+    return false
+  }
+
+  console.warn('[Rewards] ⚠️ Award failed for', actionType, ':', errMsg || 'unknown error')
+  return false
 }
 
 // Award first_game bonus if this is the player's first game
@@ -2659,16 +2708,20 @@ async function awardAllPlayersReward(gameId: string, actionType: string): Promis
 // ============================
 export async function retroactivelyAwardMissingRewards(playerAccountId: string): Promise<void> {
   try {
+    if (retroactiveDoneForPlayer.has(playerAccountId)) return
+    retroactiveDoneForPlayer.add(playerAccountId)
+
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
 
-    // Quick check: does the player belong to any club with reward rules?
-    const { data: playerRewardClubs } = await supabase
+    // Only proceed if at least one club has ACTIVE reward rules
+    const { data: activeRules } = await supabase
       .from('reward_rules')
       .select('club_id')
+      .eq('is_active', true)
       .limit(1)
 
-    if (!playerRewardClubs || playerRewardClubs.length === 0) return
+    if (!activeRules || activeRules.length === 0) return
 
     // Find games where the player participated but has no reward transactions
     const { data: myGames } = await supabase
@@ -2701,18 +2754,21 @@ export async function retroactivelyAwardMissingRewards(playerAccountId: string):
         .maybeSingle()
 
       if (!game || !game.club_id) continue
+      if (!(await clubHasActiveRewardRules(game.club_id))) continue
 
       const isCreator = game.creator_user_id === user.id
 
       // Award create_game or join_game if missing
       if (isCreator && !txSet.has(`${gameId}_create_game`)) {
-        console.log('[Rewards] Retroactively awarding create_game for game:', gameId)
-        await awardGameRewardPoints(gameId, 'create_game', playerAccountId)
-        awardedCount++
+        if (await awardGameRewardPoints(gameId, 'create_game', playerAccountId)) {
+          txSet.add(`${gameId}_create_game`)
+          awardedCount++
+        }
       } else if (!isCreator && !txSet.has(`${gameId}_join_game`)) {
-        console.log('[Rewards] Retroactively awarding join_game for game:', gameId)
-        await awardGameRewardPoints(gameId, 'join_game', playerAccountId)
-        awardedCount++
+        if (await awardGameRewardPoints(gameId, 'join_game', playerAccountId)) {
+          txSet.add(`${gameId}_join_game`)
+          awardedCount++
+        }
       }
 
       // Check if result was confirmed
@@ -2726,15 +2782,17 @@ export async function retroactivelyAwardMissingRewards(playerAccountId: string):
       if (result) {
         // Award submit_result if player submitted and doesn't have it
         if (result.submitted_by_user_id === user.id && !txSet.has(`${gameId}_submit_result`)) {
-          console.log('[Rewards] Retroactively awarding submit_result for game:', gameId)
-          await awardGameRewardPoints(gameId, 'submit_result', playerAccountId)
-          awardedCount++
+          if (await awardGameRewardPoints(gameId, 'submit_result', playerAccountId)) {
+            txSet.add(`${gameId}_submit_result`)
+            awardedCount++
+          }
         }
         // Award confirm_result if player doesn't have it and didn't submit
         if (result.submitted_by_user_id !== user.id && !txSet.has(`${gameId}_confirm_result`)) {
-          console.log('[Rewards] Retroactively awarding confirm_result for game:', gameId)
-          await awardGameRewardPoints(gameId, 'confirm_result', playerAccountId)
-          awardedCount++
+          if (await awardGameRewardPoints(gameId, 'confirm_result', playerAccountId)) {
+            txSet.add(`${gameId}_confirm_result`)
+            awardedCount++
+          }
         }
       }
     }
@@ -2743,9 +2801,9 @@ export async function retroactivelyAwardMissingRewards(playerAccountId: string):
     if (!txSet.has(`${myGames[0]?.game_id}_first_game`)) {
       const hasFirstGame = (existingTx || []).some(t => t.action_type === 'first_game')
       if (!hasFirstGame && myGames.length > 0) {
-        console.log('[Rewards] Retroactively awarding first_game bonus')
-        await awardGameRewardPoints(myGames[0].game_id, 'first_game', playerAccountId)
-        awardedCount++
+        if (await awardGameRewardPoints(myGames[0].game_id, 'first_game', playerAccountId)) {
+          awardedCount++
+        }
       }
     }
 
