@@ -83,6 +83,76 @@ export function matchOutcome(myTeamIs1: boolean, team1Sets: number, team2Sets: n
   return myTeamIs1 ? team1Sets > team2Sets : team2Sets > team1Sets
 }
 
+/** Parse "5-5" style set strings into computeSetCounts input. */
+export function scoresFromSetStrings(m: {
+  set1?: string
+  set2?: string
+  set3?: string
+}): {
+  team1_score_set1: number
+  team2_score_set1: number
+  team1_score_set2: number
+  team2_score_set2: number
+  team1_score_set3: number
+  team2_score_set3: number
+} {
+  const parse = (s?: string): [number, number] => {
+    if (!s) return [0, 0]
+    const [a, b] = s.split('-').map((n) => parseInt(n, 10) || 0)
+    return [a, b]
+  }
+  const [a1, b1] = parse(m.set1)
+  const [a2, b2] = parse(m.set2)
+  const [a3, b3] = parse(m.set3)
+  return {
+    team1_score_set1: a1,
+    team2_score_set1: b1,
+    team1_score_set2: a2,
+    team2_score_set2: b2,
+    team1_score_set3: a3,
+    team2_score_set3: b3,
+  }
+}
+
+/**
+ * Force draws when set games are equal (e.g. American 5-5), even if a stale
+ * client/edge path marked the match as a loss (0-0 set wins → false).
+ */
+export function normalizeMatchWinner<T extends {
+  is_winner?: boolean | null
+  set1?: string
+  set2?: string
+  set3?: string
+}>(m: T): T {
+  const { team1Sets, team2Sets, hasPlayedSets } = computeSetCounts(scoresFromSetStrings(m))
+  if (hasPlayedSets && team1Sets === team2Sets) {
+    return { ...m, is_winner: null }
+  }
+  return m
+}
+
+export function computeStatsFromMatches(
+  matches: Array<{ status?: string; is_winner?: boolean | null }>,
+): Pick<PlayerStats, 'wins' | 'draws' | 'losses' | 'totalMatches' | 'winRate'> {
+  let wins = 0
+  let draws = 0
+  let losses = 0
+  for (const m of matches) {
+    if (m.status && m.status !== 'completed') continue
+    if (m.is_winner === true) wins++
+    else if (m.is_winner === false) losses++
+    else if (m.is_winner === null) draws++
+  }
+  const decided = wins + losses
+  return {
+    wins,
+    draws,
+    losses,
+    totalMatches: wins + draws + losses,
+    winRate: decided > 0 ? Math.round((wins / decided) * 100) : 0,
+  }
+}
+
 export interface LeagueStanding {
   league_id: string
   league_name: string
@@ -677,17 +747,9 @@ export async function fetchPlayerDashboardData(
     result.stats.losses = losses
     result.stats.winRate = (wins + losses) > 0 ? Math.round((wins / (wins + losses)) * 100) : 0
 
-    // Persist computed stats to player_accounts so all profile views are consistent
-    if (totalMatches > 0 && playerAccount.id) {
-      supabase
-        .from('player_accounts')
-        .update({ wins, losses })
-        .eq('id', playerAccount.id)
-        .then(({ error }) => {
-          if (error) console.warn('[PlayerDashboard] Failed to persist stats:', error.message)
-          else console.log('[PlayerDashboard] Persisted stats: wins=', wins, 'draws=', draws, 'losses=', losses)
-        })
-    }
+    // Do NOT persist wins/losses here — a stale client path used to write draws as
+    // losses and overwrite the correct edge stats a moment later. Persistence happens
+    // only after edge enrichment (authoritative).
   } catch (err) {
     console.error('[PlayerDashboard] Error fetching matches:', err)
     // Fallback: continue with empty matches but still fetch league standings
@@ -806,7 +868,7 @@ export async function enrichDashboardWithEdgeFunction(currentDashboardData?: Pla
           : undefined)
 
       const mergeNames = (edgeMatches: PlayerMatch[]) =>
-        edgeMatches.map((em) => preferResolvedMatchNames(findClient(em), em))
+        edgeMatches.map((em) => normalizeMatchWinner(preferResolvedMatchNames(findClient(em), em)))
 
       // Check if Edge Function already includes open games
       const edgeOpenGames = edgeData.recentMatches.filter((m: any) => m.is_open_game)
@@ -818,17 +880,58 @@ export async function enrichDashboardWithEdgeFunction(currentDashboardData?: Pla
         console.log('[Dashboard] Edge Function recentMatches (includes open games):', edgeData.recentMatches.length, '(', edgeOpenGames.length, 'open games)')
       } else {
         // Edge Function v1 - merge with client-side open games
-        const currentOpenGames = (currentDashboardData?.recentMatches || []).filter(m => m.is_open_game)
+        const currentOpenGames = (currentDashboardData?.recentMatches || [])
+          .filter(m => m.is_open_game)
+          .map(normalizeMatchWinner)
         const allMatches = [...mergeNames(edgeData.recentMatches), ...currentOpenGames]
           .sort((a, b) => new Date(b.start_time).getTime() - new Date(a.start_time).getTime())
         enriched.recentMatches = allMatches
         console.log('[Dashboard] Edge Function recentMatches:', edgeData.recentMatches.length, '+ open games:', currentOpenGames.length, '= total:', allMatches.length)
       }
+
+      // Patch stats if any American tie (5-5) was wrongly marked as loss before normalize
+      if (enriched.stats && enriched.recentMatches) {
+        let lossToDraw = 0
+        for (let i = 0; i < edgeData.recentMatches.length; i++) {
+          const raw = edgeData.recentMatches[i]
+          const fixed = normalizeMatchWinner(raw)
+          if (raw.is_winner === false && fixed.is_winner === null) lossToDraw++
+        }
+        if (lossToDraw > 0) {
+          const draws = (enriched.stats.draws || 0) + lossToDraw
+          const losses = Math.max(0, (enriched.stats.losses || 0) - lossToDraw)
+          const wins = enriched.stats.wins || 0
+          const decided = wins + losses
+          enriched.stats = {
+            ...enriched.stats,
+            draws,
+            losses,
+            totalMatches: wins + draws + losses,
+            winRate: decided > 0 ? Math.round((wins / decided) * 100) : 0,
+          }
+          console.log('[Dashboard] Patched', lossToDraw, 'false losses → draws. stats=', enriched.stats)
+        }
+      }
     } else if (currentDashboardData?.recentMatches) {
       // If edge function doesn't return matches, keep current ones (includes open games)
-      enriched.recentMatches = currentDashboardData.recentMatches
+      enriched.recentMatches = currentDashboardData.recentMatches.map(normalizeMatchWinner)
       console.log('[Dashboard] No Edge Function matches, keeping current:', currentDashboardData.recentMatches.length)
     }
+
+    // Persist authoritative stats (avoids client race that rewrote draws as losses)
+    const accountId = currentDashboardData?.playerAccountId
+    if (enriched.stats && accountId) {
+      const { wins, losses } = enriched.stats
+      supabase
+        .from('player_accounts')
+        .update({ wins, losses })
+        .eq('id', accountId)
+        .then(({ error }) => {
+          if (error) console.warn('[Dashboard] Failed to persist edge stats:', error.message)
+          else console.log('[Dashboard] Persisted edge stats: wins=', wins, 'losses=', losses, 'draws=', enriched.stats?.draws)
+        })
+    }
+
     return Object.keys(enriched).length > 0 ? enriched : null
   } catch (err) {
     console.error('[Dashboard] Edge Function error:', err)

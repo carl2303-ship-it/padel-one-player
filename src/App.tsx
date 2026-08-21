@@ -276,8 +276,20 @@ function App() {
           setDashboardData(data)
           enrichDashboardWithEdgeFunction(data).then(enriched => {
             if (enriched) {
-              setEdgeEnrichedData(enriched)
-              setDashboardData(prev => prev ? { ...prev, ...enriched } : prev)
+              setEdgeEnrichedData(prev => ({
+                ...prev,
+                ...enriched,
+                stats: enriched.stats ?? prev?.stats,
+                recentMatches: enriched.recentMatches ?? prev?.recentMatches,
+              }))
+              setDashboardData(prev => prev ? {
+                ...prev,
+                ...enriched,
+                stats: enriched.stats ?? prev.stats,
+              } : prev)
+              if (enriched.stats) {
+                setPlayer(p => p ? { ...p, wins: enriched.stats!.wins, losses: enriched.stats!.losses } as any : p)
+              }
             }
           })
         }
@@ -389,8 +401,20 @@ function App() {
           setDashboardData(dash)
           enrichDashboardWithEdgeFunction(dash).then(enriched => {
             if (enriched) {
-              setEdgeEnrichedData(enriched)
-              setDashboardData(prev => prev ? { ...prev, ...enriched } : prev)
+              setEdgeEnrichedData(prev => ({
+                ...prev,
+                ...enriched,
+                stats: enriched.stats ?? prev?.stats,
+                recentMatches: enriched.recentMatches ?? prev?.recentMatches,
+              }))
+              setDashboardData(prev => prev ? {
+                ...prev,
+                ...enriched,
+                stats: enriched.stats ?? prev.stats,
+              } : prev)
+              if (enriched.stats) {
+                setPlayer(p => p ? { ...p, wins: enriched.stats!.wins, losses: enriched.stats!.losses } as any : p)
+              }
             }
           })
         }
@@ -423,8 +447,20 @@ function App() {
         setDashboardData(data)
         enrichDashboardWithEdgeFunction(data).then(enriched => {
           if (enriched) {
-            setEdgeEnrichedData(enriched)
-            setDashboardData(prev => prev ? { ...prev, ...enriched } : prev)
+            setEdgeEnrichedData(prev => ({
+              ...prev,
+              ...enriched,
+              stats: enriched.stats ?? prev?.stats,
+              recentMatches: enriched.recentMatches ?? prev?.recentMatches,
+            }))
+            setDashboardData(prev => prev ? {
+              ...prev,
+              ...enriched,
+              stats: enriched.stats ?? prev.stats,
+            } : prev)
+            if (enriched.stats) {
+              setPlayer(p => p ? { ...p, wins: enriched.stats!.wins, losses: enriched.stats!.losses } as any : p)
+            }
           }
         })
         setIsLoading(false)
@@ -443,8 +479,20 @@ function App() {
       // Enrich with Edge Function in background
       enrichDashboardWithEdgeFunction(data).then(enriched => {
         if (enriched) {
-          setEdgeEnrichedData(enriched)
-          setDashboardData(prev => prev ? { ...prev, ...enriched } : prev)
+          setEdgeEnrichedData(prev => ({
+            ...prev,
+            ...enriched,
+            stats: enriched.stats ?? prev?.stats,
+            recentMatches: enriched.recentMatches ?? prev?.recentMatches,
+          }))
+          setDashboardData(prev => prev ? {
+            ...prev,
+            ...enriched,
+            stats: enriched.stats ?? prev.stats,
+          } : prev)
+          if (enriched.stats) {
+            setPlayer(p => p ? { ...p, wins: enriched.stats!.wins, losses: enriched.stats!.losses } as any : p)
+          }
         }
       })
     }
@@ -575,8 +623,20 @@ function App() {
           setDashboardData(data)
           enrichDashboardWithEdgeFunction(data).then(enriched => {
             if (enriched) {
-              setEdgeEnrichedData(enriched)
-              setDashboardData(prev => prev ? { ...prev, ...enriched } : prev)
+              setEdgeEnrichedData(prev => ({
+                ...prev,
+                ...enriched,
+                stats: enriched.stats ?? prev?.stats,
+                recentMatches: enriched.recentMatches ?? prev?.recentMatches,
+              }))
+              setDashboardData(prev => prev ? {
+                ...prev,
+                ...enriched,
+                stats: enriched.stats ?? prev.stats,
+              } : prev)
+              if (enriched.stats) {
+                setPlayer(p => p ? { ...p, wins: enriched.stats!.wins, losses: enriched.stats!.losses } as any : p)
+              }
             }
           })
         }
@@ -600,12 +660,18 @@ function App() {
   }
 
   // DADOS EFETIVOS: merge dashboardData (client-side) + edgeEnrichedData (edge function)
-  // Edge enriquece stats/visibilidade; nomes das bolinhas preferem resolução client (RPC + player_accounts)
+  // Edge stats are authoritative — never let a later client refresh wipe draws back to losses
   // NOTA: Este useMemo TEM de estar ANTES de qualquer return condicional (Rules of Hooks)
   const effectiveDashboard = useMemo(() => {
     if (!dashboardData) return null
     if (!edgeEnrichedData) return dashboardData
-    return { ...dashboardData, ...edgeEnrichedData }
+    return {
+      ...dashboardData,
+      ...edgeEnrichedData,
+      // Keep edge stats even if a partial enrich omitted them
+      stats: edgeEnrichedData.stats ?? dashboardData.stats,
+      recentMatches: edgeEnrichedData.recentMatches ?? dashboardData.recentMatches,
+    }
   }, [dashboardData, edgeEnrichedData])
 
   if (isLoading) {
