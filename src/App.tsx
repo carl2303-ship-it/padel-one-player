@@ -12585,8 +12585,12 @@ function OtherPlayerProfileScreen({
   const colors = levelColors(profile.level)
   const lvl = profile.level
   const ageCategory = getAgeCategory()
-  const totalMatches = (profile.wins ?? 0) + (profile.losses ?? 0)
-  const winRate = totalMatches > 0 ? Math.round(((profile.wins ?? 0) / totalMatches) * 100) : 0
+  const profileWins = profile.wins ?? 0
+  const profileDraws = profile.draws ?? 0
+  const profileLosses = profile.losses ?? 0
+  const totalMatches = profileWins + profileDraws + profileLosses
+  const decided = profileWins + profileLosses
+  const winRate = decided > 0 ? Math.round((profileWins / decided) * 100) : 0
 
   return (
     <div className="space-y-5 animate-fade-in pb-20">
@@ -12670,18 +12674,18 @@ function OtherPlayerProfileScreen({
         </div>
         <div className="card p-3 text-center">
           <p className="text-lg mb-0.5">🏆</p>
-          <p className="text-xl font-bold text-green-600">{profile.wins ?? 0}</p>
+          <p className="text-xl font-bold text-green-600">{profileWins}</p>
           <p className="text-[10px] text-gray-500 mt-0.5 font-medium">Vitórias</p>
         </div>
         <div className="card p-3 text-center">
-          <p className="text-lg mb-0.5">📈</p>
-          <p className="text-xl font-bold text-gray-900">{winRate}%</p>
-          <p className="text-[10px] text-gray-500 mt-0.5 font-medium">Taxa</p>
+          <p className="text-lg mb-0.5">🤝</p>
+          <p className="text-xl font-bold text-amber-600">{profileDraws}</p>
+          <p className="text-[10px] text-gray-500 mt-0.5 font-medium">Empates</p>
         </div>
-        <div className="card p-3 text-center cursor-pointer hover:bg-gray-50 transition-colors" onClick={() => onOpenFollowsList(targetUserId)}>
-          <p className="text-lg mb-0.5">👥</p>
-          <p className="text-xl font-bold text-red-600">{profile.followingCount}</p>
-          <p className="text-[10px] text-gray-500 mt-0.5 font-medium">A seguir</p>
+        <div className="card p-3 text-center">
+          <p className="text-lg mb-0.5">📉</p>
+          <p className="text-xl font-bold text-red-600">{profileLosses}</p>
+          <p className="text-[10px] text-gray-500 mt-0.5 font-medium">Derrotas</p>
         </div>
         <div className="card p-3 text-center cursor-pointer hover:bg-gray-50 transition-colors" onClick={() => onOpenFollowsList(targetUserId)}>
           <p className="text-lg mb-0.5">❤️</p>

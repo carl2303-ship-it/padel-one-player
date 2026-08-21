@@ -6,6 +6,32 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Client-Info, Apikey',
 };
 
+/** Equal games in a set (e.g. American 5-5) count as played but neither side wins the set. */
+function computeSetCounts(scores: {
+  team1_score_set1?: number | null
+  team2_score_set1?: number | null
+  team1_score_set2?: number | null
+  team2_score_set2?: number | null
+  team1_score_set3?: number | null
+  team2_score_set3?: number | null
+}): { team1Sets: number; team2Sets: number; hasPlayedSets: boolean } {
+  const pairs: Array<[number, number]> = [
+    [scores.team1_score_set1 ?? 0, scores.team2_score_set1 ?? 0],
+    [scores.team1_score_set2 ?? 0, scores.team2_score_set2 ?? 0],
+    [scores.team1_score_set3 ?? 0, scores.team2_score_set3 ?? 0],
+  ];
+  let team1Sets = 0;
+  let team2Sets = 0;
+  let hasPlayedSets = false;
+  for (const [a, b] of pairs) {
+    if (a === 0 && b === 0) continue;
+    hasPlayedSets = true;
+    if (a > b) team1Sets++;
+    else if (b > a) team2Sets++;
+  }
+  return { team1Sets, team2Sets, hasPlayedSets };
+}
+
 /**
  * Parse team display names into up to 2 person-like parts.
  * Never returns the raw team label as a single "player" name.
@@ -248,25 +274,15 @@ Deno.serve(async (req: Request) => {
             }
           }
 
-          const team1Sets = [
-            (m.team1_score_set1 || 0) > (m.team2_score_set1 || 0) ? 1 : 0,
-            (m.team1_score_set2 || 0) > (m.team2_score_set2 || 0) ? 1 : 0,
-            (m.team1_score_set3 || 0) > (m.team2_score_set3 || 0) ? 1 : 0,
-          ].reduce((a, b) => a + b, 0);
-          const team2Sets = [
-            (m.team2_score_set1 || 0) > (m.team1_score_set1 || 0) ? 1 : 0,
-            (m.team2_score_set2 || 0) > (m.team1_score_set2 || 0) ? 1 : 0,
-            (m.team2_score_set3 || 0) > (m.team1_score_set3 || 0) ? 1 : 0,
-          ].reduce((a, b) => a + b, 0);
+          const { team1Sets, team2Sets, hasPlayedSets } = computeSetCounts(m);
           let is_winner: boolean | null | undefined;
           if (m.status === 'completed') {
-            const hasScores = team1Sets > 0 || team2Sets > 0;
             const isPlayerInTeam1 = isIndividual
               ? playerIds.includes(m.p1?.id) || playerIds.includes(m.p2?.id)
               : teamIds.includes(m.team1?.id);
-            if (hasScores) {
+            if (hasPlayedSets) {
               if (team1Sets === team2Sets) {
-                is_winner = null; // empate
+                is_winner = null; // empate (incl. americano 5-5)
                 draws++;
               } else {
                 is_winner = isPlayerInTeam1 ? team1Sets > team2Sets : team2Sets > team1Sets;
@@ -888,10 +904,9 @@ Deno.serve(async (req: Request) => {
               }
             }
 
-            const t1Sets = [(m.team1_score_set1 || 0) > (m.team2_score_set1 || 0) ? 1 : 0, (m.team1_score_set2 || 0) > (m.team2_score_set2 || 0) ? 1 : 0, (m.team1_score_set3 || 0) > (m.team2_score_set3 || 0) ? 1 : 0].reduce((a, b) => a + b, 0);
-            const t2Sets = [(m.team2_score_set1 || 0) > (m.team1_score_set1 || 0) ? 1 : 0, (m.team2_score_set2 || 0) > (m.team1_score_set2 || 0) ? 1 : 0, (m.team2_score_set3 || 0) > (m.team1_score_set3 || 0) ? 1 : 0].reduce((a, b) => a + b, 0);
+            const { team1Sets: t1Sets, team2Sets: t2Sets, hasPlayedSets } = computeSetCounts(m);
             let is_winner: boolean | null | undefined;
-            if (m.status === 'completed' && (t1Sets > 0 || t2Sets > 0)) {
+            if (m.status === 'completed' && hasPlayedSets) {
               const inTeam1 = isInd ? playerIds.includes(m.p1?.id) || playerIds.includes(m.p2?.id) : teamIds.includes(m.team1?.id);
               is_winner = t1Sets === t2Sets ? null : (inTeam1 ? t1Sets > t2Sets : t2Sets > t1Sets);
             }

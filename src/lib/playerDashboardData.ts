@@ -51,7 +51,33 @@ export interface PlayerMatch {
   club_name?: string // Nome do clube (para jogos abertos)
 }
 
-/** Resolve outcome from set counts. null = draw. */
+/** Count sets won; equal games in a set (e.g. American 5-5) count as played but neither side wins the set. */
+export function computeSetCounts(scores: {
+  team1_score_set1?: number | null
+  team2_score_set1?: number | null
+  team1_score_set2?: number | null
+  team2_score_set2?: number | null
+  team1_score_set3?: number | null
+  team2_score_set3?: number | null
+}): { team1Sets: number; team2Sets: number; hasPlayedSets: boolean } {
+  const pairs: Array<[number, number]> = [
+    [scores.team1_score_set1 ?? 0, scores.team2_score_set1 ?? 0],
+    [scores.team1_score_set2 ?? 0, scores.team2_score_set2 ?? 0],
+    [scores.team1_score_set3 ?? 0, scores.team2_score_set3 ?? 0],
+  ]
+  let team1Sets = 0
+  let team2Sets = 0
+  let hasPlayedSets = false
+  for (const [a, b] of pairs) {
+    if (a === 0 && b === 0) continue
+    hasPlayedSets = true
+    if (a > b) team1Sets++
+    else if (b > a) team2Sets++
+  }
+  return { team1Sets, team2Sets, hasPlayedSets }
+}
+
+/** Resolve outcome from set counts. null = draw (incl. American ties like 5-5 → 0-0 sets). */
 export function matchOutcome(myTeamIs1: boolean, team1Sets: number, team2Sets: number): boolean | null {
   if (team1Sets === team2Sets) return null
   return myTeamIs1 ? team1Sets > team2Sets : team2Sets > team1Sets
@@ -530,32 +556,18 @@ export async function fetchPlayerDashboardData(
         p3Avatar = team2Players?.player1_avatar
         p4Avatar = team2Players?.player2_avatar
       }
-      const team1Sets = [
-        (m.team1_score_set1 || 0) > (m.team2_score_set1 || 0) ? 1 : 0,
-        (m.team1_score_set2 || 0) > (m.team2_score_set2 || 0) ? 1 : 0,
-        (m.team1_score_set3 || 0) > (m.team2_score_set3 || 0) ? 1 : 0,
-      ].reduce((a, b) => a + b, 0)
-      const team2Sets = [
-        (m.team2_score_set1 || 0) > (m.team1_score_set1 || 0) ? 1 : 0,
-        (m.team2_score_set2 || 0) > (m.team1_score_set2 || 0) ? 1 : 0,
-        (m.team2_score_set3 || 0) > (m.team1_score_set3 || 0) ? 1 : 0,
-      ].reduce((a, b) => a + b, 0)
+      const { team1Sets, team2Sets, hasPlayedSets } = computeSetCounts(m)
       let is_winner: boolean | null | undefined
       let my_side: 1 | 2 | undefined
-      if (m.status === 'completed' && (team1Sets > 0 || team2Sets > 0)) {
-        const isPlayerInTeam1 = isIndividual
-          ? playerIds.includes(m.p1?.id) || playerIds.includes(m.p2?.id)
-          : teamIds.includes(m.team1?.id)
-        my_side = isPlayerInTeam1 ? 1 : 2
+      const isPlayerInTeam1 = isIndividual
+        ? playerIds.includes(m.p1?.id) || playerIds.includes(m.p2?.id)
+        : teamIds.includes(m.team1?.id)
+      my_side = isPlayerInTeam1 ? 1 : 2
+      if (m.status === 'completed' && hasPlayedSets) {
         is_winner = matchOutcome(isPlayerInTeam1, team1Sets, team2Sets)
         if (is_winner === true) wins++
         else if (is_winner === false) losses++
         else draws++
-      } else {
-        const isPlayerInTeam1 = isIndividual
-          ? playerIds.includes(m.p1?.id) || playerIds.includes(m.p2?.id)
-          : teamIds.includes(m.team1?.id)
-        my_side = isPlayerInTeam1 ? 1 : 2
       }
       const set1 =
         m.team1_score_set1 != null && m.team2_score_set1 != null
@@ -1425,18 +1437,9 @@ export async function fetchTournamentStandingsAndMatches(
             const team2Name = isInd
               ? `${m.p3?.name || 'TBD'}${m.p4 ? ' / ' + m.p4.name : ''}`
               : m.team2?.name || 'TBD'
-            const t1Sets = [
-              (m.team1_score_set1 || 0) > (m.team2_score_set1 || 0) ? 1 : 0,
-              (m.team1_score_set2 || 0) > (m.team2_score_set2 || 0) ? 1 : 0,
-              (m.team1_score_set3 || 0) > (m.team2_score_set3 || 0) ? 1 : 0,
-            ].reduce((a, b) => a + b, 0)
-            const t2Sets = [
-              (m.team2_score_set1 || 0) > (m.team1_score_set1 || 0) ? 1 : 0,
-              (m.team2_score_set2 || 0) > (m.team1_score_set2 || 0) ? 1 : 0,
-              (m.team2_score_set3 || 0) > (m.team1_score_set3 || 0) ? 1 : 0,
-            ].reduce((a, b) => a + b, 0)
+            const { team1Sets: t1Sets, team2Sets: t2Sets, hasPlayedSets } = computeSetCounts(m)
             let is_winner: boolean | null | undefined
-            if (m.status === 'completed' && (t1Sets > 0 || t2Sets > 0)) {
+            if (m.status === 'completed' && hasPlayedSets) {
               const inTeam1 = isInd
                 ? playerIds.includes(m.p1?.id) || playerIds.includes(m.p2?.id)
                 : teamIds.includes(m.team1?.id)

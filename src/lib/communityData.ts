@@ -925,6 +925,7 @@ export interface PlayerProfile {
   preferred_time?: string
   birth_date?: string
   wins?: number
+  draws?: number
   losses?: number
   points?: number
   favorite_club_id?: string
@@ -1095,24 +1096,29 @@ export async function getPlayerProfile(
             ? `${p3Name || 'TBD'}${p4Name ? ' / ' + p4Name : ''}`
             : m.team2?.name || 'TBD'
 
-          // Set scores
-          const team1Sets = [
-            (m.team1_score_set1 || 0) > (m.team2_score_set1 || 0) ? 1 : 0,
-            (m.team1_score_set2 || 0) > (m.team2_score_set2 || 0) ? 1 : 0,
-            (m.team1_score_set3 || 0) > (m.team2_score_set3 || 0) ? 1 : 0,
-          ].reduce((a, b) => a + b, 0)
-          const team2Sets = [
-            (m.team2_score_set1 || 0) > (m.team1_score_set1 || 0) ? 1 : 0,
-            (m.team2_score_set2 || 0) > (m.team1_score_set2 || 0) ? 1 : 0,
-            (m.team2_score_set3 || 0) > (m.team1_score_set3 || 0) ? 1 : 0,
-          ].reduce((a, b) => a + b, 0)
+          // Set scores — equal games (e.g. 5-5) count as played, neither side wins the set
+          const setPairs: Array<[number, number]> = [
+            [m.team1_score_set1 || 0, m.team2_score_set1 || 0],
+            [m.team1_score_set2 || 0, m.team2_score_set2 || 0],
+            [m.team1_score_set3 || 0, m.team2_score_set3 || 0],
+          ]
+          let team1Sets = 0
+          let team2Sets = 0
+          let hasPlayedSets = false
+          for (const [a, b] of setPairs) {
+            if (a === 0 && b === 0) continue
+            hasPlayedSets = true
+            if (a > b) team1Sets++
+            else if (b > a) team2Sets++
+          }
 
           const isPlayerInTeam1 = isIndividual
             ? playerIdSet.has(m.p1?.id) || playerIdSet.has(m.p2?.id)
             : teamIdSet.has(m.team1?.id)
 
-          const isWinner =
-            team1Sets === team2Sets
+          const isWinner = !hasPlayedSets
+            ? undefined
+            : team1Sets === team2Sets
               ? null
               : isPlayerInTeam1
                 ? team1Sets > team2Sets
@@ -1243,7 +1249,17 @@ export async function getPlayerProfile(
           (result.team2_score_set2 ?? 0) > (result.team1_score_set2 ?? 0) ? 1 : 0,
           (result.team2_score_set3 ?? 0) > (result.team1_score_set3 ?? 0) ? 1 : 0].reduce((a, b) => a + b, 0)
 
-        const isWinner = isInTeam1 ? t1Sets > t2Sets : t2Sets > t1Sets
+        const hasPlayed =
+          ((result.team1_score_set1 ?? 0) + (result.team2_score_set1 ?? 0) > 0) ||
+          ((result.team1_score_set2 ?? 0) + (result.team2_score_set2 ?? 0) > 0) ||
+          ((result.team1_score_set3 ?? 0) + (result.team2_score_set3 ?? 0) > 0)
+        const isWinner = !hasPlayed
+          ? undefined
+          : t1Sets === t2Sets
+            ? null
+            : isInTeam1
+              ? t1Sets > t2Sets
+              : t2Sets > t1Sets
         const clubName = ogClubMap.get(game.club_id) || ''
 
         recentMatches.push({
@@ -1309,11 +1325,21 @@ export async function getPlayerProfile(
     }
   }
 
-  // Always use player_accounts as source of truth for stats.
-  // These are kept up-to-date by the player's own dashboard loading.
-  // This avoids RLS issues where different viewers see different match subsets.
-  const finalWins = pa.wins ?? 0
-  const finalLosses = pa.losses ?? 0
+  // Always recompute W/D/L from loaded matches so draws (e.g. American 5-5) are correct.
+  // player_accounts.wins/losses can lag behind until the owner opens their dashboard.
+  let finalWins = 0
+  let finalDraws = 0
+  let finalLosses = 0
+  for (const m of recentMatches) {
+    if (m.is_winner === true) finalWins++
+    else if (m.is_winner === false) finalLosses++
+    else if (m.is_winner === null) finalDraws++
+  }
+  // Fallback to stored counters only when we could not load any completed results
+  if (recentMatches.length === 0) {
+    finalWins = pa.wins ?? 0
+    finalLosses = pa.losses ?? 0
+  }
 
   return {
     id: pa.id,
@@ -1331,6 +1357,7 @@ export async function getPlayerProfile(
     preferred_time: pa.preferred_time || undefined,
     birth_date: pa.birth_date || undefined,
     wins: finalWins,
+    draws: finalDraws,
     losses: finalLosses,
     points: pa.points ?? 0,
     favorite_club_id: pa.favorite_club_id || undefined,
