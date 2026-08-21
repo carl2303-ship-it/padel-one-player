@@ -3359,6 +3359,7 @@ function HomeScreen({
   const d = dashboardData
   const name = d?.playerName || player?.name?.split(' ')[0] || t.common.player
   const wins = d?.stats.wins ?? player?.wins ?? 0
+  const draws = d?.stats?.draws ?? 0
   const points = d?.leagueStandings?.[0]?.points ?? player?.points ?? 0
   const upcomingMatches = d?.upcomingMatches ?? []
   const upcomingTournaments = d?.upcomingTournaments ?? []
@@ -3631,7 +3632,7 @@ function HomeScreen({
         </button>
       )}
 
-      {/* Estatísticas - Jogos, Vitórias, Taxa, Seguir, Seguidores */}
+      {/* Estatísticas - Jogos, Vitórias, Empates, Derrotas, Seguidores */}
       <div className="grid grid-cols-5 gap-2">
         <div className="card p-3 text-center">
           <p className="text-lg mb-0.5">🎾</p>
@@ -3644,14 +3645,14 @@ function HomeScreen({
           <p className="text-[10px] text-gray-500 mt-0.5 font-medium">Vitórias</p>
         </div>
         <div className="card p-3 text-center">
-          <p className="text-lg mb-0.5">📈</p>
-          <p className="text-xl font-bold text-gray-900">{winRate}%</p>
-          <p className="text-[10px] text-gray-500 mt-0.5 font-medium">Taxa</p>
+          <p className="text-lg mb-0.5">🤝</p>
+          <p className="text-xl font-bold text-amber-600">{draws}</p>
+          <p className="text-[10px] text-gray-500 mt-0.5 font-medium">Empates</p>
         </div>
-        <div className="card p-3 text-center cursor-pointer hover:bg-gray-50 transition-colors" onClick={() => userId && onOpenFollowsList(userId)}>
-          <p className="text-lg mb-0.5">👥</p>
-          <p className="text-xl font-bold text-red-600">{followingCount}</p>
-          <p className="text-[10px] text-gray-500 mt-0.5 font-medium">A seguir</p>
+        <div className="card p-3 text-center">
+          <p className="text-lg mb-0.5">📉</p>
+          <p className="text-xl font-bold text-red-600">{losses}</p>
+          <p className="text-[10px] text-gray-500 mt-0.5 font-medium">Derrotas</p>
         </div>
         <div className="card p-3 text-center cursor-pointer hover:bg-gray-50 transition-colors" onClick={() => userId && onOpenFollowsList(userId)}>
           <p className="text-lg mb-0.5">❤️</p>
@@ -7056,7 +7057,8 @@ function CompeteScreen({
               <p className="text-sm text-gray-600">Torneios concluídos ({completedTournaments.length})</p>
               {visibleTournaments.map((t: any) => {
                 const details = effectivePastDetails[t.id]
-                const wins = details?.myMatches?.filter((m: any) => m.is_winner).length ?? 0
+                const wins = details?.myMatches?.filter((m: any) => m.is_winner === true).length ?? 0
+                const draws = details?.myMatches?.filter((m: any) => m.is_winner === null).length ?? 0
                 const losses = details?.myMatches?.filter((m: any) => m.is_winner === false).length ?? 0
                 const hasCats = details?.categoryStandings && Object.keys(details.categoryStandings).length > 0
                 const expandedCats = expandedCategories[t.id] || new Set<string>()
@@ -7087,9 +7089,9 @@ function CompeteScreen({
                                   <Trophy className="w-3.5 h-3.5" /> {details.playerPosition}º lugar
                                 </span>
                               )}
-                              {(wins > 0 || losses > 0) && (
+                              {(wins > 0 || draws > 0 || losses > 0) && (
                                 <span className="inline-flex items-center px-2 py-1 rounded-lg bg-gray-100 text-gray-700 text-xs font-medium">
-                                  {wins}V {losses}D
+                                  {wins}V{draws > 0 ? ` ${draws}E` : ''} {losses}D
                                 </span>
                               )}
                             </div>
@@ -7178,8 +7180,11 @@ function CompeteScreen({
                                       </div>
                                       <div className="flex flex-col items-end gap-1 flex-shrink-0">
                                         <span className="font-semibold text-gray-900">{scoreDisplay}</span>
-                                        {m.is_winner !== undefined && (
+                                        {m.is_winner !== undefined && m.is_winner !== null && (
                                           <span className={`text-xs font-medium ${m.is_winner ? 'text-green-600' : 'text-red-600'}`}>{m.is_winner ? 'V' : 'D'}</span>
+                                        )}
+                                        {m.is_winner === null && (
+                                          <span className="text-xs font-medium text-amber-600">E</span>
                                         )}
                                       </div>
                                     </div>
@@ -7297,9 +7302,19 @@ function CompeteScreen({
                             </>
                           )}
                         </div>
-                        {game.is_winner !== undefined && (
-                          <span className={`text-xs font-semibold px-2 py-1 rounded-full ${game.is_winner ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                            {game.is_winner ? 'Vitória' : 'Derrota'}
+                        {game.is_winner === true && (
+                          <span className="text-xs font-semibold px-2 py-1 rounded-full bg-green-100 text-green-700">
+                            Vitória
+                          </span>
+                        )}
+                        {game.is_winner === false && (
+                          <span className="text-xs font-semibold px-2 py-1 rounded-full bg-red-100 text-red-700">
+                            Derrota
+                          </span>
+                        )}
+                        {game.is_winner === null && (
+                          <span className="text-xs font-semibold px-2 py-1 rounded-full bg-amber-100 text-amber-700">
+                            Empate
                           </span>
                         )}
                       </div>
@@ -7561,7 +7576,9 @@ function CompeteScreen({
                         <div><p className="font-medium text-gray-900">{m.team1_name}</p><p className="text-sm text-gray-500">vs</p><p className="font-medium text-gray-900">{m.team2_name}</p></div>
                         <div className="text-right">
                           {m.status === 'completed' ? <span className="text-lg font-bold">{scoreDisplay}</span> : <span className="text-sm text-gray-500">{formatDateTime(m.scheduled_time)}</span>}
-                          {m.is_winner !== undefined && <span className={`block text-xs mt-1 ${m.is_winner ? 'text-green-600' : 'text-red-600'}`}>{m.is_winner ? t.common.victory : t.common.defeat}</span>}
+                          {m.is_winner === true && <span className="block text-xs mt-1 text-green-600">{t.common.victory}</span>}
+                          {m.is_winner === false && <span className="block text-xs mt-1 text-red-600">{t.common.defeat}</span>}
+                          {m.is_winner === null && <span className="block text-xs mt-1 text-amber-600">Empate</span>}
                         </div>
                       </div>
                     </div>
@@ -12832,6 +12849,8 @@ function ProfileViewScreen({
   const d = dashboardData
   const totalMatches = d?.stats?.totalMatches ?? 0
   const wins = d?.stats?.wins ?? 0
+  const draws = d?.stats?.draws ?? 0
+  const losses = d?.stats?.losses ?? 0
   const winRate = d?.stats?.winRate ?? 0
   const bio = player?.bio || ''
   const [followingCount, setFollowingCount] = useState(0)
@@ -12973,7 +12992,7 @@ function ProfileViewScreen({
 
     // Fallback: estimate from recentMatches if no levelHistory exists
     const completedMatches = [...recentMatches]
-      .filter(m => m.status === 'completed' && m.is_winner !== undefined)
+      .filter(m => m.status === 'completed' && (m.is_winner === true || m.is_winner === false || m.is_winner === null))
       .sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())
 
     const lastMatches = completedMatches.slice(-TARGET)
@@ -12985,7 +13004,7 @@ function ProfileViewScreen({
     const K = totalRated < 5 ? 0.50 : totalRated < 10 ? 0.35 : totalRated < 20 ? 0.25 : totalRated < 40 ? 0.15 : totalRated < 60 ? 0.10 : 0.06
     const baseDelta = K * 0.4
 
-    const deltas = lastMatches.map(m => m.is_winner ? baseDelta : -baseDelta)
+    const deltas = lastMatches.map(m => m.is_winner === true ? baseDelta : m.is_winner === false ? -baseDelta : 0)
     let runLvl = currentLevel
     for (let i = deltas.length - 1; i >= 0; i--) runLvl = Math.max(0.5, runLvl - deltas[i])
 
@@ -13171,7 +13190,7 @@ function ProfileViewScreen({
         )
       })()}
 
-      {/* Estatísticas - Jogos, Vitórias, Taxa, Seguir, Seguidores */}
+      {/* Estatísticas - Jogos, Vitórias, Empates, Derrotas, Seguidores */}
       <div className="grid grid-cols-5 gap-2">
         <div className="card p-3 text-center">
           <p className="text-lg mb-0.5">🎾</p>
@@ -13184,14 +13203,14 @@ function ProfileViewScreen({
           <p className="text-[10px] text-gray-500 mt-0.5 font-medium">Vitórias</p>
         </div>
         <div className="card p-3 text-center">
-          <p className="text-lg mb-0.5">📈</p>
-          <p className="text-xl font-bold text-gray-900">{winRate}%</p>
-          <p className="text-[10px] text-gray-500 mt-0.5 font-medium">Taxa</p>
+          <p className="text-lg mb-0.5">🤝</p>
+          <p className="text-xl font-bold text-amber-600">{draws}</p>
+          <p className="text-[10px] text-gray-500 mt-0.5 font-medium">Empates</p>
         </div>
-        <div className="card p-3 text-center cursor-pointer hover:bg-gray-50 transition-colors" onClick={() => userId && onOpenFollowsList(userId)}>
-          <p className="text-lg mb-0.5">👥</p>
-          <p className="text-xl font-bold text-red-600">{followingCount}</p>
-          <p className="text-[10px] text-gray-500 mt-0.5 font-medium">A seguir</p>
+        <div className="card p-3 text-center">
+          <p className="text-lg mb-0.5">📉</p>
+          <p className="text-xl font-bold text-red-600">{losses}</p>
+          <p className="text-[10px] text-gray-500 mt-0.5 font-medium">Derrotas</p>
         </div>
         <div className="card p-3 text-center cursor-pointer hover:bg-gray-50 transition-colors" onClick={() => userId && onOpenFollowsList(userId)}>
           <p className="text-lg mb-0.5">❤️</p>

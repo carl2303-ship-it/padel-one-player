@@ -41,13 +41,20 @@ export interface PlayerMatch {
   score2: number | null
   status: string
   round: string
-  is_winner?: boolean
+  /** true = vitória, false = derrota, null = empate */
+  is_winner?: boolean | null
   set1?: string
   set2?: string
   set3?: string
   is_open_game?: boolean // Indica se é um jogo aberto
   open_game_id?: string // ID do jogo aberto
   club_name?: string // Nome do clube (para jogos abertos)
+}
+
+/** Resolve outcome from set counts. null = draw. */
+export function matchOutcome(myTeamIs1: boolean, team1Sets: number, team2Sets: number): boolean | null {
+  if (team1Sets === team2Sets) return null
+  return myTeamIs1 ? team1Sets > team2Sets : team2Sets > team1Sets
 }
 
 export interface LeagueStanding {
@@ -77,6 +84,7 @@ export interface LeagueFullStanding {
 export interface PlayerStats {
   totalMatches: number
   wins: number
+  draws: number
   losses: number
   winRate: number
   tournamentsPlayed: number
@@ -127,6 +135,7 @@ export interface PlayerDashboardData {
 const emptyStats: PlayerStats = {
   totalMatches: 0,
   wins: 0,
+  draws: 0,
   losses: 0,
   winRate: 0,
   tournamentsPlayed: 0,
@@ -474,6 +483,7 @@ export async function fetchPlayerDashboardData(
 
     // Process matchesData from the combined queries above
     let wins = 0
+    let draws = 0
     let losses = 0
     const matches: PlayerMatch[] = (matchesData as any[]).map((m) => {
       const isIndividual = m.p1 || m.p2 || m.p3 || m.p4
@@ -530,16 +540,17 @@ export async function fetchPlayerDashboardData(
         (m.team2_score_set2 || 0) > (m.team1_score_set2 || 0) ? 1 : 0,
         (m.team2_score_set3 || 0) > (m.team1_score_set3 || 0) ? 1 : 0,
       ].reduce((a, b) => a + b, 0)
-      let is_winner: boolean | undefined
+      let is_winner: boolean | null | undefined
       let my_side: 1 | 2 | undefined
       if (m.status === 'completed' && (team1Sets > 0 || team2Sets > 0)) {
         const isPlayerInTeam1 = isIndividual
           ? playerIds.includes(m.p1?.id) || playerIds.includes(m.p2?.id)
           : teamIds.includes(m.team1?.id)
         my_side = isPlayerInTeam1 ? 1 : 2
-        is_winner = isPlayerInTeam1 ? team1Sets > team2Sets : team2Sets > team1Sets
-        if (is_winner) wins++
-        else losses++
+        is_winner = matchOutcome(isPlayerInTeam1, team1Sets, team2Sets)
+        if (is_winner === true) wins++
+        else if (is_winner === false) losses++
+        else draws++
       } else {
         const isPlayerInTeam1 = isIndividual
           ? playerIds.includes(m.p1?.id) || playerIds.includes(m.p2?.id)
@@ -636,21 +647,23 @@ export async function fetchPlayerDashboardData(
       
       result.recentMatches = allRecent
       
-      // Count open game wins/losses for stats
+      // Count open game wins/draws/losses for stats
       openGameResults.forEach(r => {
         if (r.is_winner === true) wins++
         else if (r.is_winner === false) losses++
+        else if (r.is_winner === null) draws++
       })
     } catch (err) {
       console.error('[PlayerDashboard] Error fetching open game results:', err)
       result.recentMatches = recentMatches
     }
 
-    const totalMatches = wins + losses
+    const totalMatches = wins + draws + losses
     result.stats.totalMatches = totalMatches
     result.stats.wins = wins
+    result.stats.draws = draws
     result.stats.losses = losses
-    result.stats.winRate = totalMatches > 0 ? Math.round((wins / totalMatches) * 100) : 0
+    result.stats.winRate = (wins + losses) > 0 ? Math.round((wins / (wins + losses)) * 100) : 0
 
     // Persist computed stats to player_accounts so all profile views are consistent
     if (totalMatches > 0 && playerAccount.id) {
@@ -660,7 +673,7 @@ export async function fetchPlayerDashboardData(
         .eq('id', playerAccount.id)
         .then(({ error }) => {
           if (error) console.warn('[PlayerDashboard] Failed to persist stats:', error.message)
-          else console.log('[PlayerDashboard] Persisted stats: wins=', wins, 'losses=', losses)
+          else console.log('[PlayerDashboard] Persisted stats: wins=', wins, 'draws=', draws, 'losses=', losses)
         })
     }
   } catch (err) {
@@ -730,6 +743,7 @@ export async function enrichDashboardWithEdgeFunction(currentDashboardData?: Pla
         enriched.stats = {
           totalMatches: edgeData.stats.totalMatches || 0,
           wins: edgeData.stats.wins || 0,
+          draws: edgeData.stats.draws || 0,
           losses: edgeData.stats.losses || 0,
           winRate: edgeData.stats.winRate || 0,
           tournamentsPlayed: edgeData.pastTournaments?.length || 0,
@@ -738,19 +752,23 @@ export async function enrichDashboardWithEdgeFunction(currentDashboardData?: Pla
       } else {
         // Edge Function v1 (doesn't include open games) - add open game stats from client
         let openGameWins = 0
+        let openGameDraws = 0
         let openGameLosses = 0
         ;(currentDashboardData?.recentMatches || []).filter(m => m.is_open_game).forEach(m => {
           if (m.is_winner === true) openGameWins++
           else if (m.is_winner === false) openGameLosses++
+          else if (m.is_winner === null) openGameDraws++
         })
         const totalWins = (edgeData.stats.wins || 0) + openGameWins
+        const totalDraws = (edgeData.stats.draws || 0) + openGameDraws
         const totalLosses = (edgeData.stats.losses || 0) + openGameLosses
-        const totalAll = totalWins + totalLosses
+        const decided = totalWins + totalLosses
         enriched.stats = {
-          totalMatches: (edgeData.stats.totalMatches || 0) + openGameWins + openGameLosses,
+          totalMatches: (edgeData.stats.totalMatches || 0) + openGameWins + openGameDraws + openGameLosses,
           wins: totalWins,
+          draws: totalDraws,
           losses: totalLosses,
-          winRate: totalAll > 0 ? Math.round((totalWins / totalAll) * 100) : 0,
+          winRate: decided > 0 ? Math.round((totalWins / decided) * 100) : 0,
           tournamentsPlayed: edgeData.pastTournaments?.length || 0,
           bestFinish: '-',
         }
@@ -1417,12 +1435,12 @@ export async function fetchTournamentStandingsAndMatches(
               (m.team2_score_set2 || 0) > (m.team1_score_set2 || 0) ? 1 : 0,
               (m.team2_score_set3 || 0) > (m.team1_score_set3 || 0) ? 1 : 0,
             ].reduce((a, b) => a + b, 0)
-            let is_winner: boolean | undefined
+            let is_winner: boolean | null | undefined
             if (m.status === 'completed' && (t1Sets > 0 || t2Sets > 0)) {
               const inTeam1 = isInd
                 ? playerIds.includes(m.p1?.id) || playerIds.includes(m.p2?.id)
                 : teamIds.includes(m.team1?.id)
-              is_winner = inTeam1 ? t1Sets > t2Sets : t2Sets > t1Sets
+              is_winner = matchOutcome(inTeam1, t1Sets, t2Sets)
             }
             const set1 = m.team1_score_set1 != null && m.team2_score_set1 != null
               ? `${m.team1_score_set1}-${m.team2_score_set1}` : undefined

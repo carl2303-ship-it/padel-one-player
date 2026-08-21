@@ -3476,7 +3476,7 @@ export interface OpenGameMatchResult {
   score2: number | null
   status: string
   round: string
-  is_winner?: boolean
+  is_winner?: boolean | null
   set1?: string
   set2?: string
   set3?: string
@@ -3730,7 +3730,14 @@ export async function fetchConfirmedOpenGameResults(userId: string, playerAccoun
     // Determine if current user is in team 1 (positions 1,2) or team 2 (positions 3,4)
     const myPlayer = gamePlayers.find((p: any) => p.user_id === userId || (playerAccountId && p.player_account_id === playerAccountId))
     const myTeam = myPlayer ? ((myPlayer.position || 0) <= 2 ? 1 : 2) : 0
-    const is_winner = myTeam === 1 ? sets1 > sets2 : myTeam === 2 ? sets2 > sets1 : undefined
+    const is_winner =
+      myTeam === 0
+        ? undefined
+        : sets1 === sets2
+          ? null
+          : myTeam === 1
+            ? sets1 > sets2
+            : sets2 > sets1
 
     const t = typeof window !== 'undefined' ? getTranslations() : null
     const clubName = game ? clubsMap.get(game.club_id) || (t?.common.club || 'Clube') : (t?.common.club || 'Clube')

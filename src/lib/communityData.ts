@@ -894,7 +894,7 @@ export interface ProfileMatch {
   set1?: string
   set2?: string
   set3?: string
-  is_winner: boolean
+  is_winner: boolean | null
   played_at?: string
 }
 
@@ -1111,7 +1111,12 @@ export async function getPlayerProfile(
             ? playerIdSet.has(m.p1?.id) || playerIdSet.has(m.p2?.id)
             : teamIdSet.has(m.team1?.id)
 
-          const isWinner = isPlayerInTeam1 ? team1Sets > team2Sets : team2Sets > team1Sets
+          const isWinner =
+            team1Sets === team2Sets
+              ? null
+              : isPlayerInTeam1
+                ? team1Sets > team2Sets
+                : team2Sets > team1Sets
 
           // Build set strings
           const set1 = (m.team1_score_set1 != null && m.team2_score_set1 != null)
