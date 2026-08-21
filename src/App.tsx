@@ -12941,7 +12941,7 @@ function ProfileViewScreen({
   useEffect(() => {
     if (!player?.id) return
     fetchLevelHistory(player.id, 50).then(setLevelHistory)
-  }, [player?.id])
+  }, [player?.id, player?.level, player?.rated_matches, recentMatches.length])
 
   const levelChartData = useMemo(() => {
     const currentLevel = player?.level ?? 3.0
@@ -12949,13 +12949,20 @@ function ProfileViewScreen({
 
     // Primary source: levelHistory (real data from DB)
     if (levelHistory.length > 0) {
-      const sorted = [...levelHistory]
+      // Deduplicate by source_id (keep latest) so reprocessed matches don't double-plot
+      const bySource = new Map<string, LevelHistoryEntry>()
+      const noSource: LevelHistoryEntry[] = []
+      for (const h of [...levelHistory].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())) {
+        if (h.source_id) bySource.set(`${h.source_id}:${h.player_account_id}`, h)
+        else noSource.push(h)
+      }
+      const sorted = [...noSource, ...bySource.values()]
         .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
         .slice(-TARGET)
 
       return sorted.map((h, i) => ({
         index: i,
-        level: h.level_after,
+        level: i === sorted.length - 1 ? currentLevel : h.level_after,
         levelBefore: h.level_before,
         delta: h.delta,
         won: h.match_won,
@@ -12971,7 +12978,7 @@ function ProfileViewScreen({
 
     const lastMatches = completedMatches.slice(-TARGET)
     if (lastMatches.length === 0) {
-      return [{ index: 0, level: currentLevel, levelBefore: currentLevel, delta: 0, won: null as boolean | null, date: new Date(), matchType: 'tournament' }]
+      return [{ index: 0, level: currentLevel, levelBefore: currentLevel, delta: 0, won: null as boolean | null, date: new Date(), matchType: 'tournament' as const }]
     }
 
     const totalRated = (player?.wins ?? 0) + (player?.losses ?? 0)
@@ -12987,12 +12994,12 @@ function ProfileViewScreen({
       runLvl = Math.max(0.5, parseFloat((runLvl + deltas[i]).toFixed(2)))
       return {
         index: i,
-        level: runLvl,
+        level: i === lastMatches.length - 1 ? currentLevel : runLvl,
         levelBefore: parseFloat(before.toFixed(2)),
         delta: parseFloat(deltas[i].toFixed(4)),
         won: m.is_winner ?? null,
         date: new Date(m.start_time),
-        matchType: m.is_open_game ? 'open_game' : 'tournament',
+        matchType: m.is_open_game ? 'open_game' as const : 'tournament' as const,
       }
     })
   }, [levelHistory, recentMatches, player?.level, player?.wins, player?.losses])

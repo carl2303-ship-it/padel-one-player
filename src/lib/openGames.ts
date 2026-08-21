@@ -7,7 +7,7 @@ import { normalizePhone } from './phoneUtils'
 import { notifyOpenGamePlayers, notifyGameCreator, sendPushToPlayer } from './pushNotifications'
 import { getTranslations } from './translations'
 import { calculateNewRatings, calculateReliability, calculateProtectedReliability } from './ratingEngine'
-import { logLevelChange } from './levelHistory'
+import { logLevelChange, reverseRatingForSource } from './levelHistory'
 
 const DEFAULT_TZ = 'Europe/Lisbon'
 
@@ -2283,6 +2283,22 @@ export async function confirmGameResult(gameId: string): Promise<{ success: bool
 }
 
 export async function disputeGameResult(gameId: string): Promise<{ success: boolean; error?: string }> {
+  // Se o resultado já tinha rating aplicado, reverter níveis antes de apagar o resultado
+  try {
+    const { data: existing } = await supabase
+      .from('open_game_results')
+      .select('id, rating_processed')
+      .eq('game_id', gameId)
+      .maybeSingle()
+
+    if (existing?.rating_processed) {
+      const reversed = await reverseRatingForSource(gameId)
+      console.log(`[OpenGames] Dispute: reversed ${reversed} rating rows for game ${gameId}`)
+    }
+  } catch (revErr) {
+    console.error('[OpenGames] Dispute: failed to reverse rating:', revErr)
+  }
+
   const { data, error } = await supabase.rpc('dispute_open_game_result', {
     p_game_id: gameId,
   })
@@ -2486,7 +2502,7 @@ async function processOpenGameRating(gameId: string): Promise<void> {
       console.error('[OpenGames] processOpenGameRating: Error updating rating for', rp.id, rp.name, ':', rpcError)
     } else {
       console.log('[OpenGames] processOpenGameRating: ✅ Successfully updated', rp.name)
-      logLevelChange(rp.id, levelBefore, rp.rating, rp.delta, 'open_game', rp.won)
+      logLevelChange(rp.id, levelBefore, rp.rating, rp.delta, 'open_game', rp.won, gameId)
     }
   }
 

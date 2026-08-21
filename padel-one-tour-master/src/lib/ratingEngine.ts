@@ -2,7 +2,7 @@
  * Padel One Rating Engine v3
  * Sistema ELO adaptado para Padel em Duplas
  * 
- * Escala: 0.5 (iniciante), sem limite superior (M1/F1 aberto)
+ * Escala: 0.5 (iniciante) a 7.0 (profissional)
  * Fiabilidade: 0% (0 jogos) a 100% (75+ jogos rated)
  * 
  * v3 Fixes:
@@ -151,8 +151,8 @@ export function calculateNewRatings(
   const delta3 = calculateDelta(p3, 1 - actual1, 1 - expected1, intensity)
   const delta4 = calculateDelta(p4, 1 - actual1, 1 - expected1, intensity)
 
-  // 8. Clamp — mínimo 0.5, sem limite superior (M1/F1 aberto)
-  const clamp = (val: number) => Math.max(0.5, parseFloat(val.toFixed(2)))
+  // 8. Clamp para manter dentro da escala 0.5 - 7.0
+  const clamp = (val: number) => Math.max(0.5, Math.min(7.0, parseFloat(val.toFixed(2))))
 
   // 9. Determinar quem ganhou/perdeu
   const team1Won = actual1 >= 0.6 ? true : actual1 <= 0.4 ? false : null
@@ -178,11 +178,14 @@ export function calculateNewRatings(
 /**
  * Calcula a fiabilidade baseada em jogos rated.
  * 0 jogos = 0%, 75+ jogos = 100%
+ * 
+ * Curva de potência (expoente 0.65) — crescimento gradual:
+ *   1 jogo=4%, 2=6%, 5=12%, 10=19%, 20=30%, 30=38%, 50=54%, 75=100%
  */
 export function calculateReliability(totalMatches: number): number {
   if (totalMatches <= 0) return 0
   if (totalMatches >= 75) return 100
-  const reliability = Math.min(100, Math.round(100 * (Math.log(totalMatches + 1) / Math.log(76))))
+  const reliability = Math.min(100, Math.round(100 * Math.pow(totalMatches / 75, 0.65)))
   return reliability
 }
 
@@ -195,16 +198,13 @@ export function calculateReliability(totalMatches: number): number {
  * @returns fiabilidade a guardar (máximo entre fórmula e decaimento lento)
  */
 export function calculateProtectedReliability(newReliability: number, currentReliability: number): number {
-  // Se a fiabilidade pela fórmula é maior (normal progression), usa a fórmula
-  // Se a fiabilidade pela fórmula é menor (ex: clube definiu 80%, rated_matches=2 → 25%),
-  // usa decaimento lento: -2% por jogo para não destruir a avaliação do clube
   return Math.max(newReliability, currentReliability - 2)
 }
 
 export function calculateMatchesFromReliability(reliability: number): number {
   if (reliability <= 0) return 0
   if (reliability >= 100) return 75
-  const matches = Math.round(Math.exp((reliability / 100) * Math.log(76)) - 1)
+  const matches = Math.round(75 * Math.pow(reliability / 100, 1 / 0.65))
   return Math.max(0, Math.min(75, matches))
 }
 
@@ -335,7 +335,6 @@ export async function processMatchRating(
   for (const p of playersData) {
     let account: any = null
 
-    // 1) Direct FK — most reliable
     if ((p as any).player_account_id) {
       const { data } = await supabase
         .from('player_accounts')
@@ -372,7 +371,6 @@ export async function processMatchRating(
       }
     }
 
-    // Name fallback last — exact match only (avoid collisions)
     if (!account && p.name) {
       const { data } = await supabase
         .from('player_accounts')
@@ -387,7 +385,6 @@ export async function processMatchRating(
     }
   }
 
-  // Guard: same account mapped to 2+ players in one match → wrong win/loss history
   const accountIds = Array.from(accountsMap.values()).map((a: any) => a.id)
   if (new Set(accountIds).size < accountIds.length) {
     console.error('[RatingEngine] Duplicate player_account mapping in match — skipping to avoid corrupt history:', matchId)
@@ -437,7 +434,6 @@ export async function processMatchRating(
 
   if (result.skipped) {
     console.log('[RatingEngine] Match skipped:', result.message)
-    // Mark so we don't retry forever on disparity skips
     await supabase.rpc('mark_match_rating_processed', { p_match_id: matchId }).catch(() => {})
     await supabase.from('matches').update({ rating_processed: true }).eq('id', matchId)
     return result
@@ -445,6 +441,7 @@ export async function processMatchRating(
 
   if (result.team1 && result.team2) {
     const allUpdatedPlayers = [result.team1.p1, result.team1.p2, result.team2.p3, result.team2.p4]
+    let updateErrors = 0
 
     for (const rp of allUpdatedPlayers) {
       const formulaReliability = calculateReliability(rp.matches)
@@ -452,17 +449,6 @@ export async function processMatchRating(
       const acctData = Array.from(accountsMap.values()).find((a: any) => a.id === rp.id)
       const currentReliability = cache?.get(rp.id)?.currentReliability ?? acctData?.level_reliability_percent ?? 0
       const protectedReliability = calculateProtectedReliability(formulaReliability, currentReliability)
-
-      if (cache) {
-        cache.set(rp.id, {
-          id: rp.id,
-          user_id: rp.user_id,
-          name: rp.name,
-          rating: rp.rating,
-          matchCount: rp.matches,
-          currentReliability: protectedReliability,
-        })
-      }
 
       const levelBefore = acctData?.level ?? (rp.rating - rp.delta)
 
@@ -475,19 +461,34 @@ export async function processMatchRating(
 
       if (error) {
         console.error('[RatingEngine] Error updating player:', rp.id, error)
+        updateErrors++
       } else {
         logLevelChange(rp.id, levelBefore, rp.rating, rp.delta, 'tournament', rp.won, matchId)
+        if (cache) {
+          cache.set(rp.id, {
+            id: rp.id,
+            user_id: rp.user_id,
+            name: rp.name,
+            rating: rp.rating,
+            matchCount: rp.matches,
+            currentReliability: protectedReliability,
+          })
+        }
       }
     }
 
-    const { error: markError } = await supabase.rpc('mark_match_rating_processed', {
-      p_match_id: matchId,
-    })
-    if (markError) {
-      console.error('[RatingEngine] Error marking match as processed:', matchId, markError)
+    // Only mark match as processed if ALL player updates succeeded
+    if (updateErrors === 0) {
+      const { error: markError } = await supabase.rpc('mark_match_rating_processed', {
+        p_match_id: matchId,
+      })
+      if (markError) {
+        console.error('[RatingEngine] Error marking match as processed:', matchId, markError)
+      }
+      console.log('[RatingEngine] Updated ratings for match:', matchId)
+    } else {
+      console.error(`[RatingEngine] Match ${matchId}: ${updateErrors}/4 player updates FAILED — match NOT marked as processed (will retry next time)`)
     }
-
-    console.log('[RatingEngine] Updated ratings for match:', matchId)
     const logPlayer = (before: PlayerRating, after: PlayerRating & { delta: number }) => {
       const K = getKFactorForLog(after.matches)
       console.log(`  ${after.name}: ${before.rating.toFixed(2)} → ${after.rating.toFixed(2)} (Δ${after.delta >= 0 ? '+' : ''}${after.delta.toFixed(4)}) | K=${K} | jogos: ${after.matches} | fiab: ${calculateReliability(after.matches)}%`)
@@ -528,7 +529,8 @@ function getKFactorForLog(matches: number): number {
 
 export async function processAllUnratedMatches(
   since?: string,
-  onProgress?: (current: number, total: number, info: string) => void
+  onProgress?: (current: number, total: number, info: string) => void,
+  tournamentId?: string
 ): Promise<{ processed: number; skipped: number; errors: number; total: number }> {
   let query = supabase
     .from('matches')
@@ -536,6 +538,10 @@ export async function processAllUnratedMatches(
     .eq('status', 'completed')
     .or('rating_processed.is.null,rating_processed.eq.false')
     .order('scheduled_time', { ascending: true })
+
+  if (tournamentId) {
+    query = query.eq('tournament_id', tournamentId)
+  }
 
   if (since) {
     query = query.gte('scheduled_time', since)
@@ -590,4 +596,117 @@ export async function processAllUnratedMatches(
   onProgress?.(matches.length, matches.length, summary)
 
   return { processed, skipped, errors, total: matches.length }
+}
+
+// ============================================
+// Tournament Reward Points
+// ============================================
+
+export async function awardTournamentRewardPoints(
+  tournamentId: string
+): Promise<{ awarded: number; skipped: number; errors: number; details: string[] }> {
+  const details: string[] = []
+  let awarded = 0
+  let skipped = 0
+  let errors = 0
+
+  const { data: tournament, error: tErr } = await supabase
+    .from('tournaments')
+    .select('id, name, club_id')
+    .eq('id', tournamentId)
+    .single()
+
+  if (tErr || !tournament) {
+    console.error('[Rewards] Tournament not found:', tournamentId, tErr)
+    return { awarded: 0, skipped: 0, errors: 1, details: ['Torneio não encontrado'] }
+  }
+
+  if (!tournament.club_id) {
+    console.log('[Rewards] Tournament has no club_id, cannot award rewards')
+    return { awarded: 0, skipped: 0, errors: 0, details: ['Torneio sem clube associado - sem rewards'] }
+  }
+
+  const { data: rule } = await supabase
+    .from('reward_rules')
+    .select('id, points')
+    .eq('club_id', tournament.club_id)
+    .eq('action_type', 'tournament_played')
+    .eq('is_active', true)
+    .maybeSingle()
+
+  if (!rule) {
+    console.log('[Rewards] No active tournament_played rule for club:', tournament.club_id)
+    return { awarded: 0, skipped: 0, errors: 0, details: ['Sem regra de reward "tournament_played" ativa neste clube'] }
+  }
+
+  const { data: players } = await supabase
+    .from('players')
+    .select('id, name, user_id, phone_number')
+    .eq('tournament_id', tournamentId)
+
+  if (!players || players.length === 0) {
+    return { awarded: 0, skipped: 0, errors: 0, details: ['Sem jogadores no torneio'] }
+  }
+
+  console.log(`[Rewards] Found ${players.length} players in tournament ${tournament.name}`)
+
+  for (const player of players) {
+    let playerAccountId: string | null = null
+
+    if (player.user_id) {
+      const { data } = await supabase
+        .from('player_accounts')
+        .select('id')
+        .eq('user_id', player.user_id)
+        .maybeSingle()
+      if (data) playerAccountId = data.id
+    }
+
+    if (!playerAccountId && player.phone_number) {
+      const { data } = await supabase
+        .from('player_accounts')
+        .select('id')
+        .eq('phone_number', player.phone_number)
+        .maybeSingle()
+      if (data) playerAccountId = data.id
+    }
+
+    if (!playerAccountId && player.name) {
+      const { data } = await supabase
+        .from('player_accounts')
+        .select('id')
+        .ilike('name', player.name)
+        .maybeSingle()
+      if (data) playerAccountId = data.id
+    }
+
+    if (!playerAccountId) {
+      skipped++
+      details.push(`⚠️ ${player.name}: sem conta encontrada`)
+      continue
+    }
+
+    const { data: result, error: awardErr } = await supabase.rpc('award_reward_points', {
+      p_player_account_id: playerAccountId,
+      p_club_id: tournament.club_id,
+      p_action_type: 'tournament_played',
+      p_reference_id: tournamentId,
+      p_custom_description: `Participou no torneio "${tournament.name}"`,
+    })
+
+    if (awardErr) {
+      console.error('[Rewards] Error awarding points to:', player.name, awardErr)
+      errors++
+      details.push(`❌ ${player.name}: erro ao atribuir pontos`)
+    } else if (result && !result.success) {
+      skipped++
+      details.push(`⏭️ ${player.name}: ${result.error || 'já tinha pontos'}`)
+    } else {
+      awarded++
+      details.push(`✅ ${player.name}: +${result?.points_earned || rule.points} pts (total: ${result?.new_total || '?'})`)
+    }
+  }
+
+  console.log(`[Rewards] Tournament rewards: ${awarded} awarded, ${skipped} skipped, ${errors} errors`)
+  return { awarded, skipped, errors, details }
 }

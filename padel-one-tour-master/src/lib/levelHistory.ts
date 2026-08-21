@@ -39,16 +39,13 @@ export async function logLevelChange(
       })
 
     if (error) {
-      console.warn('[LevelHistory] Insert failed (table may not exist yet):', error.message)
+      console.warn('[LevelHistory] Insert failed:', error.message)
     }
   } catch (err) {
     console.warn('[LevelHistory] Unexpected error:', err)
   }
 }
 
-/**
- * Fetches level history for a player, ordered by most recent first.
- */
 export async function fetchLevelHistory(
   playerAccountId: string,
   limit = 20,
@@ -74,7 +71,6 @@ export async function fetchLevelHistory(
 
 /**
  * Reverses all rating changes logged for a match / open game, and deletes those history rows.
- * Safe to call when no history exists (returns 0).
  */
 export async function reverseRatingForSource(sourceId: string): Promise<number> {
   if (!sourceId) return 0
@@ -84,7 +80,6 @@ export async function reverseRatingForSource(sourceId: string): Promise<number> 
     })
     if (error) {
       console.warn('[LevelHistory] reverse_rating_for_source failed:', error.message)
-      // Fallback: try client-side reverse if RPC missing
       return await reverseRatingForSourceClient(sourceId)
     }
     return typeof data === 'number' ? data : 0
@@ -110,7 +105,6 @@ async function reverseRatingForSourceClient(sourceId: string): Promise<number> {
       p_match_won: row.match_won,
     })
     if (rpcErr) {
-      // Manual fallback if reverse RPC also missing
       const { data: acct } = await supabase
         .from('player_accounts')
         .select('level, rated_matches, wins, losses')
