@@ -4,6 +4,7 @@
 import { supabase } from './supabase'
 import { findPlayerAccountByName } from './classes'
 import { fetchGlobalRankings } from './playerRankings'
+import { resolvePlayerAccountForUser } from './resolvePlayerAccount'
 
 export interface PlayerPreviewData {
   name: string
@@ -63,12 +64,18 @@ export async function fetchPlayerPreview(opts: {
   }
 
   if (!row && opts.userId) {
-    const { data } = await supabase
-      .from('player_accounts')
-      .select('id, user_id, name, avatar_url, level, wins, losses')
-      .eq('user_id', opts.userId)
-      .maybeSingle()
-    row = data
+    const resolved = await resolvePlayerAccountForUser(opts.userId, {
+      accountId: opts.accountId,
+      preferredName: opts.nameHint,
+    })
+    if (resolved) {
+      const { data } = await supabase
+        .from('player_accounts')
+        .select('id, user_id, name, avatar_url, level, wins, losses')
+        .eq('id', resolved.id)
+        .maybeSingle()
+      row = data
+    }
   }
 
   if (!row && opts.nameHint) {

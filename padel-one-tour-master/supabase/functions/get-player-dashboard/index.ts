@@ -108,11 +108,38 @@ Deno.serve(async (req: Request) => {
     }
     const user = { id: userId };
 
-    const { data: playerAccount } = await supabaseAdmin
-      .from('player_accounts')
-      .select('id, name, phone_number')
-      .eq('user_id', user.id)
-      .maybeSingle();
+    let bodyAccountId: string | null = null;
+    try {
+      const body = await req.json();
+      bodyAccountId = body?.accountId || null;
+    } catch {
+      // empty body is fine
+    }
+
+    let playerAccount: { id: string; name: string; phone_number?: string | null } | null = null;
+    if (bodyAccountId) {
+      const { data } = await supabaseAdmin
+        .from('player_accounts')
+        .select('id, name, phone_number')
+        .eq('id', bodyAccountId)
+        .maybeSingle();
+      playerAccount = data;
+    }
+    if (!playerAccount) {
+      const { data: accounts } = await supabaseAdmin
+        .from('player_accounts')
+        .select('id, name, phone_number')
+        .eq('user_id', user.id);
+      const rows = accounts || [];
+      if (rows.length === 1) {
+        playerAccount = rows[0];
+      } else if (rows.length > 1) {
+        playerAccount =
+          rows.find((r: any) => r.name && !/^wild\s*card/i.test(r.name)) ||
+          rows.find((r: any) => r.name) ||
+          rows[0];
+      }
+    }
 
     if (!playerAccount) {
       return new Response(

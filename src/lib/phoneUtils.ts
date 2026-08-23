@@ -120,3 +120,13 @@ export function formatPhoneDisplay(phone: string | null | undefined): string {
   const digits = normalizePhone(phone);
   return digits ? '+' + digits : '';
 }
+
+/** Compare phones regardless of + prefix or spacing (+351… vs 351…). */
+export function phonesEqual(
+  a: string | null | undefined,
+  b: string | null | undefined,
+): boolean {
+  const na = normalizePhone(a);
+  const nb = normalizePhone(b);
+  return na.length > 0 && na === nb;
+}

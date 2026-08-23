@@ -10,6 +10,7 @@ import {
   enrichDashboardWithEdgeFunction,
   type PlayerDashboardData,
 } from './lib/playerDashboardData'
+import { fetchPlayerAccountByPhone, resolvePlayerAccountForUser } from './lib/resolvePlayerAccount'
 import { 
   Home, 
   Trophy, 
@@ -272,7 +273,11 @@ function App() {
         if (elapsed > 30_000 && isAuthenticated && player?.user_id) {
           lastForegroundRefresh.current = Date.now()
           console.log('[App] Foreground refresh triggered')
-          const data = await fetchPlayerDashboardData(player.user_id)
+          const data = await fetchPlayerDashboardData(player.user_id, {
+            id: player.id,
+            name: player.name,
+            phone_number: (player as any).phone_number ?? null,
+          })
           setDashboardData(data)
           enrichDashboardWithEdgeFunction(data).then(enriched => {
             if (enriched) {
@@ -378,23 +383,30 @@ function App() {
     // Priority 1: Find player by saved phone (most reliable - user's actual phone)
     const savedPhone = localStorage.getItem('padel_one_player_phone')
     if (savedPhone) {
-      const { data } = await supabase
-        .from('player_accounts')
-        .select('*')
-        .eq('phone_number', savedPhone)
-        .maybeSingle()
+      const data = await fetchPlayerAccountByPhone(savedPhone)
 
       if (data) {
-        setPlayer(data as any)
+        const { data: fullAccount } = await supabase
+          .from('player_accounts')
+          .select('*')
+          .eq('id', data.id)
+          .maybeSingle()
+
+        if (!fullAccount) {
+          setIsLoading(false)
+          return
+        }
+
+        setPlayer(fullAccount as any)
         setIsAuthenticated(true)
-        setAuthUserId(authUid || data.user_id || null)
-        fetchPlayerClubs(data.id).then(ids => setPlayer(prev => prev ? { ...prev, club_ids: ids } as any : prev))
-        if (data.user_id) {
+        setAuthUserId(authUid || fullAccount.user_id || null)
+        fetchPlayerClubs(fullAccount.id).then(ids => setPlayer(prev => prev ? { ...prev, club_ids: ids } as any : prev))
+        if (fullAccount.user_id) {
           const [dash] = await Promise.all([
-            fetchPlayerDashboardData(data.user_id, {
-              id: data.id,
-              name: data.name,
-              phone_number: data.phone_number,
+            fetchPlayerDashboardData(fullAccount.user_id, {
+              id: fullAccount.id,
+              name: fullAccount.name,
+              phone_number: fullAccount.phone_number,
             }),
             preloadAllPlayerData(),
           ])
@@ -425,11 +437,17 @@ function App() {
 
     // Priority 2: Find player by auth session user_id (only if phone lookup failed)
     if (session?.user) {
-      const { data: playerAccount } = await supabase
-        .from('player_accounts')
-        .select('*')
-        .eq('user_id', session.user.id)
-        .maybeSingle()
+      const savedPhone = localStorage.getItem('padel_one_player_phone')
+      const resolved = await resolvePlayerAccountForUser(session.user.id, {
+        phoneNumber: savedPhone || undefined,
+      })
+
+      if (resolved) {
+        const { data: playerAccount } = await supabase
+          .from('player_accounts')
+          .select('*')
+          .eq('id', resolved.id)
+          .maybeSingle()
 
       if (playerAccount) {
         setPlayer(playerAccount as any)
@@ -466,6 +484,7 @@ function App() {
         setIsLoading(false)
         return
       }
+      }
     }
 
     setIsLoading(false)
@@ -473,8 +492,12 @@ function App() {
 
   const refreshDashboard = async () => {
     const { data: { session } } = await supabase.auth.getSession()
-    if (session?.user) {
-      const data = await fetchPlayerDashboardData(session.user.id)
+    if (session?.user && player) {
+      const data = await fetchPlayerDashboardData(session.user.id, {
+        id: player.id,
+        name: player.name,
+        phone_number: (player as any).phone_number ?? null,
+      })
       setDashboardData(data)
       // Enrich with Edge Function in background
       enrichDashboardWithEdgeFunction(data).then(enriched => {
@@ -587,22 +610,29 @@ function App() {
       }
 
       // Buscar player_account pelo telefone (mais fiável que auth user_id)
-      const { data: phoneAccount } = await supabase
-        .from('player_accounts')
-        .select('*')
-        .eq('phone_number', normalizedPhone)
-        .maybeSingle()
-      
-      playerAccount = phoneAccount
+      const phoneResolved = await fetchPlayerAccountByPhone(normalizedPhone)
+      if (phoneResolved) {
+        const { data: phoneAccount } = await supabase
+          .from('player_accounts')
+          .select('*')
+          .eq('id', phoneResolved.id)
+          .maybeSingle()
+        playerAccount = phoneAccount
+      }
 
       // Fallback: buscar pelo auth user_id se telefone não encontrou
       if (!playerAccount && authData?.user) {
-        const { data: authAccount } = await supabase
-          .from('player_accounts')
-          .select('*')
-          .eq('user_id', authData.user.id)
-          .maybeSingle()
-        playerAccount = authAccount
+        const resolved = await resolvePlayerAccountForUser(authData.user.id, {
+          phoneNumber: normalizedPhone,
+        })
+        if (resolved) {
+          const { data: authAccount } = await supabase
+            .from('player_accounts')
+            .select('*')
+            .eq('id', resolved.id)
+            .maybeSingle()
+          playerAccount = authAccount
+        }
       }
 
       localStorage.setItem('padel_one_player_phone', normalizedPhone)
@@ -668,9 +698,16 @@ function App() {
     return {
       ...dashboardData,
       ...edgeEnrichedData,
-      // Keep edge stats even if a partial enrich omitted them
+      playerName: edgeEnrichedData.playerName || dashboardData.playerName,
       stats: edgeEnrichedData.stats ?? dashboardData.stats,
       recentMatches: edgeEnrichedData.recentMatches ?? dashboardData.recentMatches,
+      pastTournaments: edgeEnrichedData.pastTournaments?.length
+        ? edgeEnrichedData.pastTournaments
+        : dashboardData.pastTournaments,
+      pastTournamentDetails: edgeEnrichedData.pastTournamentDetails &&
+        Object.keys(edgeEnrichedData.pastTournamentDetails).length > 0
+        ? edgeEnrichedData.pastTournamentDetails
+        : dashboardData.pastTournamentDetails,
     }
   }, [dashboardData, edgeEnrichedData])
 

@@ -8,6 +8,7 @@ import {
   resolveIndividualPlayerNames,
   preferResolvedMatchNames,
 } from './resolveTeamPlayerNames'
+import { resolvePlayerAccountForUser } from './resolvePlayerAccount'
 
 export interface TournamentSummary {
   id: string
@@ -377,13 +378,12 @@ export async function fetchPlayerDashboardData(
   // Use existing playerAccount if passed (avoids duplicate query)
   let playerAccount = existingPlayerAccount
   if (!playerAccount) {
-    const { data } = await supabase
-      .from('player_accounts')
-      .select('id, name, phone_number')
-      .eq('user_id', userId)
-      .maybeSingle()
-    if (!data) { console.timeEnd('[Dashboard] Total load time'); return result }
-    playerAccount = data
+    const savedPhone = typeof localStorage !== 'undefined'
+      ? localStorage.getItem('padel_one_player_phone')
+      : null
+    const resolved = await resolvePlayerAccountForUser(userId, { phoneNumber: savedPhone || undefined })
+    if (!resolved) { console.timeEnd('[Dashboard] Total load time'); return result }
+    playerAccount = resolved
   }
 
   result.playerAccountId = playerAccount.id
@@ -789,7 +789,9 @@ export async function enrichDashboardWithEdgeFunction(currentDashboardData?: Pla
         'Authorization': `Bearer ${session.access_token}`,
         'apikey': supabaseAnonKey,
       },
-      body: JSON.stringify({}),
+      body: JSON.stringify({
+        accountId: currentDashboardData?.playerAccountId ?? null,
+      }),
     })
     console.log(`[Dashboard] Edge Function enrichment: ${Math.round(performance.now() - t0)}ms`)
 
