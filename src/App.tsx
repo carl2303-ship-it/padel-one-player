@@ -940,7 +940,7 @@ function App() {
           <HomeScreen
             player={player}
             dashboardData={effectiveDashboard}
-            userId={player?.user_id ?? null}
+            userId={authUserId || player?.user_id || null}
             onRefresh={refreshDashboard}
             onOpenClub={() => setCurrentScreen('club')}
             onOpenCompete={() => setCurrentScreen('compete')}
@@ -1107,7 +1107,7 @@ function App() {
           <ProfileViewScreen
             player={player}
             dashboardData={effectiveDashboard}
-            userId={player?.user_id ?? null}
+            userId={authUserId || player?.user_id || null}
             onOpenGames={(tab?: 'upcoming' | 'history') => {
               if (tab) setGamesInitialTab(tab)
               setCurrentScreen('games')
@@ -3735,7 +3735,7 @@ function HomeScreen({
         </button>
       )}
 
-      {/* Estatísticas - Jogos, Vitórias, Empates, Derrotas, Seguidores */}
+      {/* Estatísticas - Jogos, Vitórias, %, Derrotas, Seguidores */}
       <div className="grid grid-cols-5 gap-2">
         <div className="card p-3 text-center">
           <p className="text-lg mb-0.5">🎾</p>
@@ -3748,9 +3748,9 @@ function HomeScreen({
           <p className="text-[10px] text-gray-500 mt-0.5 font-medium">Vitórias</p>
         </div>
         <div className="card p-3 text-center">
-          <p className="text-lg mb-0.5">🤝</p>
-          <p className="text-xl font-bold text-amber-600">{draws}</p>
-          <p className="text-[10px] text-gray-500 mt-0.5 font-medium">Empates</p>
+          <p className="text-lg mb-0.5">📊</p>
+          <p className="text-xl font-bold text-blue-600">{winRate}%</p>
+          <p className="text-[10px] text-gray-500 mt-0.5 font-medium">Vitórias %</p>
         </div>
         <div className="card p-3 text-center">
           <p className="text-lg mb-0.5">📉</p>
@@ -12781,9 +12781,9 @@ function OtherPlayerProfileScreen({
           <p className="text-[10px] text-gray-500 mt-0.5 font-medium">Vitórias</p>
         </div>
         <div className="card p-3 text-center">
-          <p className="text-lg mb-0.5">🤝</p>
-          <p className="text-xl font-bold text-amber-600">{profileDraws}</p>
-          <p className="text-[10px] text-gray-500 mt-0.5 font-medium">Empates</p>
+          <p className="text-lg mb-0.5">📊</p>
+          <p className="text-xl font-bold text-blue-600">{winRate}%</p>
+          <p className="text-[10px] text-gray-500 mt-0.5 font-medium">Vitórias %</p>
         </div>
         <div className="card p-3 text-center">
           <p className="text-lg mb-0.5">📉</p>
@@ -13073,9 +13073,72 @@ function ProfileViewScreen({
     const currentLevel = player?.level ?? 3.0
     const TARGET = 5
 
-    // Primary source: levelHistory (real data from DB)
+    // Prefer last 5 completed matches so draws (is_winner === null) always appear.
+    const completedMatches = [...recentMatches]
+      .filter(m => m.status === 'completed' && (m.is_winner === true || m.is_winner === false || m.is_winner === null))
+      .sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())
+    const lastMatches = completedMatches.slice(-TARGET)
+
+    const historyBySource = new Map<string, LevelHistoryEntry>()
     if (levelHistory.length > 0) {
-      // Deduplicate by source_id (keep latest) so reprocessed matches don't double-plot
+      for (const h of [...levelHistory].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())) {
+        if (h.source_id) historyBySource.set(String(h.source_id), h)
+      }
+    }
+
+    if (lastMatches.length > 0) {
+      const totalRated = (player?.wins ?? 0) + (player?.losses ?? 0)
+      const K = totalRated < 5 ? 0.50 : totalRated < 10 ? 0.35 : totalRated < 20 ? 0.25 : totalRated < 40 ? 0.15 : totalRated < 60 ? 0.10 : 0.06
+      const baseDelta = K * 0.4
+
+      const points = lastMatches.map((m) => {
+        const hist = m.id ? historyBySource.get(String(m.id).replace(/^open_result_/, '')) || historyBySource.get(String(m.id)) : undefined
+        const openId = (m as any).open_game_id ? historyBySource.get(String((m as any).open_game_id)) : undefined
+        const h = hist || openId
+        const won = m.is_winner === true ? true : m.is_winner === false ? false : null
+        const delta = h
+          ? Number(h.delta)
+          : won === true
+            ? baseDelta
+            : won === false
+              ? -baseDelta
+              : 0
+        return {
+          match: m,
+          won,
+          delta,
+          levelAfter: h ? Number(h.level_after) : null as number | null,
+          levelBefore: h ? Number(h.level_before) : null as number | null,
+          date: new Date(m.start_time || h?.created_at || Date.now()),
+          matchType: (m.is_open_game ? 'open_game' : 'tournament') as 'open_game' | 'tournament',
+        }
+      })
+
+      // Walk levels backwards from current when history missing for some points
+      let runLvl = currentLevel
+      for (let i = points.length - 1; i >= 0; i--) {
+        if (points[i].levelAfter == null) {
+          points[i].levelAfter = runLvl
+          points[i].levelBefore = Math.max(0.5, parseFloat((runLvl - points[i].delta).toFixed(2)))
+          runLvl = points[i].levelBefore
+        } else {
+          runLvl = points[i].levelBefore ?? Math.max(0.5, parseFloat((Number(points[i].levelAfter) - points[i].delta).toFixed(2)))
+        }
+      }
+
+      return points.map((p, i) => ({
+        index: i,
+        level: i === points.length - 1 ? currentLevel : Number(p.levelAfter),
+        levelBefore: Number(p.levelBefore ?? p.levelAfter),
+        delta: parseFloat(Number(p.delta).toFixed(4)),
+        won: p.won,
+        date: p.date,
+        matchType: p.matchType,
+      }))
+    }
+
+    // Fallback: levelHistory only (no recent match list)
+    if (levelHistory.length > 0) {
       const bySource = new Map<string, LevelHistoryEntry>()
       const noSource: LevelHistoryEntry[] = []
       for (const h of [...levelHistory].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())) {
@@ -13097,37 +13160,7 @@ function ProfileViewScreen({
       }))
     }
 
-    // Fallback: estimate from recentMatches if no levelHistory exists
-    const completedMatches = [...recentMatches]
-      .filter(m => m.status === 'completed' && (m.is_winner === true || m.is_winner === false || m.is_winner === null))
-      .sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())
-
-    const lastMatches = completedMatches.slice(-TARGET)
-    if (lastMatches.length === 0) {
-      return [{ index: 0, level: currentLevel, levelBefore: currentLevel, delta: 0, won: null as boolean | null, date: new Date(), matchType: 'tournament' as const }]
-    }
-
-    const totalRated = (player?.wins ?? 0) + (player?.losses ?? 0)
-    const K = totalRated < 5 ? 0.50 : totalRated < 10 ? 0.35 : totalRated < 20 ? 0.25 : totalRated < 40 ? 0.15 : totalRated < 60 ? 0.10 : 0.06
-    const baseDelta = K * 0.4
-
-    const deltas = lastMatches.map(m => m.is_winner === true ? baseDelta : m.is_winner === false ? -baseDelta : 0)
-    let runLvl = currentLevel
-    for (let i = deltas.length - 1; i >= 0; i--) runLvl = Math.max(0.5, runLvl - deltas[i])
-
-    return lastMatches.map((m, i) => {
-      const before = runLvl
-      runLvl = Math.max(0.5, parseFloat((runLvl + deltas[i]).toFixed(2)))
-      return {
-        index: i,
-        level: i === lastMatches.length - 1 ? currentLevel : runLvl,
-        levelBefore: parseFloat(before.toFixed(2)),
-        delta: parseFloat(deltas[i].toFixed(4)),
-        won: m.is_winner ?? null,
-        date: new Date(m.start_time),
-        matchType: m.is_open_game ? 'open_game' as const : 'tournament' as const,
-      }
-    })
+    return [{ index: 0, level: currentLevel, levelBefore: currentLevel, delta: 0, won: null as boolean | null, date: new Date(), matchType: 'tournament' as const }]
   }, [levelHistory, recentMatches, player?.level, player?.wins, player?.losses])
 
   const getHandLabel = (h?: string) => ({ right: 'Direita', left: 'Esquerda', ambidextrous: 'Ambidestro' }[h || ''] || '—')
@@ -13264,7 +13297,7 @@ function ProfileViewScreen({
 
               {data.map((d, i) => (
                 <g key={i}>
-                  <circle cx={toX(i)} cy={toY(d.level)} r={i === data.length - 1 ? 5 : 3} fill={d.won === true ? '#22c55e' : d.won === false ? '#ef4444' : '#3b82f6'} stroke="white" strokeWidth="1.5" />
+                  <circle cx={toX(i)} cy={toY(d.level)} r={i === data.length - 1 ? 5 : 3} fill={d.won === true ? '#22c55e' : d.won === false ? '#ef4444' : '#f59e0b'} stroke="white" strokeWidth="1.5" />
                   {i === data.length - 1 && (
                     <>
                       <rect x={toX(i) - 16} y={toY(d.level) - 20} width="32" height="14" rx="4" fill="#3b82f6" />
@@ -13285,8 +13318,8 @@ function ProfileViewScreen({
             {data.length > 1 && (
               <div className="flex items-center justify-center gap-4 mt-2 text-[10px] text-gray-400">
                 <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500 inline-block" /> Vitória</span>
+                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-500 inline-block" /> Empate</span>
                 <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500 inline-block" /> Derrota</span>
-                <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500 inline-block" /> Empate</span>
               </div>
             )}
 
@@ -13297,7 +13330,7 @@ function ProfileViewScreen({
         )
       })()}
 
-      {/* Estatísticas - Jogos, Vitórias, Empates, Derrotas, Seguidores */}
+      {/* Estatísticas - Jogos, Vitórias, %, Derrotas, Seguidores */}
       <div className="grid grid-cols-5 gap-2">
         <div className="card p-3 text-center">
           <p className="text-lg mb-0.5">🎾</p>
@@ -13310,9 +13343,9 @@ function ProfileViewScreen({
           <p className="text-[10px] text-gray-500 mt-0.5 font-medium">Vitórias</p>
         </div>
         <div className="card p-3 text-center">
-          <p className="text-lg mb-0.5">🤝</p>
-          <p className="text-xl font-bold text-amber-600">{draws}</p>
-          <p className="text-[10px] text-gray-500 mt-0.5 font-medium">Empates</p>
+          <p className="text-lg mb-0.5">📊</p>
+          <p className="text-xl font-bold text-blue-600">{winRate}%</p>
+          <p className="text-[10px] text-gray-500 mt-0.5 font-medium">Vitórias %</p>
         </div>
         <div className="card p-3 text-center">
           <p className="text-lg mb-0.5">📉</p>

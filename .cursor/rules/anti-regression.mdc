@@ -1,0 +1,15 @@
+---
+description: Anti-regressão — não quebrar o que já funciona na app Player/Tour
+alwaysApply: true
+---
+
+# Anti-regressão (Padel One)
+
+Quando alterares código neste projeto:
+
+1. **Não remover nem substituir UI/dados que já funcionam** só porque estás a adicionar uma feature (ex.: empates). Se adicionares empates, mantém % de vitórias, follows, níveis, nomes, torneios.
+2. **Não recalcular nem reescrever níveis/ratings** como efeito colateral de fixes de UI, stats, telefone ou dashboard.
+3. **Telefone = identidade** (`player_accounts`). Email é só contacto. Nunca ligar auth/user_id só por email.
+4. **Preservar `user_id` e follows**: ao “corrigir” contas duplicadas, migrar `follows` (e outros FKs por `user_id`) para o auth correcto — nunca orphanar follows.
+5. **Testar regressões** antes de concluir: home (Jogos / Vitórias / % / Derrotas / Seguidores), gráfico últimos 5 (V/E/D), perfil nome+torneios, follows, nível não muda sem jogo novo.
+6. Se o pedido for só UI/stats, **não tocar** em rating engine, migrations de nível, nem scripts de reprocessamento.
