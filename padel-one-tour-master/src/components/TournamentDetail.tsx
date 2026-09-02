@@ -7004,6 +7004,12 @@ export default function TournamentDetail({ tournament, onBack }: TournamentDetai
                     }
                     console.log(`[REPROCESS] Reversed ${reversedTotal} history rows`);
 
+                    if ((ratedMatches?.length ?? 0) > 0 && reversedTotal === 0) {
+                      alert('Reprocessamento cancelado: não foi possível reverter os níveis anteriores deste torneio.\n\nIsto evita corromper níveis. Contacta suporte antes de voltar a tentar.');
+                      setLoading(false);
+                      return;
+                    }
+
                     // 2) Reset rating_processed flag for all matches in this tournament
                     const { error: resetErr } = await supabase
                       .from('matches')

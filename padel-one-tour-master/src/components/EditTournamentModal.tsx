@@ -1303,6 +1303,12 @@ export default function EditTournamentModal({ tournament, onClose, onSuccess, is
                   }
                   console.log(`[REPROCESS-ALL] Reversed ${reversedTotal} history rows`);
 
+                  if ((allRated?.length ?? 0) > 0 && reversedTotal === 0) {
+                    alert('Recálculo GLOBAL cancelado: o histórico de níveis não tem source_id para reverter jogos antigos.\n\nCorrer isto corromperia níveis de todos os jogadores.');
+                    setReprocessLoading(false);
+                    return;
+                  }
+
                   const { error: resetPlayersErr } = await supabase
                     .from('player_accounts')
                     .update({ rated_matches: 0, wins: 0, losses: 0 })

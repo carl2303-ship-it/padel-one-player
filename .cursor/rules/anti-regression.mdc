@@ -13,3 +13,5 @@ Quando alterares código neste projeto:
 4. **Preservar `user_id` e follows**: ao “corrigir” contas duplicadas, migrar `follows` (e outros FKs por `user_id`) para o auth correcto — nunca orphanar follows.
 5. **Testar regressões** antes de concluir: home (Jogos / Vitórias / % / Derrotas / Seguidores), gráfico últimos 5 (V/E/D), perfil nome+torneios, follows, nível não muda sem jogo novo.
 6. Se o pedido for só UI/stats, **não tocar** em rating engine, migrations de nível, nem scripts de reprocessamento.
+7. **Nunca reprocessar ratings** se `reverseRatingForSource` não conseguir reverter (source_id em falta) — bloqueia a operação em vez de correr.
+8. **Nunca sobrescrever `player_accounts.level`** ao mudar categoria M3/M4/M5 — categoria ≠ rating ELO.
