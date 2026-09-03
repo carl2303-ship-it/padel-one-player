@@ -499,10 +499,27 @@ export async function processMatchRating(
 
 /**
  * Undo previous rating for this match (via history), then apply rating for current scores.
+ *
+ * Segurança: se o jogo já tinha sido processado antes mas não foi possível
+ * encontrar/desfazer o histórico correspondente (source_id em falta), o
+ * reprocessamento é BLOQUEADO em vez de reaplicar um novo delta em cima do
+ * nível já alterado (o que duplicaria/corromperia nível, jogos e V/D).
  */
 export async function reprocessMatchRating(matchId: string): Promise<RatingResult | null> {
+  const { data: match } = await supabase
+    .from('matches')
+    .select('id, rating_processed')
+    .eq('id', matchId)
+    .maybeSingle()
+
+  const wasProcessed = !!match?.rating_processed
   const reversed = await reverseRatingForSource(matchId)
   console.log(`[RatingEngine] Reversed ${reversed} history rows for match ${matchId}`)
+
+  if (wasProcessed && reversed === 0) {
+    console.error(`[RatingEngine] BLOCKED reprocess for match ${matchId}: already rated but no history found to reverse safely.`)
+    return { skipped: true, message: 'Reprocessamento bloqueado: histórico do jogo não encontrado para reverter em segurança.' }
+  }
 
   await supabase
     .from('matches')
