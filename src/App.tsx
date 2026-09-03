@@ -219,7 +219,16 @@ function App() {
       setClientModules(EMPTY_MODULES)
       return
     }
-    fetchClientModules('club', player.favorite_club_id).then(setClientModules)
+    let cancelled = false
+    const clubIdAtRequest = player.favorite_club_id
+    fetchClientModules('club', clubIdAtRequest).then((modules) => {
+      // Evita sobrescrever com dados desatualizados se o clube activo mudou
+      // enquanto este pedido estava em curso (troca rápida de clube).
+      if (!cancelled && player?.favorite_club_id === clubIdAtRequest) {
+        setClientModules(modules)
+      }
+    })
+    return () => { cancelled = true }
   }, [player?.favorite_club_id])
 
   // GPS pontual: actualiza lat/lng do jogador (descoberta zona 50 km)
