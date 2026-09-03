@@ -6489,6 +6489,7 @@ function CompeteScreen({
                                           {Object.keys(catDetail.groups).length > 1 && (
                                             <p className="text-xs font-bold text-blue-600 mb-1">Grupo {groupName}</p>
                                           )}
+                                          <div className="overflow-x-auto">
                                           <table className="w-full text-sm mb-1">
                                             <thead>
                                               <tr className="text-gray-500 border-b">
@@ -6520,6 +6521,7 @@ function CompeteScreen({
                                               })}
                                             </tbody>
                                           </table>
+                                          </div>
                                           {matchesForGroup.length > 0 && (
                                             <div className="space-y-1 mb-1">
                                               <p className="text-[10px] font-medium text-gray-400 uppercase">Jogos do Grupo</p>
@@ -7065,6 +7067,7 @@ function CompeteScreen({
                     {sortedGroups.length > 1 && (
                       <p className="text-xs font-bold text-blue-600 mb-1">Grupo {groupName}</p>
                     )}
+                    <div className="overflow-x-auto">
                     <table className="w-full text-sm mb-1">
                       <thead>
                         <tr className="text-gray-500 border-b">
@@ -7099,6 +7102,7 @@ function CompeteScreen({
                         })}
                       </tbody>
                     </table>
+                    </div>
                     {matchesForGroup.length > 0 && (
                       <div className="space-y-1 mb-1">
                         <p className="text-[10px] font-medium text-gray-400 uppercase">Jogos do Grupo</p>
@@ -7304,6 +7308,7 @@ function CompeteScreen({
                           {details?.standings && details.standings.length > 0 && (
                             <div className="mt-4 pt-4 border-t border-gray-100">
                               <p className="text-xs font-medium text-gray-500 mb-2">Classificação final</p>
+                              <div className="overflow-x-auto">
                               <table className="w-full text-sm">
                                 <thead>
                                   <tr className="text-gray-500 border-b">
@@ -7337,6 +7342,7 @@ function CompeteScreen({
                                   })}
                                 </tbody>
                               </table>
+                              </div>
                             </div>
                           )}
                         </>
@@ -7532,6 +7538,7 @@ function CompeteScreen({
                     <div className="w-8 h-8 border-2 border-red-600 border-t-transparent rounded-full animate-spin" />
                   </div>
                 ) : displayStandings.length > 0 ? (
+                  <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead className="bg-gray-50 sticky top-0">
                       <tr>
@@ -7566,6 +7573,7 @@ function CompeteScreen({
                       ))}
                     </tbody>
                   </table>
+                  </div>
                 ) : (
                   <p className="text-gray-500 text-center py-8">Sem dados de classificação.</p>
                 )}
@@ -7633,6 +7641,7 @@ function CompeteScreen({
             </div>
             <div className="overflow-y-auto max-h-[70vh]">
               {detailTab === 'standings' && (
+                <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 sticky top-0">
                     <tr>
@@ -7670,6 +7679,7 @@ function CompeteScreen({
                     })}
                   </tbody>
                 </table>
+                </div>
               )}
               {detailTab === 'matches' && (
                 <div className="divide-y">
