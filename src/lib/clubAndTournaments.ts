@@ -492,7 +492,6 @@ export async function fetchTournamentFullDetail(tournamentId: string, playerAcco
   if (!t) return null
 
   // 2) Clube(s) — torneio escada pode ter vários em club_ids
-  console.log('[fetchTournamentFullDetail] RAW club fields:', { club_id: t.club_id, club_ids: t.club_ids, type_club_ids: typeof t.club_ids, isArray: Array.isArray(t.club_ids) })
   let club_name: string | null = null
   let club_logo: string | null = null
   const venueIds = parseClubIds(t.club_ids, t.club_id)
@@ -527,7 +526,6 @@ export async function fetchTournamentFullDetail(tournamentId: string, playerAcco
   const totalMax = (categories || []).reduce((sum, c) => c.max_teams ? sum + c.max_teams : sum, 0)
   const is_full = totalMax > 0 && total_enrolled >= totalMax
 
-  console.log('[fetchTournamentFullDetail] RAW tournament data:', { format: t.format, round_robin_type: t.round_robin_type, name: t.name })
   return {
     id: t.id,
     name: t.name,

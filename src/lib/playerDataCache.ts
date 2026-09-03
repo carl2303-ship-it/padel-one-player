@@ -57,7 +57,6 @@ export async function preloadAllPlayerData(): Promise<void> {
       }
     }
     console.timeEnd('[PlayerCache] Load all player_accounts')
-    console.log(`[PlayerCache] ${cache.size} jogadores carregados`)
   })()
 
   return loadingPromise

@@ -416,14 +416,6 @@ export async function fetchPlayerDashboardData(
   const playerIds = allPlayers.map((p) => p.id)
   const tournamentIds = allPlayers.filter((p) => p.tournament_id).map((p) => p.tournament_id!)
 
-  console.log('[PlayerDashboard] Found players:', {
-    byAccountId: playersByAccountId.data?.length || 0,
-    byPhone: playersByPhone.data?.length || 0,
-    byName: playersByName.data?.length || 0,
-    total: allPlayers.length,
-    playerIds: playerIds.length,
-    tournamentIds: tournamentIds.length
-  })
 
   if (allPlayers.length === 0) {
     await fetchLeagueStandingsOnly(playerAccount.id, name || '', result)
@@ -549,7 +541,6 @@ export async function fetchPlayerDashboardData(
         console.warn('[PlayerDashboard] Matches query error:', matchError)
       } else {
         matchesData = fetchedMatches || []
-        console.log('[PlayerDashboard] Found matches:', matchesData.length, 'for', playerIds.length, 'players and', teamIds.length, 'teams')
       }
     }
     console.timeEnd('[Dashboard] Fetch matches (single query)')
@@ -793,7 +784,6 @@ export async function enrichDashboardWithEdgeFunction(currentDashboardData?: Pla
         accountId: currentDashboardData?.playerAccountId ?? null,
       }),
     })
-    console.log(`[Dashboard] Edge Function enrichment: ${Math.round(performance.now() - t0)}ms`)
 
     if (!response.ok) {
       console.warn('[Dashboard] Edge Function error:', response.status, response.statusText)
@@ -849,7 +839,6 @@ export async function enrichDashboardWithEdgeFunction(currentDashboardData?: Pla
           bestFinish: '-',
         }
       }
-      console.log('[Dashboard] Edge Function stats (final):', enriched.stats)
     }
     // Merge recent matches from edge function (bypasses RLS for stats/visibility)
     // BUT prefer client-resolved player names (RPC + player_accounts) when edge still
@@ -879,7 +868,6 @@ export async function enrichDashboardWithEdgeFunction(currentDashboardData?: Pla
         // Edge Function v2+ already includes open games - use directly (with name merge)
         enriched.recentMatches = mergeNames(edgeData.recentMatches)
           .sort((a: any, b: any) => new Date(b.start_time).getTime() - new Date(a.start_time).getTime())
-        console.log('[Dashboard] Edge Function recentMatches (includes open games):', edgeData.recentMatches.length, '(', edgeOpenGames.length, 'open games)')
       } else {
         // Edge Function v1 - merge with client-side open games
         const currentOpenGames = (currentDashboardData?.recentMatches || [])
@@ -888,7 +876,6 @@ export async function enrichDashboardWithEdgeFunction(currentDashboardData?: Pla
         const allMatches = [...mergeNames(edgeData.recentMatches), ...currentOpenGames]
           .sort((a, b) => new Date(b.start_time).getTime() - new Date(a.start_time).getTime())
         enriched.recentMatches = allMatches
-        console.log('[Dashboard] Edge Function recentMatches:', edgeData.recentMatches.length, '+ open games:', currentOpenGames.length, '= total:', allMatches.length)
       }
 
       // Patch stats if any American tie (5-5) was wrongly marked as loss before normalize
@@ -911,13 +898,11 @@ export async function enrichDashboardWithEdgeFunction(currentDashboardData?: Pla
             totalMatches: wins + draws + losses,
             winRate: decided > 0 ? Math.round((wins / decided) * 100) : 0,
           }
-          console.log('[Dashboard] Patched', lossToDraw, 'false losses → draws. stats=', enriched.stats)
         }
       }
     } else if (currentDashboardData?.recentMatches) {
       // If edge function doesn't return matches, keep current ones (includes open games)
       enriched.recentMatches = currentDashboardData.recentMatches.map(normalizeMatchWinner)
-      console.log('[Dashboard] No Edge Function matches, keeping current:', currentDashboardData.recentMatches.length)
     }
 
     // Persist authoritative stats (avoids client race that rewrote draws as losses)
@@ -1177,7 +1162,6 @@ export async function fetchTournamentStandingsAndMatches(
       if (t.player2_id && !playerNamesMap.has(t.player2_id)) missingTeamPlayerIds.add(t.player2_id)
     })
     if (missingTeamPlayerIds.size > 0) {
-      console.log('[fetchTournamentStandingsAndMatches] Fetching', missingTeamPlayerIds.size, 'cross-tournament player names')
       // Usar RPC com cada tournament_id dos jogadores em falta? Não — buscar directamente
       // Como a RPC faz SECURITY DEFINER, podemos chamar com os IDs directos
       const { data: crossPlayers } = await supabase
@@ -1219,7 +1203,6 @@ export async function fetchTournamentStandingsAndMatches(
     }
   }
 
-  console.log('[fetchTournamentStandingsAndMatches] Teams:', teams?.length, 'Players (RPC):', rpcPlayers?.length || 0, 'Matches:', matches?.length, 'PlayerNamesMap size:', playerNamesMap.size)
 
   if (tournament) tournamentName = tournament.name || ''
 

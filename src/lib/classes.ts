@@ -294,7 +294,6 @@ export async function fetchAvailableClasses(clubId?: string | null, userId?: str
     
     if (!errorById && coachesById) {
       coachesData = coachesById
-      console.log('[Classes] Coaches found by ID:', coachesData.length, 'for coachIds:', validCoachIds, 'coaches:', coachesData)
     } else {
       console.error('[Classes] Error fetching coaches by ID:', errorById)
       
@@ -311,7 +310,6 @@ export async function fetchAvailableClasses(clubId?: string | null, userId?: str
           if (!errorByOwner && coachesByOwner) {
             // Filtrar apenas os coaches que são usados nas aulas
             coachesData = coachesByOwner.filter(c => validCoachIds.includes(c.id))
-            console.log('[Classes] Coaches found by club_owner_id (fallback):', coachesData.length, 'for coachIds:', validCoachIds, 'coaches:', coachesData)
           } else {
             console.error('[Classes] Error fetching coaches by club_owner_id:', errorByOwner)
           }
@@ -319,7 +317,6 @@ export async function fetchAvailableClasses(clubId?: string | null, userId?: str
       }
     }
   } else {
-    console.log('[Classes] No valid coachIds to search')
   }
 
   // Buscar courts
@@ -491,7 +488,6 @@ export async function fetchAvailableClasses(clubId?: string | null, userId?: str
     const club = clubsMap.get(cls.club_owner_id)
 
     const coachName = coach ? coach.name : 'NOT FOUND'
-    console.log('[Classes] Class', cls.id, '- coach_id:', cls.coach_id, '- coach found:', coachName, '- coachesMap size:', coachesMap.size)
 
     const professorAvatar = coach?.user_id ? coachAvatars.get(coach.user_id) || null : null
     

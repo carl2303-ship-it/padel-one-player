@@ -281,7 +281,6 @@ function App() {
         const elapsed = Date.now() - lastForegroundRefresh.current
         if (elapsed > 30_000 && isAuthenticated && player?.user_id) {
           lastForegroundRefresh.current = Date.now()
-          console.log('[App] Foreground refresh triggered')
           const data = await fetchPlayerDashboardData(player.user_id, {
             id: player.id,
             name: player.name,
@@ -383,7 +382,6 @@ function App() {
       const savedPhone = localStorage.getItem('padel_one_player_phone')
       if (savedPhone) {
         // Session expired but phone is saved - user needs to re-login
-        console.log('[Auth] Session expired, clearing local state for re-login')
       }
       setIsLoading(false)
       return
@@ -2198,7 +2196,6 @@ function OpenGameCard({
 
   const handleAddPlayer = async (paId: string) => {
     const selectedPlayer = addPlayerResults.find(r => r.id === paId)
-    console.log('[AddPlayer] clicked:', { paId, selectedName: selectedPlayer?.name, targetPosition: addPlayerTargetPosition, allResults: addPlayerResults.map(r => ({ id: r.id, name: r.name })) })
     setAddingPlayer(true)
     const { addPlayerToOpenGame } = await import('./lib/openGames')
     const result = await addPlayerToOpenGame({ gameId: game.id, playerAccountId: paId, position: addPlayerTargetPosition ?? undefined })
@@ -5739,7 +5736,6 @@ function CompeteScreen({
       try {
         const { fetchConfirmedOpenGameResults } = await import('./lib/openGames')
         const data = await fetchConfirmedOpenGameResults(userId, playerAccountId || undefined)
-        console.log('[History] Fetched open game history:', data.length, 'games for userId:', userId, 'playerAccountId:', playerAccountId)
         if (active) setOpenGameHistory(data)
       } catch (err) {
         console.error('[History] Error fetching open game results:', err)
@@ -5855,7 +5851,6 @@ function CompeteScreen({
     setPendingInviteForTournament(null)
     try {
       const detail = await fetchTournamentFullDetail(tournamentId, player?.id)
-      console.log('[CompeteScreen] DETAIL LOADED:', { format: detail?.format, round_robin_type: detail?.round_robin_type, name: detail?.name })
       setSelectedTournamentDetail(detail)
       if (player?.id) {
         const invites = await fetchMyTournamentInvites(player.id)

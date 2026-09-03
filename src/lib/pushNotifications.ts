@@ -135,7 +135,6 @@ export async function subscribeToPush(playerAccountId: string): Promise<boolean>
       }
     }
 
-    console.log('[Push] Subscribed successfully')
     return true
   } catch (err) {
     console.error('[Push] Subscribe error:', err)
@@ -158,7 +157,6 @@ export async function unsubscribeFromPush(playerAccountId: string): Promise<bool
         .eq('endpoint', subscription.endpoint)
     }
 
-    console.log('[Push] Unsubscribed successfully')
     return true
   } catch (err) {
     console.error('[Push] Unsubscribe error:', err)
@@ -303,7 +301,6 @@ export async function notifyMatchingPlayersForNewGame(params: {
     const { data: matchingPlayers, error } = await query
 
     if (error || !matchingPlayers || matchingPlayers.length === 0) {
-      console.log('[Push] No matching players found for new game notification')
       return
     }
 
@@ -330,11 +327,9 @@ export async function notifyMatchingPlayersForNewGame(params: {
     }
 
     if (filtered.length === 0) {
-      console.log('[Push] No matching players after filtering')
       return
     }
 
-    console.log(`[Push] Notifying ${filtered.length} matching players for new game`)
 
     const genderLabel = params.gender === 'male' ? '♂️' : params.gender === 'female' ? '♀️' : '🎾'
     const payload: PushPayload = {
@@ -348,7 +343,6 @@ export async function notifyMatchingPlayersForNewGame(params: {
     const targets = filtered.slice(0, 50)
     await Promise.allSettled(targets.map(p => sendPushToPlayer(p.id, payload)))
 
-    console.log(`[Push] Sent new game notifications to ${targets.length} players`)
   } catch (err) {
     console.error('[Push] NotifyMatchingPlayers error:', err)
   }

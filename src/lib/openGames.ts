@@ -1134,7 +1134,6 @@ export async function createOpenGame(params: {
         }),
       }).then(async (resp) => {
         const result = await resp.json().catch(() => null)
-        console.log('[Push] notify-new-open-game response:', resp.status, result)
       }).catch(err => console.error('[Push] notify-new-open-game fetch error:', err))
     } catch (err) {
       console.error('[Push] Error triggering matching player notifications:', err)
@@ -1720,7 +1719,6 @@ export async function cancelOpenGame(gameId: string): Promise<boolean> {
   try {
     await supabase.from('open_game_players').delete().eq('game_id', gameId)
     await supabase.from('open_games').delete().eq('id', gameId)
-    console.log('[OpenGames] Game and players deleted from DB after cancellation')
   } catch (delErr) {
     console.warn('[OpenGames] Error deleting cancelled game from DB:', delErr)
   }
@@ -1738,13 +1736,11 @@ export async function addPlayerToOpenGame(params: {
   playerAccountId: string
   position?: number
 }): Promise<{ success: boolean; error?: string }> {
-  console.log('[addPlayerToOpenGame] calling RPC with:', { gameId: params.gameId, playerAccountId: params.playerAccountId, position: params.position })
   const { data, error } = await supabase.rpc('add_player_to_open_game', {
     p_game_id: params.gameId,
     p_player_account_id: params.playerAccountId,
   })
 
-  console.log('[addPlayerToOpenGame] RPC result:', { data, error })
 
   if (error) {
     console.error('[OpenGames] Error adding player to game:', error)
@@ -1780,10 +1776,8 @@ export async function addPlayerToOpenGame(params: {
         .select('id, player_account_id, position')
         .eq('game_id', params.gameId)
         .eq('status', 'confirmed')
-      console.log('[addPlayerToOpenGame] existing players before reposition:', existing)
       const occupant = (existing || []).find(p => p.position === params.position && p.player_account_id !== params.playerAccountId)
       const newPlayer = (existing || []).find(p => p.player_account_id === params.playerAccountId)
-      console.log('[addPlayerToOpenGame] reposition:', { targetPos: params.position, occupant, newPlayer })
       if (occupant && newPlayer) {
         await supabase.from('open_game_players').update({ position: newPlayer.position }).eq('id', occupant.id)
         await supabase.from('open_game_players').update({ position: params.position }).eq('id', newPlayer.id)
@@ -2209,7 +2203,6 @@ export async function confirmGameResult(gameId: string): Promise<{ success: bool
     if (statusError) {
       console.error('[OpenGames] Error updating game status to completed:', statusError)
     } else {
-      console.log('[OpenGames] Game status updated to completed:', gameId)
     }
   } catch (err) {
     console.error('[OpenGames] Error updating game status:', err)
@@ -2293,7 +2286,6 @@ export async function disputeGameResult(gameId: string): Promise<{ success: bool
 
     if (existing?.rating_processed) {
       const reversed = await reverseRatingForSource(gameId)
-      console.log(`[OpenGames] Dispute: reversed ${reversed} rating rows for game ${gameId}`)
     }
   } catch (revErr) {
     console.error('[OpenGames] Dispute: failed to reverse rating:', revErr)
@@ -2321,7 +2313,6 @@ export async function disputeGameResult(gameId: string): Promise<{ success: bool
 // ============================
 
 async function processOpenGameRating(gameId: string): Promise<void> {
-  console.log('[OpenGames] processOpenGameRating v3: Starting for game:', gameId)
   
   // 1. Get the confirmed result
   const { data: result, error: resultError } = await supabase
@@ -2340,14 +2331,9 @@ async function processOpenGameRating(gameId: string): Promise<void> {
     return
   }
   if (result.rating_processed) {
-    console.log('[OpenGames] processOpenGameRating: Rating already processed for game:', gameId)
     return
   }
   
-  console.log('[OpenGames] processOpenGameRating: Found confirmed result:', result.id, 
-    'Scores:', result.team1_score_set1, '-', result.team2_score_set1, '|', 
-    result.team1_score_set2, '-', result.team2_score_set2, '|',
-    result.team1_score_set3, '-', result.team2_score_set3)
 
   // 2. Get all confirmed players sorted by position
   const { data: players, error: playersError } = await supabase
@@ -2367,8 +2353,6 @@ async function processOpenGameRating(gameId: string): Promise<void> {
     return
   }
   
-  console.log('[OpenGames] processOpenGameRating: Found', players.length, 'players:', 
-    players.map(p => `pos${p.position}:${p.player_account_id}`).join(', '))
 
   // 3. Get player accounts (include level_reliability_percent for protected reliability)
   const accountIds = players.map(p => p.player_account_id).filter(Boolean) as string[]
@@ -2379,7 +2363,6 @@ async function processOpenGameRating(gameId: string): Promise<void> {
     return
   }
   
-  console.log('[OpenGames] processOpenGameRating: Account IDs:', accountIds)
   
   const { data: accounts, error: accountsError } = await supabase
     .from('player_accounts')
@@ -2397,8 +2380,6 @@ async function processOpenGameRating(gameId: string): Promise<void> {
     return
   }
   
-  console.log('[OpenGames] processOpenGameRating: Found', accounts.length, 'accounts:',
-    accounts.map(a => `${a.name}(lvl:${a.level}, rm:${a.rated_matches}, rel:${a.level_reliability_percent}%)`).join(', '))
 
   const accountMap = new Map(accounts.map(a => [a.id, a]))
 
@@ -2427,9 +2408,6 @@ async function processOpenGameRating(gameId: string): Promise<void> {
     return
   }
 
-  console.log('[OpenGames] processOpenGameRating: Player ratings before:',
-    `Team1: ${p1.name}(${p1.rating}) + ${p2.name}(${p2.rating})`,
-    `vs Team2: ${p3.name}(${p3.rating}) + ${p4.name}(${p4.rating})`)
 
   const s1 = [result.team1_score_set1 ?? 0, result.team2_score_set1 ?? 0] as [number, number]
   const s2 = [result.team1_score_set2 ?? 0, result.team2_score_set2 ?? 0] as [number, number]
@@ -2440,8 +2418,6 @@ async function processOpenGameRating(gameId: string): Promise<void> {
   const gamesTotal1 = s1[0] + s2[0] + s3[0]
   const gamesTotal2 = s1[1] + s2[1] + s3[1]
 
-  console.log('[OpenGames] processOpenGameRating: Score analysis:',
-    `sets ${sets1}-${sets2}, games ${gamesTotal1}-${gamesTotal2}`)
 
   if (sets1 === 0 && sets2 === 0 && gamesTotal1 === 0 && gamesTotal2 === 0) {
     console.warn('[OpenGames] processOpenGameRating: No scores at all, skipping')
@@ -2475,7 +2451,6 @@ async function processOpenGameRating(gameId: string): Promise<void> {
     ratingResult.team2.p3, ratingResult.team2.p4,
   ]
 
-  console.log('[OpenGames] processOpenGameRating: Updating ratings for', allPlayers.length, 'players')
   
   for (const rp of allPlayers) {
     const formulaReliability = calculateReliability(rp.matches)
@@ -2483,11 +2458,6 @@ async function processOpenGameRating(gameId: string): Promise<void> {
     const currentReliability = currentAccount?.level_reliability_percent ?? 0
     const protectedReliability = calculateProtectedReliability(formulaReliability, currentReliability)
     
-    console.log('[OpenGames] processOpenGameRating: Updating player', rp.name,
-      `- rating: ${(currentAccount?.level ?? 3.0).toFixed(2)} → ${rp.rating.toFixed(2)} (Δ${rp.delta >= 0 ? '+' : ''}${rp.delta.toFixed(4)})`,
-      `| reliability: ${currentReliability}% → ${protectedReliability}% (formula: ${formulaReliability}%)`,
-      `| won: ${rp.won}`,
-      `| matches: ${rp.matches}`)
     
     const { error: rpcError } = await supabase.rpc('update_player_rating', {
       p_player_account_id: rp.id,
@@ -2501,7 +2471,6 @@ async function processOpenGameRating(gameId: string): Promise<void> {
     if (rpcError) {
       console.error('[OpenGames] processOpenGameRating: Error updating rating for', rp.id, rp.name, ':', rpcError)
     } else {
-      console.log('[OpenGames] processOpenGameRating: ✅ Successfully updated', rp.name)
     }
   }
 
@@ -2515,7 +2484,6 @@ async function processOpenGameRating(gameId: string): Promise<void> {
     console.error('[OpenGames] processOpenGameRating: Error marking as processed:', markError)
   }
 
-  console.log('[OpenGames] ✅ Rating processed successfully for game:', gameId)
 }
 
 // ============================
@@ -2618,7 +2586,6 @@ export async function awardGameRewardPoints(gameId: string, actionType: string, 
 
   const result = rpcResult as any
   if (result?.success) {
-    console.log('[Rewards] ✅ Awarded', actionType, ':', result.points_earned, 'pts → total:', result.new_total, '(tier:', result.tier, ')')
     return true
   }
 
@@ -2664,7 +2631,6 @@ async function checkAndAwardFirstGame(gameId: string, playerAccountId?: string):
 
     // If this is the first create_game or join_game transaction (only 1 exists = the current one)
     if (!prevGames || prevGames.length <= 1) {
-      console.log('[Rewards] 🎉 First game detected! Awarding first_game bonus for player:', paId)
       await awardGameRewardPoints(gameId, 'first_game', paId)
     }
   } catch (err) {
@@ -2686,7 +2652,6 @@ async function awardAllPlayersReward(gameId: string, actionType: string): Promis
       return
     }
 
-    console.log('[Rewards] Awarding', actionType, 'to', players.length, 'players in game:', gameId)
     for (const player of players) {
       if (player.player_account_id) {
         await awardGameRewardPoints(gameId, actionType, player.player_account_id)
@@ -2807,7 +2772,6 @@ export async function retroactivelyAwardMissingRewards(playerAccountId: string):
     }
 
     if (awardedCount > 0) {
-      console.log('[Rewards] ✅ Retroactively awarded', awardedCount, 'missing rewards')
     }
   } catch (err) {
     console.error('[Rewards] Error in retroactive reward fix:', err)
@@ -3018,7 +2982,6 @@ export async function fetchGamesAwaitingResult(userId: string, playerAccountId?:
         console.error('[OpenGames] Error updating user_id for open_game_players:', updateError)
         console.error('[OpenGames] This may be due to RLS - ensure migration 20260225100003 is applied')
       } else {
-        console.log('[OpenGames] Successfully updated user_id for player_account_id:', playerAccountId)
       }
     } catch (err) {
       console.error('[OpenGames] Error updating user_id for open_game_players:', err)
@@ -3058,8 +3021,6 @@ export async function fetchGamesAwaitingResult(userId: string, playerAccountId?:
     }
   })
 
-  console.log('[OpenGames] fetchGamesAwaitingResult found', gameIdSet.size, 'games for userId:', userId, 'playerAccountId:', playerAccountId)
-  console.log('[OpenGames] Game IDs found:', Array.from(gameIdSet))
 
   if (gameIdSet.size === 0) return []
   const myGames = Array.from(gameIdSet).map(id => ({ game_id: id }))
@@ -3068,11 +3029,9 @@ export async function fetchGamesAwaitingResult(userId: string, playerAccountId?:
   
   // Verify authentication
   const { data: { user: authUser }, error: authError } = await supabase.auth.getUser()
-  console.log('[OpenGames] Auth check - user:', authUser?.id, 'error:', authError)
 
   // Fetch games that ended (scheduled_at + duration < now)
   const now = new Date().toISOString()
-  console.log('[OpenGames] Fetching games with IDs:', gameIds, 'status: full/completed, scheduled_at <=', now)
   
   // First, let's check what games exist without any filters
   // Use .eq() for single ID, .in() for multiple
@@ -3097,7 +3056,6 @@ export async function fetchGamesAwaitingResult(userId: string, playerAccountId?:
     checkError = error
   }
   
-  console.log('[OpenGames] All games (no filters):', allGamesCheck)
   if (checkError) {
     console.error('[OpenGames] Error checking games:', checkError)
     console.error('[OpenGames] Error details:', JSON.stringify(checkError, null, 2))
@@ -3111,8 +3069,6 @@ export async function fetchGamesAwaitingResult(userId: string, playerAccountId?:
     console.error('[OpenGames] 3. Game ID mismatch')
     
     // Try alternative: fetch through open_game_players with JOIN
-    console.log('[OpenGames] Trying alternative: fetch through open_game_players JOIN')
-    console.log('[OpenGames] JOIN query params - gameIds:', gameIds, 'userId:', userId, 'playerAccountId:', playerAccountId)
     
     // First, verify we can see the open_game_players record
     const { data: playersCheck, error: playersCheckError } = await supabase
@@ -3121,17 +3077,8 @@ export async function fetchGamesAwaitingResult(userId: string, playerAccountId?:
       .in('game_id', gameIds)
       .eq('status', 'confirmed')
     
-    console.log('[OpenGames] Players check (no user filter):', playersCheck?.length || 0, 'records found')
     if (playersCheck && playersCheck.length > 0) {
       playersCheck.forEach((p: any) => {
-        console.log('[OpenGames] Player record:', {
-          id: p.id,
-          game_id: p.game_id,
-          user_id: p.user_id,
-          player_account_id: p.player_account_id,
-          matches_userId: p.user_id === userId,
-          matches_playerAccountId: p.player_account_id === playerAccountId
-        })
       })
     }
     if (playersCheckError) {
@@ -3211,12 +3158,10 @@ export async function fetchGamesAwaitingResult(userId: string, playerAccountId?:
         console.error(`[OpenGames] JOIN query ${index} error:`, result.error)
         if (!joinError) joinError = result.error
       } else if (result.data) {
-        console.log(`[OpenGames] JOIN query ${index} found:`, result.data.length, 'results')
         gamesViaPlayers = gamesViaPlayers.concat(result.data)
       }
     })
     
-    console.log('[OpenGames] Total JOIN results:', gamesViaPlayers.length, 'games found')
     if (joinError) {
       console.error('[OpenGames] JOIN query error:', joinError)
     }
@@ -3224,7 +3169,6 @@ export async function fetchGamesAwaitingResult(userId: string, playerAccountId?:
     // Since JOIN doesn't work due to RLS, try to fetch game data directly using RPC or alternative method
     // For now, let's try to fetch the game data using the game_id we know exists
     if (gamesViaPlayers.length === 0 && playersCheck && playersCheck.length > 0) {
-      console.log('[OpenGames] JOIN failed but we have player records. Trying to fetch game via RPC or direct query with service role...')
       
       // Try using a workaround: fetch game data through open_game_results if it exists
       const { data: resultData } = await supabase
@@ -3234,7 +3178,6 @@ export async function fetchGamesAwaitingResult(userId: string, playerAccountId?:
         .limit(1)
       
       if (resultData && resultData.length > 0 && resultData[0].open_games) {
-        console.log('[OpenGames] Found game via open_game_results:', resultData[0].open_games.id)
         const gameData = resultData[0].open_games as any
         allGamesCheck = [{
           id: gameData.id,
@@ -3244,14 +3187,10 @@ export async function fetchGamesAwaitingResult(userId: string, playerAccountId?:
           created_at: gameData.created_at,
           _fullData: gameData
         }]
-        console.log('[OpenGames] Using game from open_game_results:', allGamesCheck.length)
       } else {
         // Last resort: construct minimal game object from what we know
         // We know the game_id exists, so let's try to fetch it using a different approach
-        console.log('[OpenGames] Trying to fetch game using service role or admin context...')
         // Note: This won't work from client-side, but we can at least log what we're trying
-        console.log('[OpenGames] Game ID exists in open_game_players but RLS blocks access to open_games')
-        console.log('[OpenGames] This requires a server-side RPC function or RLS policy fix')
       }
     } else if (gamesViaPlayers && gamesViaPlayers.length > 0) {
         // Extract unique games from the JOIN result
@@ -3262,7 +3201,6 @@ export async function fetchGamesAwaitingResult(userId: string, playerAccountId?:
           }
         })
         const gamesFromJoin = Array.from(gamesMap.values())
-        console.log('[OpenGames] Extracted', gamesFromJoin.length, 'unique games from JOIN')
         
         if (gamesFromJoin.length > 0) {
           // Use the games from JOIN instead
@@ -3274,7 +3212,6 @@ export async function fetchGamesAwaitingResult(userId: string, playerAccountId?:
             created_at: g.created_at,
             _fullData: g // Store full data for later use
           }))
-          console.log('[OpenGames] Using games from JOIN query:', allGamesCheck.length)
         }
       }
     
@@ -3288,7 +3225,6 @@ export async function fetchGamesAwaitingResult(userId: string, playerAccountId?:
           .eq('id', gameIds[0])
           .maybeSingle()
         
-        console.log('[OpenGames] Direct query (.maybeSingle) for game:', gameIds[0], 'result:', singleGame ? 'found' : 'not found', 'error:', singleError)
         
         // Try without .maybeSingle()
         const { data: singleGame2, error: singleError2 } = await supabase
@@ -3296,7 +3232,6 @@ export async function fetchGamesAwaitingResult(userId: string, playerAccountId?:
           .select('*')
           .eq('id', gameIds[0])
         
-        console.log('[OpenGames] Direct query (without .maybeSingle) for game:', gameIds[0], 'result:', singleGame2 ? `${singleGame2.length} found` : 'not found', 'error:', singleError2)
       }
       
       return []
@@ -3305,15 +3240,6 @@ export async function fetchGamesAwaitingResult(userId: string, playerAccountId?:
   
   // Log each game's details
   allGamesCheck.forEach((g: any) => {
-    console.log('[OpenGames] Game details:', {
-      id: g.id,
-      status: g.status,
-      scheduled_at: g.scheduled_at,
-      scheduled_at_date: new Date(g.scheduled_at).toISOString(),
-      now: now,
-      scheduled_before_now: g.scheduled_at <= now,
-      duration_minutes: g.duration_minutes
-    })
   })
   
   // Check if we got games from JOIN query
@@ -3325,12 +3251,10 @@ export async function fetchGamesAwaitingResult(userId: string, playerAccountId?:
   
   if (hasFullDataFromJoin) {
     // Use data from JOIN query, but filter by status and scheduled_at
-    console.log('[OpenGames] Using games from JOIN query, filtering by status and scheduled_at')
     const gamesFromJoin = allGamesCheck.map((g: any) => g._fullData || g)
     gamesData = gamesFromJoin.filter((g: any) => {
       const hasCorrectStatus = ['full', 'completed', 'expired'].includes(g.status)
       const scheduledBeforeNow = g.scheduled_at <= now
-      console.log('[OpenGames] Game from JOIN:', g.id, 'status:', g.status, 'hasCorrectStatus:', hasCorrectStatus, 'scheduledBeforeNow:', scheduledBeforeNow)
       return hasCorrectStatus && scheduledBeforeNow
     })
     gamesError = null
@@ -3367,10 +3291,8 @@ export async function fetchGamesAwaitingResult(userId: string, playerAccountId?:
     console.error('[OpenGames] Error fetching games:', gamesError)
   }
   
-  console.log('[OpenGames] Found', gamesData?.length || 0, 'games with status full/completed and scheduled_at <= now')
   if (gamesData && gamesData.length > 0) {
     gamesData.forEach((g: any) => {
-      console.log('[OpenGames] Game:', g.id, 'status:', g.status, 'scheduled_at:', g.scheduled_at, 'duration:', g.duration_minutes)
     })
   }
 
@@ -3389,25 +3311,20 @@ export async function fetchGamesAwaitingResult(userId: string, playerAccountId?:
   const pastGames = gamesData.filter(g => {
     const endTime = new Date(new Date(g.scheduled_at).getTime() + (g.duration_minutes || 90) * 60000)
     const hasEnded = endTime <= new Date()
-    console.log('[OpenGames] Game', g.id, 'endTime:', endTime.toISOString(), 'now:', new Date().toISOString(), 'hasEnded:', hasEnded)
     return hasEnded
   })
 
-  console.log('[OpenGames] Past games (after end time filter):', pastGames.length)
   if (pastGames.length === 0) return []
 
   // Check which games already have results
   const pastGameIds = pastGames.map(g => g.id)
-  console.log('[OpenGames] fetchGamesAwaitingResult will return', pastGames.length, 'games total')
   const { data: existingResults } = await supabase
     .from('open_game_results')
     .select('game_id, status, submitted_by_team, team1_score_set1, team2_score_set1, team1_score_set2, team2_score_set2, team1_score_set3, team2_score_set3, created_at')
     .in('game_id', pastGameIds)
 
-  console.log('[OpenGames] Existing results:', existingResults?.length || 0)
   if (existingResults && existingResults.length > 0) {
     existingResults.forEach((r: any) => {
-      console.log('[OpenGames] Result for game', r.game_id, 'status:', r.status, 'submitted_by_team:', r.submitted_by_team)
     })
   }
 
@@ -3492,7 +3409,6 @@ export async function fetchGamesAwaitingResult(userId: string, playerAccountId?:
       _resultData: resultsDataMap.get(g.id) || null,
     } as OpenGame & { _resultStatus?: string | null; _submittedByTeam?: number; _resultData?: OpenGameResult | null }
     
-    console.log('[OpenGames] Returning game:', game.id, 'resultStatus:', resultStatus, 'players:', gamePlayers.length)
     return game
   })
 
@@ -3500,7 +3416,6 @@ export async function fetchGamesAwaitingResult(userId: string, playerAccountId?:
   return allResults.filter(g => {
     const confirmedCount = (g.players || []).length
     if (confirmedCount < 4 && !(g as any)._resultStatus) {
-      console.log('[OpenGames] Excluding incomplete game', g.id, ':', confirmedCount, '/4 players, no result')
       return false
     }
     return true
@@ -3568,7 +3483,6 @@ export async function fetchConfirmedOpenGameResults(userId: string, playerAccoun
       .limit(5)
 
     if (unprocessedResults && unprocessedResults.length > 0) {
-      console.log('[OpenGames] Found', unprocessedResults.length, 'unprocessed confirmed results, retrying...')
       for (const r of unprocessedResults) {
         try {
           await processOpenGameRating(r.game_id)
@@ -3623,15 +3537,12 @@ export async function fetchConfirmedOpenGameResults(userId: string, playerAccoun
   if (resultsError) {
     console.error('[OpenGames] Error fetching confirmed results:', resultsError)
   }
-  console.log('[OpenGames] fetchConfirmedOpenGameResults: found', confirmedResults?.length || 0, 'confirmed results for', gameIds.length, 'games')
 
   if (!confirmedResults || confirmedResults.length === 0) {
-    console.log('[OpenGames] No confirmed results found for games:', gameIds)
     return []
   }
 
   const confirmedGameIds = confirmedResults.map(r => r.game_id)
-  console.log('[OpenGames] fetchConfirmedOpenGameResults: found', confirmedResults.length, 'confirmed results for', confirmedGameIds.length, 'games')
 
   // Fetch game details - use 'let' to allow fallback reassignment
   let gamesData: any[] | null = null
@@ -3646,7 +3557,6 @@ export async function fetchConfirmedOpenGameResults(userId: string, playerAccoun
   }
   
   gamesData = directGamesData
-  console.log('[OpenGames] Fetched', gamesData?.length || 0, 'game details directly')
   
   if (!gamesData || gamesData.length === 0) {
     console.warn('[OpenGames] No game details found directly - RLS may be blocking. Trying JOIN workaround...')
@@ -3662,7 +3572,6 @@ export async function fetchConfirmedOpenGameResults(userId: string, playerAccoun
     }
     
     if (gamesViaResults && gamesViaResults.length > 0) {
-      console.log('[OpenGames] Found', gamesViaResults.length, 'games via open_game_results JOIN')
       const gamesFromJoin = gamesViaResults
         .map((r: any) => r.open_games)
         .filter(Boolean)
@@ -3674,7 +3583,6 @@ export async function fetchConfirmedOpenGameResults(userId: string, playerAccoun
         }))
       if (gamesFromJoin.length > 0) {
         gamesData = gamesFromJoin
-        console.log('[OpenGames] Using games from JOIN:', gamesData.length)
       }
     }
     
@@ -3687,7 +3595,6 @@ export async function fetchConfirmedOpenGameResults(userId: string, playerAccoun
         club_id: null,
         court_id: null
       }))
-      console.log('[OpenGames] Constructed', gamesData.length, 'minimal game entries from results')
     }
   }
 
@@ -3743,7 +3650,6 @@ export async function fetchConfirmedOpenGameResults(userId: string, playerAccoun
   }
 
   const gamesMap = new Map((gamesData || []).map((g: any) => [g.id, g]))
-  console.log('[OpenGames] Games map size:', gamesMap.size, 'for', confirmedGameIds.length, 'game IDs')
 
   return confirmedResults.map(result => {
     const game = gamesMap.get(result.game_id)

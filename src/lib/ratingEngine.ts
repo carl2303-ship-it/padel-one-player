@@ -74,7 +74,6 @@ export function calculateNewRatings(
   const avg1 = (p1.rating + p2.rating) / 2
   const avg2 = (p3.rating + p4.rating) / 2
 
-  console.log(`[RatingEngine] Team averages: ${avg1.toFixed(2)} vs ${avg2.toFixed(2)}`)
 
   // 2. Verificação de Disparidade (Regra do 2.0)
   // Aumentado de 1.5 para 2.0 para permitir mais jogos entre níveis diferentes
@@ -125,7 +124,6 @@ export function calculateNewRatings(
     intensity = 1.15  // Vitória clara (ex: 6-3, 6-3)
   }
 
-  console.log(`[RatingEngine] Score: sets ${score.sets1}-${score.sets2}, games ${score.gamesTotal1}-${score.gamesTotal2} | expected: ${expected1.toFixed(4)}, actual: ${actual1}, intensity: ${intensity}`)
 
   // 6. K-Factor baseado em jogos RATED
   // Muito mais alto para jogadores novos — convergência rápida do nível
@@ -142,7 +140,6 @@ export function calculateNewRatings(
   const calculateDelta = (player: PlayerRating, actual: number, expected: number, intens: number): number => {
     const K = getKFactor(player.matches)
     const change = K * (actual - expected) * intens
-    console.log(`[RatingEngine]   ${player.name}: K=${K}, delta=${change.toFixed(4)} (actual=${actual}, expected=${expected.toFixed(4)}, intensity=${intens})`)
     return parseFloat(change.toFixed(4))
   }
 
@@ -157,7 +154,6 @@ export function calculateNewRatings(
   // 9. Determinar quem ganhou/perdeu
   const team1Won = actual1 >= 0.6 ? true : actual1 <= 0.4 ? false : null
 
-  console.log(`[RatingEngine] Results: P1 ${p1.rating.toFixed(2)}→${clamp(p1.rating + delta1).toFixed(2)}, P2 ${p2.rating.toFixed(2)}→${clamp(p2.rating + delta2).toFixed(2)}, P3 ${p3.rating.toFixed(2)}→${clamp(p3.rating + delta3).toFixed(2)}, P4 ${p4.rating.toFixed(2)}→${clamp(p4.rating + delta4).toFixed(2)}`)
 
   return {
     team1: {
@@ -251,12 +247,10 @@ export async function processMatchRating(
   }
 
   if (match.status !== 'completed') {
-    console.log('[RatingEngine] Match not completed, skipping:', matchId)
     return null
   }
 
   if (match.rating_processed && !options?.force) {
-    console.log('[RatingEngine] Match already rated, skipping:', matchId)
     return { skipped: true, message: 'Already processed' }
   }
 
@@ -270,7 +264,6 @@ export async function processMatchRating(
   const gamesTotal2 = s1[1] + s2[1] + s3[1]
 
   if (sets1 === 0 && sets2 === 0) {
-    console.log('[RatingEngine] No sets played, skipping:', matchId)
     return null
   }
 
@@ -302,7 +295,6 @@ export async function processMatchRating(
   }
 
   if (playerIds.length < 4) {
-    console.log('[RatingEngine] Less than 4 players found, skipping:', matchId, 'found:', playerIds.length)
     return null
   }
 
@@ -312,7 +304,6 @@ export async function processMatchRating(
     .in('id', playerIds)
 
   if (!playersData || playersData.length < 4) {
-    console.log('[RatingEngine] Could not fetch all player entries:', matchId)
     return null
   }
 
@@ -395,7 +386,6 @@ export async function processMatchRating(
   }
 
   if (accountsMap.size < 4) {
-    console.log('[RatingEngine] Could not map all players to accounts:', matchId, 'mapped:', accountsMap.size)
     return null
   }
 
@@ -429,14 +419,12 @@ export async function processMatchRating(
   const p4 = buildRating(playerIds[3])
 
   if (!p1 || !p2 || !p3 || !p4) {
-    console.log('[RatingEngine] Could not build all player ratings')
     return null
   }
 
   const result = calculateNewRatings({ p1, p2 }, { p3, p4 }, score)
 
   if (result.skipped) {
-    console.log('[RatingEngine] Match skipped:', result.message)
     // Mark so we don't retry forever on disparity skips
     await supabase.rpc('mark_match_rating_processed', { p_match_id: matchId }).catch(() => {})
     await supabase.from('matches').update({ rating_processed: true }).eq('id', matchId)
@@ -483,10 +471,8 @@ export async function processMatchRating(
       console.error('[RatingEngine] Error marking match as processed:', matchId, markError)
     }
 
-    console.log('[RatingEngine] Updated ratings for match:', matchId)
     const logPlayer = (before: PlayerRating, after: PlayerRating & { delta: number }) => {
       const K = getKFactorForLog(after.matches)
-      console.log(`  ${after.name}: ${before.rating.toFixed(2)} → ${after.rating.toFixed(2)} (Δ${after.delta >= 0 ? '+' : ''}${after.delta.toFixed(4)}) | K=${K} | jogos: ${after.matches} | fiab: ${calculateReliability(after.matches)}%`)
     }
     logPlayer(p1, result.team1.p1)
     logPlayer(p2, result.team1.p2)
@@ -514,7 +500,6 @@ export async function reprocessMatchRating(matchId: string): Promise<RatingResul
 
   const wasProcessed = !!match?.rating_processed
   const reversed = await reverseRatingForSource(matchId)
-  console.log(`[RatingEngine] Reversed ${reversed} history rows for match ${matchId}`)
 
   if (wasProcessed && reversed === 0) {
     console.error(`[RatingEngine] BLOCKED reprocess for match ${matchId}: already rated but no history found to reverse safely.`)
@@ -562,11 +547,9 @@ export async function processAllUnratedMatches(
   }
 
   if (!matches || matches.length === 0) {
-    console.log('[RatingEngine] No matches to process')
     return { processed: 0, skipped: 0, errors: 0, total: 0 }
   }
 
-  console.log(`[RatingEngine] Found ${matches.length} completed matches to process`)
   onProgress?.(0, matches.length, 'A iniciar processamento...')
 
   const playerCache: PlayerCache = new Map()
@@ -599,7 +582,6 @@ export async function processAllUnratedMatches(
   const uniquePlayers = playerCache.size
   const maxMatches = Math.max(0, ...Array.from(playerCache.values()).map(p => p.matchCount))
   const summary = `CONCLUÍDO: ${processed} processados, ${skipped} saltados, ${errors} erros de ${matches.length} total | ${uniquePlayers} jogadores atualizados (max ${maxMatches} jogos rated)`
-  console.log(`[RatingEngine] ${summary}`)
   onProgress?.(matches.length, matches.length, summary)
 
   return { processed, skipped, errors, total: matches.length }
