@@ -390,33 +390,22 @@ function App() {
     // Priority 1: Find player by saved phone (most reliable - user's actual phone)
     const savedPhone = localStorage.getItem('padel_one_player_phone')
     if (savedPhone) {
-      const data = await fetchPlayerAccountByPhone(savedPhone)
+      const fullAccount = await fetchPlayerAccountByPhone(savedPhone)
 
-      if (data) {
-        const { data: fullAccount } = await supabase
-          .from('player_accounts')
-          .select('*')
-          .eq('id', data.id)
-          .maybeSingle()
-
-        if (!fullAccount) {
-          setIsLoading(false)
-          return
-        }
-
+      if (fullAccount) {
         setPlayer(fullAccount as any)
         setIsAuthenticated(true)
         setAuthUserId(authUid || fullAccount.user_id || null)
         fetchPlayerClubs(fullAccount.id).then(ids => setPlayer(prev => prev ? { ...prev, club_ids: ids } as any : prev))
+        // Cache de todos os jogadores (usado só para fuzzy-match de nomes em cards de jogo) —
+        // não bloqueia o ecrã inicial, corre em segundo plano.
+        preloadAllPlayerData()
         if (fullAccount.user_id) {
-          const [dash] = await Promise.all([
-            fetchPlayerDashboardData(fullAccount.user_id, {
-              id: fullAccount.id,
-              name: fullAccount.name,
-              phone_number: fullAccount.phone_number,
-            }),
-            preloadAllPlayerData(),
-          ])
+          const dash = await fetchPlayerDashboardData(fullAccount.user_id, {
+            id: fullAccount.id,
+            name: fullAccount.name,
+            phone_number: fullAccount.phone_number ?? null,
+          })
           setDashboardData(dash)
           enrichDashboardWithEdgeFunction(dash).then(enriched => {
             if (enriched) {
@@ -445,30 +434,21 @@ function App() {
     // Priority 2: Find player by auth session user_id (only if phone lookup failed)
     if (session?.user) {
       const savedPhone = localStorage.getItem('padel_one_player_phone')
-      const resolved = await resolvePlayerAccountForUser(session.user.id, {
+      const playerAccount = await resolvePlayerAccountForUser(session.user.id, {
         phoneNumber: savedPhone || undefined,
       })
-
-      if (resolved) {
-        const { data: playerAccount } = await supabase
-          .from('player_accounts')
-          .select('*')
-          .eq('id', resolved.id)
-          .maybeSingle()
 
       if (playerAccount) {
         setPlayer(playerAccount as any)
         setAuthUserId(session.user.id)
         setIsAuthenticated(true)
         fetchPlayerClubs(playerAccount.id).then(ids => setPlayer(prev => prev ? { ...prev, club_ids: ids } as any : prev))
-        const [data] = await Promise.all([
-          fetchPlayerDashboardData(session.user.id, {
-            id: playerAccount.id,
-            name: playerAccount.name,
-            phone_number: playerAccount.phone_number,
-          }),
-          preloadAllPlayerData(),
-        ])
+        preloadAllPlayerData()
+        const data = await fetchPlayerDashboardData(session.user.id, {
+          id: playerAccount.id,
+          name: playerAccount.name,
+          phone_number: playerAccount.phone_number ?? null,
+        })
         setDashboardData(data)
         enrichDashboardWithEdgeFunction(data).then(enriched => {
           if (enriched) {
@@ -490,7 +470,6 @@ function App() {
         })
         setIsLoading(false)
         return
-      }
       }
     }
 
@@ -619,12 +598,7 @@ function App() {
       // Buscar player_account pelo telefone (mais fiável que auth user_id)
       const phoneResolved = await fetchPlayerAccountByPhone(normalizedPhone)
       if (phoneResolved) {
-        const { data: phoneAccount } = await supabase
-          .from('player_accounts')
-          .select('*')
-          .eq('id', phoneResolved.id)
-          .maybeSingle()
-        playerAccount = phoneAccount
+        playerAccount = phoneResolved
       }
 
       // Fallback: buscar pelo auth user_id se telefone não encontrou
@@ -633,12 +607,7 @@ function App() {
           phoneNumber: normalizedPhone,
         })
         if (resolved) {
-          const { data: authAccount } = await supabase
-            .from('player_accounts')
-            .select('*')
-            .eq('id', resolved.id)
-            .maybeSingle()
-          playerAccount = authAccount
+          playerAccount = resolved
         }
       }
 
@@ -648,15 +617,13 @@ function App() {
         setPlayer(playerAccount as any)
         setAuthUserId(authData?.user?.id || playerAccount.user_id || null)
         fetchPlayerClubs(playerAccount.id).then(ids => setPlayer(prev => prev ? { ...prev, club_ids: ids } as any : prev))
+        preloadAllPlayerData()
         if (playerAccount.user_id) {
-          const [data] = await Promise.all([
-            fetchPlayerDashboardData(playerAccount.user_id, {
-              id: playerAccount.id,
-              name: playerAccount.name,
-              phone_number: playerAccount.phone_number,
-            }),
-            preloadAllPlayerData(),
-          ])
+          const data = await fetchPlayerDashboardData(playerAccount.user_id, {
+            id: playerAccount.id,
+            name: playerAccount.name,
+            phone_number: playerAccount.phone_number,
+          })
           setDashboardData(data)
           enrichDashboardWithEdgeFunction(data).then(enriched => {
             if (enriched) {
@@ -754,11 +721,9 @@ function App() {
         window.history.pushState({}, '', '/')
         setPublicPage('landing')
         fetchPlayerClubs(pa.id).then(ids => setPlayer(prev => prev ? { ...prev, club_ids: ids } as any : prev))
+        preloadAllPlayerData()
         if (pa.user_id) {
-          const [data] = await Promise.all([
-            fetchPlayerDashboardData(pa.user_id, { id: pa.id, name: pa.name, phone_number: pa.phone_number }),
-            preloadAllPlayerData(),
-          ])
+          const data = await fetchPlayerDashboardData(pa.user_id, { id: pa.id, name: pa.name, phone_number: pa.phone_number })
           setDashboardData(data)
         }
       }} />

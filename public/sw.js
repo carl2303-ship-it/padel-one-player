@@ -1,5 +1,5 @@
 // Service Worker for PADEL ONE PWA
-const CACHE_NAME = 'padel-one-v2';
+const CACHE_NAME = 'padel-one-v3';
 const urlsToCache = [
   '/',
   '/index.html',
@@ -35,17 +35,41 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Fetch event - network first, fallback to cache
+// Fetch event
 self.addEventListener('fetch', (event) => {
   // Skip non-GET requests
   if (event.request.method !== 'GET') return;
-  
+
   // Skip API requests (let them go to network)
   if (event.request.url.includes('supabase.co')) return;
 
   // Skip Vite dev server requests (HMR, source files)
   if (event.request.url.includes('localhost:') || event.request.url.includes('127.0.0.1:')) return;
 
+  const url = new URL(event.request.url);
+  const isHashedAsset = url.pathname.startsWith('/assets/');
+
+  if (isHashedAsset) {
+    // Cache-first for hashed build assets (JS/CSS): the filename hash changes
+    // whenever the content changes, so a cached copy is always safe to reuse
+    // and avoids a full network round-trip on every app open (faster startup).
+    event.respondWith(
+      caches.match(event.request).then((cached) => {
+        if (cached) return cached;
+        return fetch(event.request).then((response) => {
+          if (response.status === 200) {
+            const responseClone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseClone));
+          }
+          return response;
+        });
+      })
+    );
+    return;
+  }
+
+  // Network first, fallback to cache (HTML/navigation and everything else,
+  // so users always get the freshest app shell when online).
   event.respondWith(
     fetch(event.request)
       .then((response) => {

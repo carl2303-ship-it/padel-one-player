@@ -1,14 +1,12 @@
-import { supabase } from './supabase'
+import { supabase, PlayerAccount } from './supabase'
 import { normalizePhone, phonesEqual } from './phoneUtils'
 
-export type ResolvedPlayerAccount = {
-  id: string
-  user_id: string | null
-  name: string | null
-  phone_number: string | null
-}
+// Linha completa de player_accounts (não só id/user_id/name/phone_number).
+// Evita uma segunda ida à BD (round-trip extra) só para buscar o resto dos
+// campos depois de resolver a conta — impacto direto no tempo de arranque da app.
+export type ResolvedPlayerAccount = PlayerAccount
 
-const ACCOUNT_FIELDS = 'id, user_id, name, phone_number'
+const ACCOUNT_FIELDS = '*'
 
 function pickBestAccount(
   rows: ResolvedPlayerAccount[],
