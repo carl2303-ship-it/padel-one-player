@@ -10,6 +10,8 @@ import {
   fetchEnrolledByCategory,
   fetchTournamentFullDetail,
   getTournamentRegistrationUrl,
+  fetchMyTournamentInvites,
+  updateTournamentInviteStatus,
   type UpcomingTournamentFromTour,
   type EnrolledByCategory,
   type EnrolledItem,
@@ -17,12 +19,19 @@ import {
   type TournamentFullDetail,
 } from '../../lib/clubAndTournaments'
 import {
+  requestPartnerMatch,
   fetchPendingPartnerInvites,
+  fetchPartnerMatchRequesterSummary,
   acceptPartnerInvite,
+  confirmPartnerMatch,
   declinePartnerInvite,
+  cancelPartnerRequest,
   type PartnerInvite,
+  type PartnerMatchRequesterSummary,
 } from '../../lib/partnerMatch'
 import { getCachedPlayerData } from '../../lib/playerDataCache'
+import { isLikelyTeamLabel } from '../../lib/matchPlayerNames'
+import { normalizePhone } from '../../lib/phoneUtils'
 import PlayerLadderTournamentPanel from '../PlayerLadderTournamentPanel'
 import {
   formatDate,

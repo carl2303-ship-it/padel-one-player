@@ -1,10 +1,17 @@
-import { useState, useEffect, useMemo, useRef, useCallback, Fragment, lazy, Suspense } from 'react'
-import { createPortal } from 'react-dom'
-import { supabase, PlayerAccount } from './lib/supabase'
+import {
+  useState,
+  useEffect,
+  useMemo,
+  useRef,
+  useCallback,
+  Fragment,
+  lazy,
+  Suspense } from 'react'
+import { supabase,
+  PlayerAccount } from './lib/supabase'
 import { useI18n } from './lib/i18nContext'
 import PlayerLandingPage from './components/PlayerLandingPage'
 import ClubLandingPage from './components/ClubLandingPage'
-import PlayerLadderTournamentPanel from './components/PlayerLadderTournamentPanel'
 
 // Ecrãs extraídos para ficheiros próprios e carregados sob demanda (code-splitting).
 // Cada um só é descarregado quando o utilizador realmente navega para lá.
@@ -19,6 +26,9 @@ const BookingScreen = lazy(() => import('./components/screens/BookingScreen'))
 const CompeteScreen = lazy(() => import('./components/screens/CompeteScreen'))
 const FindGameScreen = lazy(() => import('./components/screens/FindGameScreen'))
 const GamesScreen = lazy(() => import('./components/screens/GamesScreen'))
+const CommunityScreen = lazy(() => import('./components/screens/CommunityScreen'))
+const GroupDetailScreen = lazy(() => import('./components/screens/GroupDetailScreen'))
+const FollowsListScreen = lazy(() => import('./components/screens/FollowsListScreen'))
 
 // Fallback simples e consistente com o spinner já usado no resto da app,
 // mostrado só por instantes enquanto o chunk do ecrã é descarregado.
@@ -33,19 +43,17 @@ import {
   fetchPlayerDashboardData,
   enrichDashboardWithEdgeFunction,
   type PlayerDashboardData,
-} from './lib/playerDashboardData'
-import { fetchPlayerAccountByPhone, resolvePlayerAccountForUser } from './lib/resolvePlayerAccount'
+  } from './lib/playerDashboardData'
+import { fetchPlayerAccountByPhone,
+  resolvePlayerAccountForUser } from './lib/resolvePlayerAccount'
 import { 
-  Home, 
-  Trophy, 
-  Calendar, 
-  User, 
+  Home,
+  Trophy,
+  Calendar,
+  User,
   ChevronRight,
-  Clock,
-  MapPin,
   TrendingUp,
   Target,
-  Award,
   Bell,
   Search,
   Plus,
@@ -55,7 +63,6 @@ import {
   EyeOff,
   LogOut,
   Settings,
-  Edit2,
   Camera,
   Building2,
   Gamepad2,
@@ -74,77 +81,40 @@ import {
   HelpCircle,
   Shield,
   CreditCard,
-  Heart,
-  Image,
-  Video,
   UserPlus,
-  RefreshCw,
-  Send,
-  Trash2,
   ChevronLeft,
-  Gift,
-  ShoppingBag,
   CheckCircle,
-  AlertCircle,
-  Star,
-  Check,
-  Navigation
-} from 'lucide-react'
+  } from 'lucide-react'
 import {
   followUser,
   unfollowUser,
-  getFollowingIds,
   getFollowingCount,
   getFollowersCount,
-  getSuggestedPlayers,
-  createPost,
-  deletePost,
-  searchPlayers,
   getPlayerProfile,
-  getFollowingList,
-  getFollowersList,
   levelColors,
   getInitials,
-  type CommunityPlayer,
   type PlayerProfile,
-  type CommunityPost,
-  type FeedItem,
-  type FeedMatchItem,
-  getUnifiedFeed,
-} from './lib/communityData'
-import { fetchAllClubs, fetchClubById, fetchUpcomingTournaments, fetchTournamentsByIds, fetchTournamentEnrolledCounts, fetchEnrolledByCategory, fetchTournamentFullDetail, getTournamentRegistrationUrl, fetchMyTournamentInvites, updateTournamentInviteStatus, fetchPlayerClubs, togglePlayerClub, fetchNearbyFullClubs, updatePlayerLocation, requestBrowserGeolocation, type ClubDetail, type UpcomingTournamentFromTour, type EnrolledByCategory, type EnrolledItem, type EnrolledPlayer, type TournamentFullDetail, type NearbyFullClub } from './lib/clubAndTournaments'
-import { fetchPlayerPreview, type PlayerPreviewData } from './lib/playerPreview'
-import { preloadAllPlayerData, getCachedPlayerData } from './lib/playerDataCache'
-import { fetchLevelHistory, type LevelHistoryEntry } from './lib/levelHistory'
+  } from './lib/communityData'
+import { fetchClubById,
+  fetchMyTournamentInvites,
+  updateTournamentInviteStatus,
+  fetchPlayerClubs,
+  togglePlayerClub,
+  fetchNearbyFullClubs,
+  updatePlayerLocation,
+  requestBrowserGeolocation,
+  type ClubDetail,
+  type NearbyFullClub,
+  } from './lib/clubAndTournaments'
+import { preloadAllPlayerData,
+  getCachedPlayerData } from './lib/playerDataCache'
+import { fetchLevelHistory,
+  type LevelHistoryEntry } from './lib/levelHistory'
 import { geocodeAddress } from './lib/geocoding'
-import {
-  createGroup,
-  updateGroup,
-  deleteGroup,
-  getMyGroups,
-  getGroupDetails,
-  getGroupMembers,
-  removeGroupMember,
-  leaveGroup,
-  inviteToGroup,
-  getMyGroupInvites,
-  respondToGroupInvite,
-  uploadGroupImage,
-  type CommunityGroup,
-  type GroupMember,
-  type GroupInvite,
-} from './lib/communityGroups'
-import {
-  sendMessage,
-  getMessages,
-  addReaction,
-  removeReaction,
-  deleteMessage,
-  uploadChatImage,
-  subscribeToGroupChat,
-  type ChatMessage,
-} from './lib/groupChat'
-import { isPushSupported, checkIsSubscribed, subscribeToPush, unsubscribeFromPush } from './lib/pushNotifications'
+import { isPushSupported,
+  checkIsSubscribed,
+  subscribeToPush,
+  unsubscribeFromPush } from './lib/pushNotifications'
 import {
   normalizePhone,
   isValidPhone,
@@ -153,38 +123,27 @@ import {
   defaultCountryIso,
   dialCodeForIso,
   formatPhoneDisplay,
-} from './lib/phoneUtils'
-import { resolveFourPlayerNames, getPartnerNamesFromMatch, isLikelyTeamLabel } from './lib/matchPlayerNames'
+  } from './lib/phoneUtils'
+import { getPartnerNamesFromMatch,
+  isLikelyTeamLabel } from './lib/matchPlayerNames'
+import { translations } from './lib/translations'
 import {
-  requestPartnerMatch,
   fetchPendingPartnerInvites,
-  fetchPartnerMatchRequesterSummary,
   acceptPartnerInvite,
-  confirmPartnerMatch,
   declinePartnerInvite,
-  cancelPartnerRequest,
   type PartnerInvite,
-  type PartnerMatchRequesterSummary,
-} from './lib/partnerMatch'
-import { fetchClientModules, derivePlayerFeatures, EMPTY_MODULES, type ClientModulesResult } from './lib/useClientModules'
-
+  } from './lib/partnerMatch'
+import { fetchClientModules,
+  derivePlayerFeatures,
+  EMPTY_MODULES,
+  type ClientModulesResult } from './lib/useClientModules'
 
 import {
-  formatDate,
-  formatDateTime,
-  formatDateWithTime,
   shortPlayerLabel,
-  OpenGameResultScores,
   ActionButton,
-  MatchCard,
-  EnrolledItemRow,
-  PlayerPreviewPopup,
   GameCardPlaytomic,
   TournamentCard,
   OpenGameCard,
-  PlayerCircle,
-  initialFor,
-  type PlayerMatchForCard,
 } from './components/shared/matchUi'
 
 type Screen = 'home' | 'games' | 'profile-view' | 'profile-edit' | 'club' | 'club-detail' | 'clubs-list' | 'compete' | 'community' | 'player-profile' | 'follows-list' | 'learn' | 'find-game' | 'game-results' | 'rewards' | 'booking' | 'payments' | 'group-detail' | 'rankings'
@@ -1153,6 +1112,7 @@ function App() {
         {currentScreen === 'profile-edit' && (
           <ProfileEditScreen
             player={player}
+            onLogout={handleLogout}
             onSaveProfile={handleSaveProfile}
             onOpenInfo={(type) => setShowInfoModal(type)}
           />
@@ -1176,20 +1136,24 @@ function App() {
           </Suspense>
         )}
         {currentScreen === 'community' && player?.user_id && (
-          <CommunityScreen userId={player.user_id} playerAccountId={player.id} playerAvatar={player.avatar_url} playerName={player.name} onOpenPlayerProfile={(uid, opts) => openPlayerProfile(uid, opts)} onOpenGroup={(groupId: string) => { setSelectedGroupId(groupId); setCurrentScreen('group-detail') }} />
+          <Suspense fallback={<ScreenLoadingFallback />}>
+            <CommunityScreen userId={player.user_id} playerAccountId={player.id} playerAvatar={player.avatar_url} playerName={player.name} onOpenPlayerProfile={(uid, opts) => openPlayerProfile(uid, opts)} onOpenGroup={(groupId: string) => { setSelectedGroupId(groupId); setCurrentScreen('group-detail') }} />
+          </Suspense>
         )}
         {currentScreen === 'group-detail' && selectedGroupId && player?.user_id && (
-          <GroupDetailScreen
-            groupId={selectedGroupId}
-            userId={player.user_id}
-            playerAccountId={player.id}
-            playerName={player.name}
-            playerAvatar={player.avatar_url}
-            playerLevel={player.level}
-            onBack={() => setCurrentScreen('community')}
-            onOpenPlayerProfile={(uid: string, opts) => openPlayerProfile(uid, opts)}
-            onCreateGroupGame={(gId: string) => { setCreateGameForGroupId(gId); setCurrentScreen('find-game') }}
-          />
+          <Suspense fallback={<ScreenLoadingFallback />}>
+            <GroupDetailScreen
+              groupId={selectedGroupId}
+              userId={player.user_id}
+              playerAccountId={player.id}
+              playerName={player.name}
+              playerAvatar={player.avatar_url}
+              playerLevel={player.level}
+              onBack={() => setCurrentScreen('community')}
+              onOpenPlayerProfile={(uid: string, opts) => openPlayerProfile(uid, opts)}
+              onCreateGroupGame={(gId: string) => { setCreateGameForGroupId(gId); setCurrentScreen('find-game') }}
+            />
+          </Suspense>
         )}
         {currentScreen === 'player-profile' && selectedPlayerUserId && player?.user_id && (
           <OtherPlayerProfileScreen
@@ -1203,12 +1167,14 @@ function App() {
           />
         )}
         {currentScreen === 'follows-list' && followsListUserId && player?.user_id && (
-          <FollowsListScreen
-            targetUserId={followsListUserId}
-            myUserId={player.user_id}
-            onBack={() => setCurrentScreen('player-profile')}
-            onOpenPlayerProfile={(uid: string, opts) => openPlayerProfile(uid, opts)}
-          />
+          <Suspense fallback={<ScreenLoadingFallback />}>
+            <FollowsListScreen
+              targetUserId={followsListUserId}
+              myUserId={player.user_id}
+              onBack={() => setCurrentScreen('player-profile')}
+              onOpenPlayerProfile={(uid: string, opts) => openPlayerProfile(uid, opts)}
+            />
+          </Suspense>
         )}
       </main>
 
@@ -1415,7 +1381,6 @@ function FeatureCard({ icon: Icon, label }: { icon: any, label: string }) {
     </div>
   )
 }
-
 
 // Helpers de UI (formatDate, cards, etc.) → components/shared/matchUi.tsx
 // CompeteScreen, FindGameScreen, GamesScreen → components/screens/ (React.lazy)
@@ -2307,1409 +2272,6 @@ function HomeScreen({
 }
 
 // ---------- Comunidade ----------
-function CommunityScreen({ userId, playerAccountId, playerAvatar, playerName, onOpenPlayerProfile, onOpenGroup }: { userId: string; playerAccountId: string; playerAvatar?: string | null; playerName?: string; onOpenPlayerProfile: (userId: string, opts?: { accountId?: string | null; nameHint?: string | null }) => void; onOpenGroup: (groupId: string) => void }) {
-  const { t } = useI18n()
-  // Feed state
-  const [suggestions, setSuggestions] = useState<CommunityPlayer[]>([])
-  const [posts, setPosts] = useState<CommunityPost[]>([])
-  const [feedItems, setFeedItems] = useState<FeedItem[]>([])
-  const [feedLoading, setFeedLoading] = useState(true)
-  const [followingSet, setFollowingSet] = useState<Set<string>>(new Set())
-
-  // Groups state
-  const [myGroups, setMyGroups] = useState<CommunityGroup[]>([])
-  const [groupInvites, setGroupInvites] = useState<GroupInvite[]>([])
-  const [groupsLoading, setGroupsLoading] = useState(true)
-  const [showCreateGroup, setShowCreateGroup] = useState(false)
-  const [newGroupName, setNewGroupName] = useState('')
-  const [newGroupDesc, setNewGroupDesc] = useState('')
-  const [newGroupImage, setNewGroupImage] = useState<File | null>(null)
-  const [creatingGroup, setCreatingGroup] = useState(false)
-
-  const handlePlayerClick = async (playerNameClicked: string) => {
-    if (!playerNameClicked || isLikelyTeamLabel(playerNameClicked)) return
-    const { findPlayerAccountByName } = await import('./lib/classes')
-    const acc = await findPlayerAccountByName(playerNameClicked)
-    if (acc?.user_id) {
-      onOpenPlayerProfile(acc.user_id, { accountId: acc.id, nameHint: playerNameClicked })
-    }
-  }
-
-  // New post modal
-  const [showNewPost, setShowNewPost] = useState(false)
-  const [newPostText, setNewPostText] = useState('')
-  const [newPostImage, setNewPostImage] = useState<File | null>(null)
-  const [newPostVideo, setNewPostVideo] = useState<File | null>(null)
-  const [postingLoading, setPostingLoading] = useState(false)
-
-  // Global player search
-  const [playerSearchQuery, setPlayerSearchQuery] = useState('')
-  const [playerSearchResults, setPlayerSearchResults] = useState<CommunityPlayer[]>([])
-  const [playerSearching, setPlayerSearching] = useState(false)
-  const [showPlayerSearch, setShowPlayerSearch] = useState(false)
-
-  // Load feed + groups data
-  useEffect(() => {
-    loadFeed()
-    loadGroups()
-  }, [userId])
-
-  async function loadFeed() {
-    setFeedLoading(true)
-    try {
-      const [suggestedData, unifiedData, ids] = await Promise.all([
-        getSuggestedPlayers(userId),
-        getUnifiedFeed(userId),
-        getFollowingIds(userId),
-      ])
-      setSuggestions(suggestedData)
-      setFeedItems(unifiedData)
-      setPosts(unifiedData.filter(i => i.type === 'post').map(i => i.data as CommunityPost))
-      setFollowingSet(new Set(ids))
-    } catch (err) {
-      console.error('[Community] Load feed error:', err)
-    }
-    setFeedLoading(false)
-  }
-
-  async function loadGroups() {
-    setGroupsLoading(true)
-    try {
-      const [groups, invites] = await Promise.all([
-        getMyGroups(userId),
-        getMyGroupInvites(userId),
-      ])
-      setMyGroups(groups)
-      setGroupInvites(invites)
-    } catch (err) {
-      console.error('[Community] Load groups error:', err)
-    }
-    setGroupsLoading(false)
-  }
-
-  async function handleCreateGroup() {
-    if (!newGroupName.trim()) return
-    setCreatingGroup(true)
-    let imageUrl: string | undefined
-    if (newGroupImage) {
-      imageUrl = (await uploadGroupImage(newGroupImage)) || undefined
-    }
-    const result = await createGroup({ name: newGroupName.trim(), description: newGroupDesc.trim() || undefined, imageUrl })
-    if (result.success && result.groupId) {
-      setShowCreateGroup(false)
-      setNewGroupName('')
-      setNewGroupDesc('')
-      setNewGroupImage(null)
-      await loadGroups()
-      onOpenGroup(result.groupId)
-    } else {
-      alert(result.error || 'Erro ao criar grupo')
-    }
-    setCreatingGroup(false)
-  }
-
-  async function handleRespondInvite(inviteId: string, accept: boolean) {
-    const result = await respondToGroupInvite(inviteId, accept)
-    if (result.success) {
-      setGroupInvites(prev => prev.filter(i => i.id !== inviteId))
-      if (accept) loadGroups()
-    }
-  }
-
-  async function handleFollow(targetUserId: string) {
-    const ok = await followUser(userId, targetUserId)
-    if (ok) {
-      setFollowingSet(prev => new Set([...prev, targetUserId]))
-      setSuggestions(prev => prev.filter(s => s.user_id !== targetUserId))
-    }
-  }
-
-  async function handleUnfollow(targetUserId: string) {
-    const ok = await unfollowUser(userId, targetUserId)
-    if (ok) {
-      setFollowingSet(prev => {
-        const next = new Set(prev)
-        next.delete(targetUserId)
-        return next
-      })
-    }
-  }
-
-  async function handleCreatePost() {
-    if (!newPostText.trim() && !newPostImage && !newPostVideo) return
-    setPostingLoading(true)
-    const ok = await createPost(userId, newPostText, newPostImage || undefined, newPostVideo || undefined)
-    if (ok) {
-      setNewPostText('')
-      setNewPostImage(null)
-      setNewPostVideo(null)
-      setShowNewPost(false)
-      await loadFeed()
-    }
-    setPostingLoading(false)
-  }
-
-  async function handleDeletePost(postId: string) {
-    const ok = await deletePost(postId)
-    if (ok) {
-      setPosts(prev => prev.filter(p => p.id !== postId))
-    }
-  }
-
-  // Auto-search when typing (debounced)
-  useEffect(() => {
-    if (playerSearchQuery.trim().length < 2) {
-      setPlayerSearchResults([])
-      return
-    }
-    const timer = setTimeout(async () => {
-      setPlayerSearching(true)
-      const results = await searchPlayers(playerSearchQuery, [userId])
-      const enriched = results.map(p => ({ ...p, is_following: followingSet.has(p.user_id) }))
-      setPlayerSearchResults(enriched)
-      setPlayerSearching(false)
-      setShowPlayerSearch(true)
-    }, 400)
-    return () => clearTimeout(timer)
-  }, [playerSearchQuery])
-
-  async function handleFollowFromSearch(targetUserId: string) {
-    const ok = await followUser(userId, targetUserId)
-    if (ok) {
-      setFollowingSet(prev => new Set([...prev, targetUserId]))
-      setPlayerSearchResults(prev => prev.map(p => p.user_id === targetUserId ? { ...p, is_following: true } : p))
-      setSuggestions(prev => prev.filter(s => s.user_id !== targetUserId))
-    }
-  }
-
-  async function handleUnfollowFromSearch(targetUserId: string) {
-    const ok = await unfollowUser(userId, targetUserId)
-    if (ok) {
-      setFollowingSet(prev => { const n = new Set(prev); n.delete(targetUserId); return n })
-      setPlayerSearchResults(prev => prev.map(p => p.user_id === targetUserId ? { ...p, is_following: false } : p))
-    }
-  }
-
-  function timeAgo(dateStr: string): string {
-    const now = new Date()
-    const d = new Date(dateStr)
-    const diffMs = now.getTime() - d.getTime()
-    const mins = Math.floor(diffMs / 60000)
-    if (mins < 1) return 'agora'
-    if (mins < 60) return `${mins}m`
-    const hours = Math.floor(mins / 60)
-    if (hours < 24) return `${hours}h`
-    const days = Math.floor(hours / 24)
-    if (days < 7) return `${days}d`
-    return d.toLocaleDateString('pt-PT', { day: 'numeric', month: 'short' })
-  }
-
-  return (
-    <div className="animate-fade-in pb-4">
-      {/* Header */}
-      <div className="mb-3">
-        <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-          <Users className="w-7 h-7 text-red-600" />
-          Comunidade
-        </h1>
-      </div>
-
-      {/* Search bar */}
-      <div className="mb-4">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-          <input
-            type="text"
-            value={playerSearchQuery}
-            onChange={e => {
-              setPlayerSearchQuery(e.target.value)
-              if (e.target.value.trim().length === 0) {
-                setPlayerSearchResults([])
-                setShowPlayerSearch(false)
-              } else {
-                setShowPlayerSearch(true)
-              }
-            }}
-            onFocus={() => { if (playerSearchQuery.trim().length >= 2) setShowPlayerSearch(true) }}
-            placeholder={t.games.searchPlayers}
-            className="w-full pl-9 pr-10 py-2.5 bg-gray-100 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-500 focus:bg-white transition-colors"
-          />
-          {playerSearchQuery && (
-            <button
-              onClick={() => { setPlayerSearchQuery(''); setPlayerSearchResults([]); setShowPlayerSearch(false) }}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          )}
-        </div>
-
-        {/* Search results dropdown */}
-        {showPlayerSearch && (
-          <div className="mt-2 bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden max-h-80 overflow-y-auto">
-            {playerSearching ? (
-              <div className="text-center py-6 text-gray-400 text-sm">A pesquisar...</div>
-            ) : playerSearchResults.length > 0 ? (
-              <div className="divide-y divide-gray-50">
-                {playerSearchResults.map(p => {
-                  const lvl = p.level
-                  const colors = levelColors(p.level)
-                  return (
-                  <div key={p.id} className="flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors cursor-pointer" onClick={() => onOpenPlayerProfile(p.user_id)}>
-                    <div className="flex items-center gap-3">
-                      <div className="w-12 h-12 rounded-full bg-gray-900 flex items-center justify-center text-white font-bold text-sm overflow-hidden">
-                        {p.avatar_url ? <img src={p.avatar_url} className="w-full h-full object-cover" /> : getInitials(p.name)}
-                      </div>
-                      <div>
-                        <p className="text-sm font-semibold text-gray-900">{p.name}</p>
-                        <div className="flex items-center gap-1.5 mt-0.5">
-                          {lvl && <span className={`text-xs font-black px-2 py-0.5 rounded-full ${colors.bg} ${colors.text}`}>Nv {lvl}</span>}
-                          {p.location && <span className="text-xs text-gray-400">{p.location}</span>}
-                        </div>
-                      </div>
-                    </div>
-                    {p.is_following ? (
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleUnfollowFromSearch(p.user_id) }}
-                        className="px-3 py-1.5 text-xs font-semibold border border-orange-300 text-orange-600 rounded-lg hover:bg-orange-50 transition-colors"
-                      >
-                        A seguir
-                      </button>
-                    ) : (
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleFollowFromSearch(p.user_id) }}
-                        className="px-3 py-1.5 text-xs font-semibold bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors"
-                      >
-                        Seguir
-                      </button>
-                    )}
-                  </div>
-                  )
-                })}
-              </div>
-            ) : playerSearchQuery.trim().length >= 2 ? (
-              <div className="text-center py-6">
-                <p className="text-sm text-gray-500">Nenhum jogador encontrado</p>
-                <p className="text-xs text-gray-400 mt-1">Tenta outro nome</p>
-              </div>
-            ) : (
-              <div className="text-center py-6">
-                <p className="text-sm text-gray-400">Escreve pelo menos 2 letras para pesquisar</p>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* ==================== GROUPS ==================== */}
-      <div className="mb-5">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-base font-bold text-gray-900 flex items-center gap-2">
-            <Users className="w-5 h-5 text-red-600" />
-            Meus Grupos
-          </h2>
-          <button onClick={() => setShowCreateGroup(true)} className="flex items-center gap-1 text-sm font-semibold text-red-600 hover:text-red-700">
-            <Plus className="w-4 h-4" /> Criar
-          </button>
-        </div>
-
-        {/* Group invites */}
-        {groupInvites.length > 0 && (
-          <div className="mb-3 space-y-2">
-            {groupInvites.map(inv => (
-              <div key={inv.id} className="bg-amber-50 border border-amber-200 rounded-xl p-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center text-lg flex-shrink-0 overflow-hidden">
-                    {inv.group_image_url ? <img src={inv.group_image_url} className="w-full h-full rounded-full object-cover" /> : '👥'}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-gray-900 truncate">{inv.group_name}</p>
-                    <p className="text-xs text-gray-500">Convite de {inv.inviter_name}</p>
-                  </div>
-                </div>
-                {inv.group_description && (
-                  <p className="text-xs text-gray-600 mt-2 ml-[52px] line-clamp-2">{inv.group_description}</p>
-                )}
-                <div className="flex gap-2 mt-3 ml-[52px]">
-                  <button onClick={() => handleRespondInvite(inv.id, true)} className="px-3 py-1.5 bg-green-600 text-white text-xs font-semibold rounded-lg">Aceitar</button>
-                  <button onClick={() => handleRespondInvite(inv.id, false)} className="px-3 py-1.5 bg-gray-200 text-gray-700 text-xs font-semibold rounded-lg">Recusar</button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Group list */}
-        {groupsLoading ? (
-          <div className="text-center py-4 text-gray-400 text-sm">{t.common.loading}</div>
-        ) : myGroups.length > 0 ? (
-          <div className="space-y-2">
-            {myGroups.map(group => (
-              <div key={group.id} onClick={() => onOpenGroup(group.id)} className="flex items-center gap-3 bg-white rounded-xl border border-gray-100 p-3 shadow-sm cursor-pointer hover:shadow-md transition-shadow">
-                <div className="w-12 h-12 rounded-full bg-gradient-to-br from-red-500 to-orange-400 flex items-center justify-center text-white text-lg font-bold flex-shrink-0 overflow-hidden">
-                  {group.image_url ? <img src={group.image_url} className="w-full h-full object-cover" /> : group.name.charAt(0).toUpperCase()}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <p className="text-sm font-semibold text-gray-900 truncate">{group.name}</p>
-                    {group.my_role === 'admin' && <span className="text-[10px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full font-semibold">Admin</span>}
-                  </div>
-                  <p className="text-xs text-gray-500 truncate">
-                    {group.member_count} {group.member_count === 1 ? 'membro' : 'membros'}
-                    {group.last_message && <> · {group.last_message.substring(0, 30)}{group.last_message.length > 30 ? '...' : ''}</>}
-                  </p>
-                </div>
-                <ChevronRight className="w-4 h-4 text-gray-400 flex-shrink-0" />
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="text-center py-6 bg-gray-50 rounded-xl">
-            <Users className="w-8 h-8 text-gray-300 mx-auto mb-2" />
-            <p className="text-sm text-gray-500">Ainda não tens grupos</p>
-            <p className="text-xs text-gray-400 mt-1">Cria um grupo para jogar com os teus amigos</p>
-          </div>
-        )}
-      </div>
-
-      {/* Create Group Modal */}
-      {showCreateGroup && createPortal(
-        <div className="fixed inset-0 bg-black/50 z-[9999] flex items-center justify-center p-4" onClick={() => setShowCreateGroup(false)}>
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-xl" onClick={e => e.stopPropagation()}>
-            <div className="p-5 border-b border-gray-100">
-              <div className="flex items-center justify-between">
-                <h3 className="text-lg font-bold text-gray-900">Criar Grupo</h3>
-                <button onClick={() => setShowCreateGroup(false)} className="p-1 hover:bg-gray-100 rounded-full"><X className="w-5 h-5 text-gray-500" /></button>
-              </div>
-            </div>
-            <div className="p-5 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Nome do grupo *</label>
-                <input type="text" value={newGroupName} onChange={e => setNewGroupName(e.target.value)} placeholder="Ex: Padel às quintas" className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-500" maxLength={50} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Descrição</label>
-                <textarea value={newGroupDesc} onChange={e => setNewGroupDesc(e.target.value)} placeholder="Descreve o grupo..." className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-500 resize-none" rows={3} maxLength={200} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Foto do grupo</label>
-                <input type="file" accept="image/*" onChange={e => setNewGroupImage(e.target.files?.[0] || null)} className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-red-50 file:text-red-700 hover:file:bg-red-100" />
-              </div>
-            </div>
-            <div className="p-5 border-t border-gray-100">
-              <button onClick={handleCreateGroup} disabled={!newGroupName.trim() || creatingGroup} className="w-full py-2.5 bg-red-600 hover:bg-red-700 disabled:bg-gray-300 text-white text-sm font-semibold rounded-xl transition-colors">
-                {creatingGroup ? 'A criar...' : 'Criar Grupo'}
-              </button>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
-
-      {/* ==================== FEED ==================== */}
-      <div>
-          {feedLoading ? (
-            <div className="text-center py-12 text-gray-400">{t.common.loading}</div>
-          ) : (
-            <>
-              {/* Sugestões de jogadores */}
-              {suggestions.length > 0 && (
-                <div className="mb-5">
-                  <h3 className="text-sm font-semibold text-gray-700 mb-2 px-1">{t.learn.suggestedPlayers}</h3>
-                  <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
-                    {suggestions.map((player, idx) => {
-                      const lvl = player.level
-                      const colors = levelColors(player.level)
-                      return (
-                      <div key={`sug-${player.id}-${idx}`} className="flex-shrink-0 w-36 bg-white rounded-2xl shadow-sm border border-gray-100 p-4 text-center cursor-pointer hover:shadow-md transition-shadow" onClick={() => onOpenPlayerProfile(player.user_id)}>
-                        <div className="w-16 h-16 mx-auto rounded-full bg-gray-900 flex items-center justify-center text-white font-bold text-lg mb-2.5 overflow-hidden">
-                          {player.avatar_url
-                            ? <img src={player.avatar_url} className="w-full h-full object-cover" />
-                            : getInitials(player.name)
-                          }
-                        </div>
-                        <p className="text-sm font-semibold text-gray-900 truncate">{player.name}</p>
-                        {lvl && (
-                          <span className={`inline-block mt-1.5 text-xl font-black px-3 py-0.5 rounded-full ${colors.bg} ${colors.text}`}>Nv {lvl}</span>
-                        )}
-                        <button
-                          onClick={(e) => { e.stopPropagation(); handleFollow(player.user_id) }}
-                          className="mt-3 w-full py-1.5 text-xs font-semibold bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors"
-                        >
-                          Seguir
-                        </button>
-                      </div>
-                      )
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {/* Feed unificado (posts + jogos dos seguidos) */}
-              {feedItems.length === 0 ? (
-                <div className="text-center py-12">
-                  <Users className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-                  <p className="text-gray-500 font-medium">O teu feed está vazio</p>
-                  <p className="text-sm text-gray-400 mt-1">Segue jogadores para ver as suas publicações e jogos aqui.</p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {feedItems.map(item => {
-                    if (item.type === 'post') {
-                      const post = item.data as CommunityPost
-                      return (
-                        <div key={`post-${post.id}`} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-                          {/* Post header */}
-                          <div className="flex items-center justify-between p-3 pb-2">
-                            <div className="flex items-center gap-2">
-                              <div className="w-9 h-9 rounded-full bg-gray-900 flex items-center justify-center text-white font-bold text-xs overflow-hidden">
-                                {post.author_avatar
-                                  ? <img src={post.author_avatar} className="w-full h-full object-cover" />
-                                  : getInitials(post.author_name)
-                                }
-                              </div>
-                              <div>
-                                <p className="text-sm font-semibold text-gray-900">{post.author_name}</p>
-                                <p className="text-[11px] text-gray-400">{timeAgo(post.created_at)}</p>
-                              </div>
-                            </div>
-                            {post.user_id === userId && (
-                              <button onClick={() => handleDeletePost(post.id)} className="text-gray-300 hover:text-red-500">
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            )}
-                          </div>
-                          {/* Post content */}
-                          {post.content && (
-                            <p className="px-3 pb-2 text-sm text-gray-700">{post.content}</p>
-                          )}
-                          {/* Post image */}
-                          {post.image_url && (
-                            <img src={post.image_url} alt="" className="w-full max-h-80 object-cover" />
-                          )}
-                          {/* Post video */}
-                          {post.video_url && (
-                            <video src={post.video_url} controls className="w-full max-h-80" />
-                          )}
-                          {/* Post footer */}
-                          <div className="px-3 py-2 border-t border-gray-50 flex items-center gap-4">
-                            <button className="flex items-center gap-1 text-gray-400 hover:text-red-500 transition-colors">
-                              <Heart className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </div>
-                      )
-                    } else {
-                      // Match card do jogador seguido – usa layout GameCardPlaytomic
-                      const match = item.data as FeedMatchItem
-                      // Converter FeedMatchItem para PlayerMatchForCard
-                      const matchForCard: PlayerMatchForCard = {
-                        id: match.id,
-                        tournament_id: match.tournament_id,
-                        tournament_name: match.tournament_name,
-                        court: match.court,
-                        start_time: match.start_time || match.played_at,
-                        team1_name: match.team1_name,
-                        team2_name: match.team2_name,
-                        player1_name: match.player1_name,
-                        player2_name: match.player2_name,
-                        player3_name: match.player3_name,
-                        player4_name: match.player4_name,
-                        player1_avatar: match.player1_avatar,
-                        player2_avatar: match.player2_avatar,
-                        player3_avatar: match.player3_avatar,
-                        player4_avatar: match.player4_avatar,
-                        score1: match.score1,
-                        score2: match.score2,
-                        status: match.status,
-                        round: match.round,
-                        set1: match.set1,
-                        set2: match.set2,
-                        set3: match.set3,
-                      }
-
-                      return (
-                        <div key={`match-${match.id}`} className="space-y-0">
-                          {/* Header: quem jogou */}
-                          <div className="flex items-center gap-2 px-3 py-2 bg-gradient-to-r from-gray-50 to-white rounded-t-2xl border border-b-0 border-gray-100">
-                            <div 
-                              className="w-9 h-9 rounded-full bg-gray-900 flex items-center justify-center text-white font-bold text-[10px] overflow-hidden flex-shrink-0 cursor-pointer hover:opacity-80 transition-opacity"
-                              onClick={() => handlePlayerClick(match.followed_player_name)}
-                            >
-                              {match.followed_player_avatar
-                                ? <img src={match.followed_player_avatar} className="w-full h-full object-cover" />
-                                : getInitials(match.followed_player_name)
-                              }
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-semibold text-gray-900 truncate">
-                                <span 
-                                  className="cursor-pointer hover:text-red-600 transition-colors"
-                                  onClick={() => handlePlayerClick(match.followed_player_name)}
-                                >
-                                  {match.followed_player_name}
-                                </span>
-                                <span className={`ml-1.5 text-xs font-bold ${match.followed_player_won ? 'text-green-600' : 'text-red-500'}`}>
-                                  {match.followed_player_won ? 'ganhou!' : 'perdeu'}
-                                </span>
-                              </p>
-                              <p className="text-[11px] text-gray-400 flex items-center gap-1">
-                                {match.tournament_name ? <><span>🏆</span> {match.tournament_name} · </> : null}
-                                {timeAgo(match.played_at)}
-                              </p>
-                            </div>
-                          </div>
-                          {/* Card do jogo estilo Playtomic */}
-                          <div className="[&>div]:rounded-t-none [&>div]:border-t-0">
-                            <GameCardPlaytomic 
-                              match={matchForCard} 
-                              fullWidth 
-                              currentPlayerAvatar={playerAvatar}
-                              currentPlayerName={playerName}
-                              onPlayerClick={handlePlayerClick}
-                            />
-                          </div>
-                        </div>
-                      )
-                    }
-                  })}
-                </div>
-              )}
-            </>
-          )}
-
-          {/* Floating + button */}
-          <button
-            onClick={() => setShowNewPost(true)}
-            className="fixed bottom-20 right-4 w-14 h-14 bg-red-600 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-red-700 transition-colors z-40"
-          >
-            <Plus className="w-7 h-7" />
-          </button>
-
-          {/* New Post Modal */}
-          {showNewPost && (
-            <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center animate-fade-in">
-              <div className="bg-white w-full max-w-md rounded-t-2xl sm:rounded-2xl p-5 max-h-[80vh] overflow-y-auto">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-bold text-gray-900">Nova Publicação</h3>
-                  <button onClick={() => { setShowNewPost(false); setNewPostText(''); setNewPostImage(null); setNewPostVideo(null) }}>
-                    <X className="w-5 h-5 text-gray-400" />
-                  </button>
-                </div>
-                <textarea
-                  value={newPostText}
-                  onChange={e => setNewPostText(e.target.value)}
-                  placeholder="O que queres partilhar?"
-                  rows={4}
-                  className="w-full p-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-500 resize-none"
-                />
-                <div className="flex items-center gap-3 mt-3">
-                  <label className="flex items-center gap-1 text-sm text-gray-500 cursor-pointer hover:text-red-600">
-                    <Image className="w-5 h-5" />
-                    <span>Foto</span>
-                    <input type="file" accept="image/*" className="hidden" onChange={e => { if (e.target.files?.[0]) { setNewPostImage(e.target.files[0]); setNewPostVideo(null) } }} />
-                  </label>
-                  <label className="flex items-center gap-1 text-sm text-gray-500 cursor-pointer hover:text-red-600">
-                    <Video className="w-5 h-5" />
-                    <span>Vídeo</span>
-                    <input type="file" accept="video/*" className="hidden" onChange={e => { if (e.target.files?.[0]) { setNewPostVideo(e.target.files[0]); setNewPostImage(null) } }} />
-                  </label>
-                </div>
-                {newPostImage && (
-                  <div className="mt-2 relative">
-                    <img src={URL.createObjectURL(newPostImage)} className="w-full h-40 object-cover rounded-lg" />
-                    <button onClick={() => setNewPostImage(null)} className="absolute top-1 right-1 bg-black/50 text-white rounded-full p-1"><X className="w-3 h-3" /></button>
-                  </div>
-                )}
-                {newPostVideo && (
-                  <div className="mt-2 flex items-center gap-2 text-sm text-gray-600 bg-gray-50 p-2 rounded-lg">
-                    <Video className="w-4 h-4" />
-                    <span className="truncate">{newPostVideo.name}</span>
-                    <button onClick={() => setNewPostVideo(null)} className="text-red-500"><X className="w-4 h-4" /></button>
-                  </div>
-                )}
-                <button
-                  onClick={handleCreatePost}
-                  disabled={postingLoading || (!newPostText.trim() && !newPostImage && !newPostVideo)}
-                  className="mt-4 w-full py-2.5 bg-red-600 text-white rounded-xl font-semibold disabled:opacity-40 hover:bg-red-700 transition-colors flex items-center justify-center gap-2"
-                >
-                  {postingLoading ? 'A publicar...' : <><Send className="w-4 h-4" /> Publicar</>}
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-    </div>
-  )
-}
-
-// ClubsListScreen e ClubDetailScreen extraídos para src/components/screens/ (React.lazy).
-
-
-// Helpers de UI (formatDate, cards, etc.) → components/shared/matchUi.tsx
-// CompeteScreen, FindGameScreen, GamesScreen → components/screens/ (React.lazy)
-
-// ---------- Group Detail Screen ----------
-const QUICK_EMOJIS = ['👍', '❤️', '😂', '🔥', '🏆', '👏']
-
-function GroupDetailScreen({
-  groupId, userId, playerAccountId, playerName, playerAvatar, playerLevel,
-  onBack, onOpenPlayerProfile, onCreateGroupGame,
-}: {
-  groupId: string
-  userId: string
-  playerAccountId: string
-  playerName?: string
-  playerAvatar?: string | null
-  playerLevel?: number | null
-  onBack: () => void
-  onOpenPlayerProfile: (uid: string) => void
-  onCreateGroupGame: (groupId: string) => void
-}) {
-  const { t } = useI18n()
-  const [activeTab, setActiveTab] = useState<'chat' | 'members' | 'games'>('chat')
-  const [group, setGroup] = useState<CommunityGroup | null>(null)
-  const [members, setMembers] = useState<GroupMember[]>([])
-  const [messages, setMessages] = useState<ChatMessage[]>([])
-  const [chatLoading, setChatLoading] = useState(true)
-  const [membersLoading, setMembersLoading] = useState(false)
-  const [messageText, setMessageText] = useState('')
-  const [sendingMsg, setSendingMsg] = useState(false)
-  const [replyTo, setReplyTo] = useState<ChatMessage | null>(null)
-  const [showEmojiPicker, setShowEmojiPicker] = useState<string | null>(null)
-  const [imageFile, setImageFile] = useState<File | null>(null)
-  const [imagePreview, setImagePreview] = useState<string | null>(null)
-  const chatEndRef = useRef<HTMLDivElement>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
-
-  // Invite members
-  const [showInviteModal, setShowInviteModal] = useState(false)
-  const [inviteSearchQuery, setInviteSearchQuery] = useState('')
-  const [inviteSearchResults, setInviteSearchResults] = useState<CommunityPlayer[]>([])
-  const [inviteSearching, setInviteSearching] = useState(false)
-  const [invitingUserId, setInvitingUserId] = useState<string | null>(null)
-
-  // Group games
-  const [groupGames, setGroupGames] = useState<import('./lib/openGames').OpenGame[]>([])
-  const [gamesLoading, setGamesLoading] = useState(false)
-
-  // Settings
-  const [showSettings, setShowSettings] = useState(false)
-  const [editName, setEditName] = useState('')
-  const [editDesc, setEditDesc] = useState('')
-
-  const isAdmin = group?.my_role === 'admin'
-
-  useEffect(() => {
-    loadGroupData()
-    const unsub = subscribeToGroupChat(groupId, {
-      onNewMessage: async (raw) => {
-        if (raw.user_id === userId) return
-        const { data: pa } = await supabase.from('player_accounts').select('name, avatar_url').eq('user_id', raw.user_id).maybeSingle()
-        setMessages(prev => [{ ...raw, author_name: pa?.name || 'Jogador', author_avatar: pa?.avatar_url, reactions: [], reply_preview: null }, ...prev])
-        setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
-      },
-      onDeleteMessage: (id) => {
-        if (id) setMessages(prev => prev.filter(m => m.id !== id))
-      },
-      onNewReaction: (r) => {
-        if (!r) return
-        setMessages(prev => prev.map(m => {
-          if (m.id !== r.message_id) return m
-          const existing = (m.reactions || []).find(rg => rg.emoji === r.emoji)
-          if (existing) {
-            return { ...m, reactions: m.reactions!.map(rg => rg.emoji === r.emoji ? { ...rg, count: rg.count + 1, users: [...rg.users, r.user_id], reacted_by_me: rg.reacted_by_me || r.user_id === userId } : rg) }
-          }
-          return { ...m, reactions: [...(m.reactions || []), { emoji: r.emoji, count: 1, users: [r.user_id], reacted_by_me: r.user_id === userId }] }
-        }))
-      },
-      onDeleteReaction: (r) => {
-        if (!r) return
-        setMessages(prev => prev.map(m => {
-          if (m.id !== r.message_id) return m
-          return { ...m, reactions: (m.reactions || []).map(rg => rg.emoji === r.emoji ? { ...rg, count: rg.count - 1, users: rg.users.filter(u => u !== r.user_id), reacted_by_me: rg.reacted_by_me && r.user_id !== userId } : rg).filter(rg => rg.count > 0) }
-        }))
-      },
-    })
-    return unsub
-  }, [groupId])
-
-  async function loadGroupData() {
-    setChatLoading(true)
-    const [groupData, msgs, mems] = await Promise.all([
-      getGroupDetails(groupId),
-      getMessages({ groupId, limit: 50 }),
-      getGroupMembers(groupId),
-    ])
-    setGroup(groupData)
-    setMessages(msgs)
-    setMembers(mems)
-    if (groupData) { setEditName(groupData.name); setEditDesc(groupData.description || '') }
-    setChatLoading(false)
-  }
-
-  async function handleSendMessage() {
-    const text = messageText.trim()
-    if (!text && !imageFile) return
-    setSendingMsg(true)
-    let imgUrl: string | undefined
-    if (imageFile) {
-      imgUrl = (await uploadChatImage(imageFile)) || undefined
-    }
-    const result = await sendMessage({
-      groupId,
-      content: text || undefined,
-      imageUrl: imgUrl,
-      replyToId: replyTo?.id,
-      messageType: imageFile ? 'image' : 'text',
-    })
-    if (result.success) {
-      const { data: pa } = await supabase.from('player_accounts').select('name, avatar_url').eq('user_id', userId).maybeSingle()
-      const newMsg: ChatMessage = {
-        id: result.messageId!,
-        group_id: groupId,
-        user_id: userId,
-        content: text || null,
-        image_url: imgUrl || null,
-        reply_to_message_id: replyTo?.id || null,
-        message_type: imageFile ? 'image' : 'text',
-        metadata: {},
-        created_at: new Date().toISOString(),
-        author_name: pa?.name || playerName || 'Eu',
-        author_avatar: pa?.avatar_url || playerAvatar || null,
-        reply_preview: replyTo ? { content: replyTo.content, author_name: replyTo.author_name || '' } : null,
-        reactions: [],
-      }
-      setMessages(prev => [newMsg, ...prev])
-      setMessageText('')
-      setReplyTo(null)
-      setImageFile(null)
-      setImagePreview(null)
-      setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100)
-    } else {
-      console.error('[GroupChat] Send failed:', result.error)
-      alert(result.error || 'Erro ao enviar mensagem')
-    }
-    setSendingMsg(false)
-  }
-
-  async function handleReaction(messageId: string, emoji: string) {
-    const msg = messages.find(m => m.id === messageId)
-    const existingReaction = msg?.reactions?.find(r => r.emoji === emoji && r.reacted_by_me)
-    if (existingReaction) {
-      await removeReaction(messageId, emoji)
-      setMessages(prev => prev.map(m => m.id !== messageId ? m : { ...m, reactions: (m.reactions || []).map(r => r.emoji === emoji ? { ...r, count: r.count - 1, users: r.users.filter(u => u !== userId), reacted_by_me: false } : r).filter(r => r.count > 0) }))
-    } else {
-      await addReaction(messageId, emoji)
-      setMessages(prev => prev.map(m => {
-        if (m.id !== messageId) return m
-        const ex = (m.reactions || []).find(r => r.emoji === emoji)
-        if (ex) return { ...m, reactions: m.reactions!.map(r => r.emoji === emoji ? { ...r, count: r.count + 1, users: [...r.users, userId], reacted_by_me: true } : r) }
-        return { ...m, reactions: [...(m.reactions || []), { emoji, count: 1, users: [userId], reacted_by_me: true }] }
-      }))
-    }
-    setShowEmojiPicker(null)
-  }
-
-  async function handleDeleteMessage(msgId: string) {
-    if (!confirm('Apagar esta mensagem?')) return
-    const ok = await deleteMessage(msgId)
-    if (ok.success) setMessages(prev => prev.filter(m => m.id !== msgId))
-  }
-
-  async function handleRemoveMember(memberId: string, memberUserId: string) {
-    if (!confirm('Remover este membro do grupo?')) return
-    const ok = await removeGroupMember(groupId, memberUserId)
-    if (ok.success) setMembers(prev => prev.filter(m => m.user_id !== memberUserId))
-  }
-
-  async function handleLeaveGroup() {
-    if (!confirm('Tens a certeza que queres sair deste grupo?')) return
-    const ok = await leaveGroup(groupId)
-    if (ok.success) onBack()
-  }
-
-  async function handleSaveSettings() {
-    const result = await updateGroup({ groupId, name: editName.trim(), description: editDesc.trim() })
-    if (result.success) {
-      setGroup(prev => prev ? { ...prev, name: editName.trim(), description: editDesc.trim() } : prev)
-      setShowSettings(false)
-    } else {
-      alert(result.error || 'Erro ao guardar')
-    }
-  }
-
-  async function handleDeleteGroup() {
-    if (!confirm('Tens a certeza que queres eliminar este grupo? Esta ação é irreversível.')) return
-    const ok = await deleteGroup(groupId)
-    if (ok.success) onBack()
-  }
-
-  // Invite search debounce
-  useEffect(() => {
-    if (inviteSearchQuery.trim().length < 2) { setInviteSearchResults([]); return }
-    const timer = setTimeout(async () => {
-      setInviteSearching(true)
-      const results = await searchPlayers(inviteSearchQuery, userId)
-      const memberUserIds = new Set(members.map(m => m.user_id))
-      setInviteSearchResults(results.filter(p => !memberUserIds.has(p.user_id)))
-      setInviteSearching(false)
-    }, 400)
-    return () => clearTimeout(timer)
-  }, [inviteSearchQuery])
-
-  async function handleInvite(targetUserId: string) {
-    setInvitingUserId(targetUserId)
-    const result = await inviteToGroup(groupId, targetUserId)
-    if (result.success) {
-      setInviteSearchResults(prev => prev.filter(p => p.user_id !== targetUserId))
-      // Send system message
-      await sendMessage({ groupId, content: `convidou um novo jogador para o grupo`, messageType: 'system' })
-    } else {
-      alert(result.error || 'Erro ao convidar')
-    }
-    setInvitingUserId(null)
-  }
-
-  // Load group games
-  useEffect(() => {
-    if (activeTab === 'games') loadGroupGames()
-  }, [activeTab])
-
-  async function loadGroupGames() {
-    setGamesLoading(true)
-    try {
-      const { fetchOpenGames } = await import('./lib/openGames')
-      const allGames = await fetchOpenGames({})
-      setGroupGames(allGames.filter(g => (g as any).group_id === groupId))
-    } catch (err) {
-      console.error('[GroupDetail] Load games error:', err)
-    }
-    setGamesLoading(false)
-  }
-
-  function handleCreateGroupGame() {
-    onCreateGroupGame(groupId)
-  }
-
-  // Load members when switching to tab
-  useEffect(() => {
-    if (activeTab === 'members' && members.length === 0) {
-      setMembersLoading(true)
-      getGroupMembers(groupId).then(m => { setMembers(m); setMembersLoading(false) })
-    }
-  }, [activeTab])
-
-  function formatMsgTime(dateStr: string) {
-    const d = new Date(dateStr)
-    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
-  }
-
-  function formatMsgDate(dateStr: string) {
-    const d = new Date(dateStr)
-    const today = new Date()
-    if (d.toDateString() === today.toDateString()) return 'Hoje'
-    const yesterday = new Date(today)
-    yesterday.setDate(today.getDate() - 1)
-    if (d.toDateString() === yesterday.toDateString()) return 'Ontem'
-    return d.toLocaleDateString('pt-PT', { day: 'numeric', month: 'long', year: 'numeric' })
-  }
-
-  const groupedMessages = useMemo(() => {
-    const reversed = [...messages].reverse()
-    const groups: { date: string; messages: ChatMessage[] }[] = []
-    let currentDate = ''
-    reversed.forEach(msg => {
-      const date = formatMsgDate(msg.created_at)
-      if (date !== currentDate) {
-        currentDate = date
-        groups.push({ date, messages: [] })
-      }
-      groups[groups.length - 1].messages.push(msg)
-    })
-    return groups
-  }, [messages])
-
-  if (chatLoading) {
-    return (
-      <div className="animate-fade-in flex items-center justify-center py-20">
-        <div className="animate-spin w-8 h-8 border-2 border-red-600 border-t-transparent rounded-full"></div>
-      </div>
-    )
-  }
-
-  return (
-    <div className="animate-fade-in flex flex-col overflow-hidden" style={{ maxHeight: 'calc(100dvh - 10rem)' }}>
-      {/* Header */}
-      <div className="flex items-center gap-3 pb-3 border-b border-gray-100">
-        <button onClick={onBack} className="p-1 hover:bg-gray-100 rounded-full">
-          <ArrowLeft className="w-5 h-5 text-gray-700" />
-        </button>
-        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-red-500 to-orange-400 flex items-center justify-center text-white font-bold overflow-hidden flex-shrink-0">
-          {group?.image_url ? <img src={group.image_url} className="w-full h-full object-cover" /> : (group?.name || 'G').charAt(0).toUpperCase()}
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-base font-bold text-gray-900 truncate">{group?.name}</p>
-          <p className="text-xs text-gray-500">{group?.member_count} membros</p>
-        </div>
-        {isAdmin && (
-          <button onClick={() => setShowSettings(true)} className="p-2 hover:bg-gray-100 rounded-full">
-            <Settings className="w-5 h-5 text-gray-500" />
-          </button>
-        )}
-      </div>
-
-      {/* Tabs */}
-      <div className="flex border-b border-gray-100">
-        {(['chat', 'members', 'games'] as const).map(tab => (
-          <button key={tab} onClick={() => setActiveTab(tab)} className={`flex-1 py-2.5 text-sm font-semibold transition-colors ${activeTab === tab ? 'text-red-600 border-b-2 border-red-600' : 'text-gray-500'}`}>
-            {tab === 'chat' ? '💬 Chat' : tab === 'members' ? `👥 Membros` : '🎾 Jogos'}
-          </button>
-        ))}
-      </div>
-
-      {/* Tab Content */}
-      {activeTab === 'chat' && (
-        <div className="flex flex-col flex-1 min-h-0">
-          {/* Messages area */}
-          <div className="flex-1 overflow-y-auto px-2 py-3 space-y-1">
-            {groupedMessages.length === 0 ? (
-              <div className="text-center py-12">
-                <p className="text-sm text-gray-400">Ainda não há mensagens</p>
-                <p className="text-xs text-gray-300 mt-1">Sê o primeiro a enviar uma mensagem!</p>
-              </div>
-            ) : (
-              groupedMessages.map((dateGroup, gi) => (
-                <div key={gi}>
-                  <div className="flex items-center justify-center my-3">
-                    <span className="text-[11px] text-gray-400 bg-gray-100 px-3 py-1 rounded-full">{dateGroup.date}</span>
-                  </div>
-                  {dateGroup.messages.map(msg => {
-                    const isMe = msg.user_id === userId
-                    const isSystem = msg.message_type === 'system'
-
-                    if (isSystem) {
-                      return (
-                        <div key={msg.id} className="flex items-center justify-center my-2">
-                          <span className="text-[11px] text-gray-400 italic">{msg.author_name} {msg.content}</span>
-                        </div>
-                      )
-                    }
-
-                    return (
-                      <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'} mb-2 group`}>
-                        <div className={`flex gap-2 max-w-[85%] ${isMe ? 'flex-row-reverse' : ''}`}>
-                          {!isMe && (
-                            <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0 overflow-hidden mt-auto cursor-pointer" onClick={() => onOpenPlayerProfile(msg.user_id)}>
-                              {msg.author_avatar ? <img src={msg.author_avatar} className="w-full h-full object-cover" /> : <span className="text-xs font-bold text-gray-600">{(msg.author_name || '?').charAt(0).toUpperCase()}</span>}
-                            </div>
-                          )}
-                          <div>
-                            {!isMe && <p className="text-[10px] text-gray-500 font-medium mb-0.5 ml-1">{msg.author_name}</p>}
-                            {/* Reply preview */}
-                            {msg.reply_preview && (
-                              <div className={`text-[11px] px-2 py-1 mb-0.5 rounded-lg border-l-2 ${isMe ? 'bg-red-50 border-red-300 text-red-700' : 'bg-gray-100 border-gray-300 text-gray-600'}`}>
-                                <span className="font-semibold">{msg.reply_preview.author_name}</span>
-                                <p className="truncate">{msg.reply_preview.content}</p>
-                              </div>
-                            )}
-                            <div
-                              className={`px-3 py-2 rounded-2xl relative ${isMe ? 'bg-red-600 text-white rounded-br-md' : 'bg-gray-100 text-gray-900 rounded-bl-md'}`}
-                              onContextMenu={e => { e.preventDefault(); setShowEmojiPicker(showEmojiPicker === msg.id ? null : msg.id) }}
-                            >
-                              {msg.image_url && (
-                                <img src={msg.image_url} alt="" className="max-w-full rounded-lg mb-1 max-h-60 object-cover cursor-pointer" onClick={() => window.open(msg.image_url!, '_blank')} />
-                              )}
-                              {msg.content && <p className="text-sm whitespace-pre-wrap break-words">{msg.content}</p>}
-                              <p className={`text-[10px] mt-0.5 text-right ${isMe ? 'text-red-200' : 'text-gray-400'}`}>{formatMsgTime(msg.created_at)}</p>
-                            </div>
-                            {/* Reactions */}
-                            {msg.reactions && msg.reactions.length > 0 && (
-                              <div className="flex flex-wrap gap-1 mt-1 ml-1">
-                                {msg.reactions.map(r => (
-                                  <button key={r.emoji} onClick={() => handleReaction(msg.id, r.emoji)} className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-xs border ${r.reacted_by_me ? 'bg-red-50 border-red-300' : 'bg-gray-50 border-gray-200'} hover:bg-gray-100 transition-colors`}>
-                                    <span>{r.emoji}</span>
-                                    <span className="text-[10px] text-gray-600">{r.count}</span>
-                                  </button>
-                                ))}
-                              </div>
-                            )}
-                            {/* Action buttons on hover/click */}
-                            <div className={`flex items-center gap-1 mt-0.5 opacity-0 group-hover:opacity-100 transition-opacity ${isMe ? 'justify-end' : 'justify-start'}`}>
-                              <button onClick={() => setReplyTo(msg)} className="text-[10px] text-gray-400 hover:text-gray-600 px-1">Responder</button>
-                              <button onClick={() => setShowEmojiPicker(showEmojiPicker === msg.id ? null : msg.id)} className="text-[10px] text-gray-400 hover:text-gray-600 px-1">Reagir</button>
-                              {(isMe || isAdmin) && <button onClick={() => handleDeleteMessage(msg.id)} className="text-[10px] text-red-400 hover:text-red-600 px-1">Apagar</button>}
-                            </div>
-                            {/* Emoji picker */}
-                            {showEmojiPicker === msg.id && (
-                              <div className={`flex gap-1 mt-1 bg-white shadow-lg rounded-xl p-1.5 border border-gray-100 ${isMe ? 'justify-end' : ''}`}>
-                                {QUICK_EMOJIS.map(emoji => (
-                                  <button key={emoji} onClick={() => handleReaction(msg.id, emoji)} className="text-lg hover:scale-125 transition-transform p-0.5">{emoji}</button>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              ))
-            )}
-            <div ref={chatEndRef} />
-          </div>
-
-          {/* Reply preview bar */}
-          {replyTo && (
-            <div className="px-3 py-2 bg-gray-50 border-t border-gray-100 flex items-center gap-2">
-              <div className="flex-1 min-w-0">
-                <p className="text-[11px] text-gray-500 font-semibold">A responder a {replyTo.author_name}</p>
-                <p className="text-xs text-gray-400 truncate">{replyTo.content}</p>
-              </div>
-              <button onClick={() => setReplyTo(null)} className="p-1 hover:bg-gray-200 rounded-full"><X className="w-4 h-4 text-gray-400" /></button>
-            </div>
-          )}
-
-          {/* Image preview */}
-          {imagePreview && (
-            <div className="px-3 py-2 bg-gray-50 border-t border-gray-100 flex items-center gap-2">
-              <img src={imagePreview} alt="" className="w-12 h-12 rounded-lg object-cover" />
-              <p className="text-xs text-gray-500 flex-1">Imagem selecionada</p>
-              <button onClick={() => { setImageFile(null); setImagePreview(null) }} className="p-1 hover:bg-gray-200 rounded-full"><X className="w-4 h-4 text-gray-400" /></button>
-            </div>
-          )}
-
-          {/* Input area */}
-          <div className="px-3 py-2 border-t border-gray-100 bg-white flex items-center gap-2">
-            <input type="file" ref={fileInputRef} accept="image/*" className="hidden" onChange={e => {
-              const f = e.target.files?.[0]
-              if (f) {
-                setImageFile(f)
-                const reader = new FileReader()
-                reader.onload = ev => setImagePreview(ev.target?.result as string)
-                reader.readAsDataURL(f)
-              }
-              e.target.value = ''
-            }} />
-            <button onClick={() => fileInputRef.current?.click()} className="p-2 hover:bg-gray-100 rounded-full text-gray-400">
-              <Camera className="w-5 h-5" />
-            </button>
-            <input
-              type="text"
-              value={messageText}
-              onChange={e => setMessageText(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage() } }}
-              placeholder="Escreve uma mensagem..."
-              className="flex-1 px-3 py-2 bg-gray-100 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
-            />
-            <button onClick={handleSendMessage} disabled={sendingMsg || (!messageText.trim() && !imageFile)} className="p-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-300 text-white rounded-full transition-colors">
-              <Send className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-      )}
-
-      {activeTab === 'members' && (
-        <div className="flex-1 overflow-y-auto py-3">
-          {isAdmin && (
-            <button onClick={() => { setShowInviteModal(true); setInviteSearchQuery(''); setInviteSearchResults([]) }} className="w-full flex items-center gap-3 px-4 py-3 bg-red-50 rounded-xl mb-3 hover:bg-red-100 transition-colors">
-              <div className="w-10 h-10 rounded-full bg-red-600 flex items-center justify-center"><Plus className="w-5 h-5 text-white" /></div>
-              <span className="text-sm font-semibold text-red-700">Convidar jogadores</span>
-            </button>
-          )}
-
-          {membersLoading ? (
-            <div className="text-center py-6 text-gray-400 text-sm">{t.common.loading}</div>
-          ) : (
-            <div className="space-y-1">
-              {members.map(m => {
-                const colors = levelColors(m.level)
-                return (
-                  <div key={m.id} className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-gray-50 transition-colors">
-                    <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden flex-shrink-0 cursor-pointer" onClick={() => onOpenPlayerProfile(m.user_id)}>
-                      {m.avatar_url ? <img src={m.avatar_url} className="w-full h-full object-cover" /> : <span className="text-sm font-bold text-gray-600">{m.name.charAt(0).toUpperCase()}</span>}
-                    </div>
-                    <div className="flex-1 min-w-0 cursor-pointer" onClick={() => onOpenPlayerProfile(m.user_id)}>
-                      <div className="flex items-center gap-2">
-                        <p className="text-sm font-semibold text-gray-900 truncate">{m.name}</p>
-                        {m.role === 'admin' && <span className="text-[10px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full font-semibold">Admin</span>}
-                      </div>
-                      {m.level != null && (
-                        <div className="flex items-center gap-1.5 mt-0.5">
-                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${colors?.bg || 'bg-gray-100'} ${colors?.text || 'text-gray-600'}`}>Nv {m.level.toFixed(2)}</span>
-                        </div>
-                      )}
-                    </div>
-                    {isAdmin && m.user_id !== userId && (
-                      <button onClick={() => handleRemoveMember(m.id, m.user_id)} className="text-xs text-red-500 hover:text-red-700 px-2 py-1">Remover</button>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          )}
-
-          {/* Leave group button */}
-          <div className="mt-6 px-4">
-            <button onClick={handleLeaveGroup} className="w-full py-2.5 text-sm font-semibold text-red-600 border border-red-200 rounded-xl hover:bg-red-50 transition-colors">
-              Sair do grupo
-            </button>
-          </div>
-        </div>
-      )}
-
-      {activeTab === 'games' && (
-        <div className="flex-1 overflow-y-auto py-3">
-          <div className="flex items-center justify-between px-1 py-4 mb-3">
-            <p className="text-sm text-gray-500">Jogos abertos deste grupo</p>
-            <button onClick={handleCreateGroupGame} className="flex items-center gap-1.5 px-4 py-2 bg-red-600 text-white text-sm font-semibold rounded-xl hover:bg-red-700 transition-colors">
-              <Plus className="w-4 h-4" /> Criar Jogo
-            </button>
-          </div>
-
-          {gamesLoading ? (
-            <div className="text-center py-6 text-gray-400 text-sm">{t.common.loading}</div>
-          ) : groupGames.length > 0 ? (
-            <div className="space-y-3">
-              {groupGames.map(game => {
-                const confirmedPlayers = game.players.filter(p => p.status === 'confirmed')
-                const spotsLeft = game.max_players - confirmedPlayers.length
-                const gameDate = new Date(game.scheduled_at)
-                return (
-                  <div key={game.id} className="border border-gray-200 rounded-xl p-4 bg-white">
-                    <div className="flex items-center justify-between mb-2">
-                      <p className="text-sm font-bold text-gray-900">{gameDate.toLocaleDateString('pt-PT', { weekday: 'short', day: 'numeric', month: 'short' })} · {String(gameDate.getHours()).padStart(2, '0')}:{String(gameDate.getMinutes()).padStart(2, '0')}</p>
-                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${spotsLeft <= 1 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
-                        {spotsLeft} {spotsLeft === 1 ? 'lugar' : 'lugares'}
-                      </span>
-                    </div>
-                    <p className="text-xs text-gray-500 mb-2">{game.club_name}</p>
-                    <div className="flex gap-2">
-                      {confirmedPlayers.map(p => (
-                        <div key={p.id} className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden">
-                          {p.avatar_url ? <img src={p.avatar_url} className="w-full h-full object-cover" /> : <span className="text-xs font-bold text-gray-600">{(p.name || '?').charAt(0).toUpperCase()}</span>}
-                        </div>
-                      ))}
-                      {Array.from({ length: spotsLeft }).map((_, i) => (
-                        <div key={`empty-${i}`} className="w-8 h-8 rounded-full border-2 border-dashed border-gray-300 flex items-center justify-center">
-                          <Plus className="w-4 h-4 text-gray-300" />
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          ) : (
-            <div className="text-center py-8">
-              <p className="text-sm text-gray-400">Sem jogos do grupo</p>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Invite Modal */}
-      {showInviteModal && createPortal(
-        <div className="fixed inset-0 bg-black/50 z-[9999] flex items-center justify-center p-4" onClick={() => setShowInviteModal(false)}>
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-xl max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
-            <div className="p-4 border-b border-gray-100 flex items-center justify-between">
-              <h3 className="text-lg font-bold text-gray-900">Convidar Jogadores</h3>
-              <button onClick={() => setShowInviteModal(false)} className="p-1 hover:bg-gray-100 rounded-full"><X className="w-5 h-5 text-gray-500" /></button>
-            </div>
-            <div className="p-4">
-              <input type="text" value={inviteSearchQuery} onChange={e => setInviteSearchQuery(e.target.value)} placeholder="Pesquisar jogador..." className="w-full px-4 py-2.5 bg-gray-100 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-500" />
-            </div>
-            <div className="flex-1 overflow-y-auto px-4 pb-4">
-              {inviteSearching ? (
-                <div className="text-center py-6 text-gray-400 text-sm">A pesquisar...</div>
-              ) : inviteSearchResults.length > 0 ? (
-                <div className="space-y-2">
-                  {inviteSearchResults.map(p => (
-                    <div key={p.id} className="flex items-center gap-3 p-2 rounded-xl hover:bg-gray-50">
-                      <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden flex-shrink-0">
-                        {p.avatar_url ? <img src={p.avatar_url} className="w-full h-full object-cover" /> : <span className="text-sm font-bold text-gray-600">{getInitials(p.name)}</span>}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-gray-900 truncate">{p.name}</p>
-                      </div>
-                      <button
-                        onClick={() => handleInvite(p.user_id)}
-                        disabled={invitingUserId === p.user_id}
-                        className="px-3 py-1.5 bg-red-600 hover:bg-red-700 disabled:bg-gray-300 text-white text-xs font-semibold rounded-lg transition-colors"
-                      >
-                        {invitingUserId === p.user_id ? '...' : 'Convidar'}
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              ) : inviteSearchQuery.trim().length >= 2 ? (
-                <div className="text-center py-6 text-sm text-gray-400">Nenhum jogador encontrado</div>
-              ) : (
-                <div className="text-center py-6 text-sm text-gray-400">Escreve pelo menos 2 letras</div>
-              )}
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
-
-      {/* Settings Modal */}
-      {showSettings && createPortal(
-        <div className="fixed inset-0 bg-black/50 z-[9999] flex items-center justify-center p-4" onClick={() => setShowSettings(false)}>
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-xl" onClick={e => e.stopPropagation()}>
-            <div className="p-5 border-b border-gray-100">
-              <div className="flex items-center justify-between">
-                <h3 className="text-lg font-bold text-gray-900">Definições do Grupo</h3>
-                <button onClick={() => setShowSettings(false)} className="p-1 hover:bg-gray-100 rounded-full"><X className="w-5 h-5 text-gray-500" /></button>
-              </div>
-            </div>
-            <div className="p-5 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Nome</label>
-                <input type="text" value={editName} onChange={e => setEditName(e.target.value)} className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-500" maxLength={50} />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Descrição</label>
-                <textarea value={editDesc} onChange={e => setEditDesc(e.target.value)} className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-500 resize-none" rows={3} maxLength={200} />
-              </div>
-            </div>
-            <div className="p-5 border-t border-gray-100 space-y-3">
-              <button onClick={handleSaveSettings} className="w-full py-2.5 bg-red-600 hover:bg-red-700 text-white text-sm font-semibold rounded-xl transition-colors">Guardar</button>
-              <button onClick={handleDeleteGroup} className="w-full py-2.5 bg-white border border-red-200 text-red-600 hover:bg-red-50 text-sm font-semibold rounded-xl transition-colors">Eliminar grupo</button>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
-    </div>
-  )
-}
-
-// ---------- Listas de Seguindo/Seguidores ----------
-function FollowsListScreen({
-  targetUserId,
-  myUserId,
-  onBack,
-  onOpenPlayerProfile,
-}: {
-  targetUserId: string
-  myUserId: string
-  onBack: () => void
-  onOpenPlayerProfile: (userId: string, opts?: { accountId?: string | null; nameHint?: string | null }) => void
-}) {
-  const [activeTab, setActiveTab] = useState<'following' | 'followers'>('following')
-  const [followingList, setFollowingList] = useState<CommunityPlayer[]>([])
-  const [followersList, setFollowersList] = useState<CommunityPlayer[]>([])
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    setLoading(true)
-    Promise.all([
-      getFollowingList(targetUserId),
-      getFollowersList(targetUserId),
-    ]).then(([following, followers]) => {
-      setFollowingList(following)
-      setFollowersList(followers)
-      setLoading(false)
-    })
-  }, [targetUserId])
-
-  const handleToggleFollow = async (userId: string, currentlyFollowing: boolean) => {
-    if (currentlyFollowing) {
-      await unfollowUser(myUserId, userId)
-      // Update both lists
-      setFollowingList(prev => prev.filter(p => p.user_id !== userId))
-      setFollowersList(prev => prev.map(p => p.user_id === userId ? { ...p, is_following: false } : p))
-    } else {
-      await followUser(myUserId, userId)
-      setFollowersList(prev => prev.map(p => p.user_id === userId ? { ...p, is_following: true } : p))
-    }
-  }
-
-  const currentList = activeTab === 'following' ? followingList : followersList
-
-  return (
-    <div className="animate-fade-in pb-20">
-      {/* Header */}
-      <div className="mb-4">
-        <button onClick={onBack} className="flex items-center gap-1 text-gray-600 hover:text-red-600 transition-colors mb-3">
-          <ChevronLeft className="w-5 h-5" />
-          <span className="text-sm font-medium">Voltar</span>
-        </button>
-        <h1 className="text-2xl font-bold text-gray-900">Seguidores</h1>
-      </div>
-
-      {/* Tabs */}
-      <div className="flex gap-2 mb-4 bg-gray-100 p-1 rounded-lg">
-        <button
-          onClick={() => setActiveTab('following')}
-          className={`flex-1 py-2 text-sm font-semibold rounded-lg transition-all ${activeTab === 'following' ? 'bg-white text-red-600 shadow-sm' : 'text-gray-500'}`}
-        >
-          A seguir
-        </button>
-        <button
-          onClick={() => setActiveTab('followers')}
-          className={`flex-1 py-2 text-sm font-semibold rounded-lg transition-all ${activeTab === 'followers' ? 'bg-white text-red-600 shadow-sm' : 'text-gray-500'}`}
-        >
-          Seguidores
-        </button>
-      </div>
-
-      {/* List */}
-      {loading ? (
-        <div className="flex items-center justify-center py-12">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-red-600"></div>
-        </div>
-      ) : currentList.length === 0 ? (
-        <div className="card p-8 text-center">
-          <p className="text-gray-500">
-            {activeTab === 'following' ? 'Ainda não segue ninguém' : 'Ainda não tem seguidores'}
-          </p>
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {currentList.map((p) => {
-            const colors = levelColors(p.level)
-            const lvl = p.level
-            return (
-              <div key={p.id} className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-                <div className="flex items-center gap-3">
-                  <div 
-                    className="w-12 h-12 rounded-full bg-gray-900 flex items-center justify-center text-white font-bold text-sm overflow-hidden cursor-pointer"
-                    onClick={() => onOpenPlayerProfile(p.user_id)}
-                  >
-                    {p.avatar_url ? <img src={p.avatar_url} className="w-full h-full object-cover" /> : getInitials(p.name)}
-                  </div>
-                  <div className="flex-1 min-w-0 cursor-pointer" onClick={() => onOpenPlayerProfile(p.user_id)}>
-                    <p className="text-sm font-semibold text-gray-900">{p.name}</p>
-                    <div className="flex items-center gap-1.5 mt-0.5">
-                      {lvl && <span className={`text-xs font-black px-2 py-0.5 rounded-full ${colors.bg} ${colors.text}`}>Nv {lvl}</span>}
-                      {p.location && <span className="text-xs text-gray-400">{p.location}</span>}
-                    </div>
-                  </div>
-                  {p.user_id !== myUserId && (
-                    <button
-                      onClick={() => handleToggleFollow(p.user_id, p.is_following ?? false)}
-                      className={`px-4 py-1.5 text-xs font-semibold rounded-lg transition-colors ${
-                        p.is_following
-                          ? 'border border-orange-300 text-orange-600 hover:bg-orange-50'
-                          : 'bg-orange-500 text-white hover:bg-orange-600'
-                      }`}
-                    >
-                      {p.is_following ? 'Seguindo' : 'Seguir'}
-                    </button>
-                  )}
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ---------- Perfil de Outro Jogador (a partir da Comunidade) ----------
 function OtherPlayerProfileScreen({
   targetUserId,
   preferredAccountId,
@@ -4153,7 +2715,7 @@ function ProfileViewScreen({
   const allRecentMatches = d?.recentMatches ?? []
   const playerCountMap = new Map<string, number>()
   allRecentMatches.forEach((match) => {
-    getOtherPlayersFromMatch(match, player?.name).forEach((name) => {
+    getPartnerNamesFromMatch(match, player?.name).forEach((name) => {
       if (isLikelyTeamLabel(name)) return
       playerCountMap.set(name, (playerCountMap.get(name) || 0) + 1)
     })
@@ -4730,7 +3292,6 @@ function ProfileEditScreen({
       setEditPreferredTime(player.preferred_time || '')
     }
   }, [player])
-
 
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -5983,6 +4544,4 @@ function MenuItem({ icon: Icon, label }: { icon: any, label: string }) {
 }
 
 export default App
-
-
 

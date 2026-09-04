@@ -1,8 +1,9 @@
-import { useState, useEffect, useMemo, useRef, useCallback, Fragment } from 'react'
-import { Building2, Check, ChevronLeft, Filter, Lock, Plus, RefreshCw, Search, X } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { Building2, Check, ChevronLeft, Lock, Plus, RefreshCw, Search, X } from 'lucide-react'
 import { useI18n } from '../../lib/i18nContext'
 import { supabase, type PlayerAccount } from '../../lib/supabase'
-import { levelColors } from '../../lib/communityData'
+import { levelColors, searchPlayers, type CommunityPlayer } from '../../lib/communityData'
+import { fetchAllClubs } from '../../lib/clubAndTournaments'
 import { OpenGameResultScores } from '../shared/matchUi'
 
 export default function FindGameScreen({

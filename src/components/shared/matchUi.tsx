@@ -4,12 +4,19 @@ import { Building2, Calendar, ChevronRight, MapPin, Search, TrendingUp, Trophy, 
 import { useI18n } from '../../lib/i18nContext'
 import { levelColors, getInitials } from '../../lib/communityData'
 import { getCachedPlayerData } from '../../lib/playerDataCache'
-import { resolveFourPlayerNames } from '../../lib/matchPlayerNames'
+import { resolveFourPlayerNames, isLikelyTeamLabel } from '../../lib/matchPlayerNames'
 import { fetchPlayerPreview, type PlayerPreviewData } from '../../lib/playerPreview'
 import type { EnrolledItem, EnrolledPlayer } from '../../lib/clubAndTournaments'
 import type { PlayerMatch } from '../../lib/playerDashboardData'
 
 export type PlayerMatchForCard = PlayerMatch
+
+export type TournamentForCard = {
+  name: string
+  start_date: string
+  status?: string
+  enrolled_count?: number
+}
 
 export function formatDate(s: string) {
   const d = new Date(s)
@@ -105,6 +112,7 @@ export function ActionButton({ icon: Icon, label, color, onClick, emoji }: {
 }
 
 export function MatchCard({ match }: { match: PlayerMatchForCard }) {
+  const { t } = useI18n()
   return (
     <div className="card p-4">
       <div className="flex items-center justify-between">

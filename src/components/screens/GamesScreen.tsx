@@ -3,13 +3,14 @@ import { Plus } from 'lucide-react'
 import { useI18n } from '../../lib/i18nContext'
 import type { PlayerAccount } from '../../lib/supabase'
 import type { PlayerDashboardData } from '../../lib/playerDashboardData'
+import { isLikelyTeamLabel } from '../../lib/matchPlayerNames'
 import { GameCardPlaytomic, OpenGameCard } from '../shared/matchUi'
 
 export default function GamesScreen({
   player,
   dashboardData,
   onRefresh,
-  onBack,
+  onBack: _onBack,
   onOpenPlayerProfile,
   onOpenFindGame,
   onOpenGameResults,
@@ -28,6 +29,7 @@ export default function GamesScreen({
   isLiteMode?: boolean
   canFindGame?: boolean
 }) {
+  void _onBack
   const { t } = useI18n()
   const [activeTab, setActiveTab] = useState<'upcoming' | 'history'>(initialTab || 'upcoming')
   
@@ -135,10 +137,5 @@ export default function GamesScreen({
       )}
     </div>
   )
-}
-
-/** Extrai nomes de jogadores de um match (excluindo o jogador atual). */
-function getOtherPlayersFromMatch(match: { player1_name?: string; player2_name?: string; player3_name?: string; player4_name?: string; team1_name?: string; team2_name?: string; my_side?: 1 | 2 }, currentName?: string): string[] {
-  return getPartnerNamesFromMatch(match, currentName)
 }
 
