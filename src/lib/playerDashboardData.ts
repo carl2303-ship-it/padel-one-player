@@ -363,7 +363,10 @@ export async function fetchPlayerDashboardData(
   userId: string,
   existingPlayerAccount?: { id: string; name: string | null; phone_number: string | null }
 ): Promise<PlayerDashboardData> {
-  console.time('[Dashboard] Total load time')
+  const loadStartedAt = performance.now()
+  const logLoadTime = () => {
+    console.log(`[Dashboard] Total load time: ${(performance.now() - loadStartedAt).toFixed(0)} ms`)
+  }
   const result: PlayerDashboardData = {
     playerName: '',
     playerAccountId: null,
@@ -382,7 +385,7 @@ export async function fetchPlayerDashboardData(
       ? localStorage.getItem('padel_one_player_phone')
       : null
     const resolved = await resolvePlayerAccountForUser(userId, { phoneNumber: savedPhone || undefined })
-    if (!resolved) { console.timeEnd('[Dashboard] Total load time'); return result }
+    if (!resolved) { logLoadTime(); return result }
     playerAccount = resolved
   }
 
@@ -419,7 +422,7 @@ export async function fetchPlayerDashboardData(
 
   if (allPlayers.length === 0) {
     await fetchLeagueStandingsOnly(playerAccount.id, name || '', result)
-    console.timeEnd('[Dashboard] Total load time')
+    logLoadTime()
     return result
   }
 
@@ -495,27 +498,24 @@ export async function fetchPlayerDashboardData(
 
   if (playerIds.length === 0 && teamIds.length === 0) {
     await fetchLeagueStandingsOnly(playerAccount.id, name || '', result, playerIds, teamIds)
-    console.timeEnd('[Dashboard] Total load time')
+    logLoadTime()
     return result
   }
 
+  // Select leve: JOINs aninhados de players + RLS causavam statement timeout (57014).
+  // Nomes resolvem-se depois via RPC (resolveTeamPlayerNamesMap / resolveIndividualPlayerNames).
   const selectFields = `
     id, tournament_id, court, scheduled_time,
     team1_score_set1, team2_score_set1, team1_score_set2, team2_score_set2, team1_score_set3, team2_score_set3,
     status, round, team1_id, team2_id,
     player1_individual_id, player2_individual_id, player3_individual_id, player4_individual_id,
-    tournaments!inner(name),
-    team1:teams!matches_team1_id_fkey(id, name, t1p1:players!teams_player1_id_fkey(name), t1p2:players!teams_player2_id_fkey(name)),
-    team2:teams!matches_team2_id_fkey(id, name, t2p1:players!teams_player1_id_fkey(name), t2p2:players!teams_player2_id_fkey(name)),
-    p1:players!matches_player1_individual_id_fkey(id, name),
-    p2:players!matches_player2_individual_id_fkey(id, name),
-    p3:players!matches_player3_individual_id_fkey(id, name),
-    p4:players!matches_player4_individual_id_fkey(id, name)
+    tournaments(name),
+    team1:teams!matches_team1_id_fkey(id, name),
+    team2:teams!matches_team2_id_fkey(id, name)
   `
 
   try {
-    // OPTIMIZED: Single combined query instead of sequential loop (was 4*N queries!)
-    console.time('[Dashboard] Fetch matches (single query)')
+    const matchesFetchStartedAt = performance.now()
     const matchConditions: string[] = []
     if (teamIds.length > 0) {
       matchConditions.push(`team1_id.in.(${teamIds.join(',')})`)
@@ -543,11 +543,11 @@ export async function fetchPlayerDashboardData(
         matchesData = fetchedMatches || []
       }
     }
-    console.timeEnd('[Dashboard] Fetch matches (single query)')
+    console.log(`[Dashboard] Fetch matches (single query): ${(performance.now() - matchesFetchStartedAt).toFixed(0)} ms`)
 
     if (matchesData.length === 0) {
       await fetchLeagueStandingsOnly(playerAccount.id, name || '', result, playerIds, teamIds)
-      console.timeEnd('[Dashboard] Total load time')
+      logLoadTime()
       return result
     }
 
@@ -557,10 +557,9 @@ export async function fetchPlayerDashboardData(
     matchesData.forEach((m: any) => {
       if (m.team1_id) teamIdsFromMatches.add(m.team1_id)
       if (m.team2_id) teamIdsFromMatches.add(m.team2_id)
-      if (m.p1) individualPlayersForNames.push(m.p1)
-      if (m.p2) individualPlayersForNames.push(m.p2)
-      if (m.p3) individualPlayersForNames.push(m.p3)
-      if (m.p4) individualPlayersForNames.push(m.p4)
+      for (const pid of [m.player1_individual_id, m.player2_individual_id, m.player3_individual_id, m.player4_individual_id]) {
+        if (pid) individualPlayersForNames.push({ id: pid })
+      }
     })
 
     const [teamPlayerNamesMap, individualNamesMap] = await Promise.all([
@@ -573,13 +572,13 @@ export async function fetchPlayerDashboardData(
     let draws = 0
     let losses = 0
     const matches: PlayerMatch[] = (matchesData as any[]).map((m) => {
-      const isIndividual = m.p1 || m.p2 || m.p3 || m.p4
-      const team1Name = isIndividual
-        ? `${m.p1?.name || 'TBD'}${m.p2 ? ' / ' + m.p2.name : ''}`
-        : m.team1?.name || 'TBD'
-      const team2Name = isIndividual
-        ? `${m.p3?.name || 'TBD'}${m.p4 ? ' / ' + m.p4.name : ''}`
-        : m.team2?.name || 'TBD'
+      const indivIds = [
+        m.player1_individual_id as string | null,
+        m.player2_individual_id as string | null,
+        m.player3_individual_id as string | null,
+        m.player4_individual_id as string | null,
+      ]
+      const isIndividual = indivIds.some(Boolean)
 
       let p1Name: string | undefined
       let p2Name: string | undefined
@@ -591,14 +590,14 @@ export async function fetchPlayerDashboardData(
       let p4Avatar: string | null | undefined
 
       if (isIndividual) {
-        const r1 = m.p1?.id ? individualNamesMap.get(m.p1.id) : null
-        const r2 = m.p2?.id ? individualNamesMap.get(m.p2.id) : null
-        const r3 = m.p3?.id ? individualNamesMap.get(m.p3.id) : null
-        const r4 = m.p4?.id ? individualNamesMap.get(m.p4.id) : null
-        p1Name = r1?.name || m.p1?.name
-        p2Name = r2?.name || m.p2?.name
-        p3Name = r3?.name || m.p3?.name
-        p4Name = r4?.name || m.p4?.name
+        const r1 = indivIds[0] ? individualNamesMap.get(indivIds[0]) : null
+        const r2 = indivIds[1] ? individualNamesMap.get(indivIds[1]) : null
+        const r3 = indivIds[2] ? individualNamesMap.get(indivIds[2]) : null
+        const r4 = indivIds[3] ? individualNamesMap.get(indivIds[3]) : null
+        p1Name = r1?.name
+        p2Name = r2?.name
+        p3Name = r3?.name
+        p4Name = r4?.name
         p1Avatar = r1?.avatar_url
         p2Avatar = r2?.avatar_url
         p3Avatar = r3?.avatar_url
@@ -606,23 +605,29 @@ export async function fetchPlayerDashboardData(
       } else {
         const team1Players = m.team1_id ? teamPlayerNamesMap.get(m.team1_id) : null
         const team2Players = m.team2_id ? teamPlayerNamesMap.get(m.team2_id) : null
-
-        // Prefer resolved names (RPC + player_accounts); nested joins only as weak fallback
-        p1Name = team1Players?.player1_name || (m.team1 as any)?.t1p1?.name
-        p2Name = team1Players?.player2_name || (m.team1 as any)?.t1p2?.name
-        p3Name = team2Players?.player1_name || (m.team2 as any)?.t2p1?.name
-        p4Name = team2Players?.player2_name || (m.team2 as any)?.t2p2?.name
+        p1Name = team1Players?.player1_name
+        p2Name = team1Players?.player2_name
+        p3Name = team2Players?.player1_name
+        p4Name = team2Players?.player2_name
         p1Avatar = team1Players?.player1_avatar
         p2Avatar = team1Players?.player2_avatar
         p3Avatar = team2Players?.player1_avatar
         p4Avatar = team2Players?.player2_avatar
       }
+
+      const team1Name = isIndividual
+        ? `${p1Name || 'TBD'}${p2Name ? ' / ' + p2Name : ''}`
+        : m.team1?.name || 'TBD'
+      const team2Name = isIndividual
+        ? `${p3Name || 'TBD'}${p4Name ? ' / ' + p4Name : ''}`
+        : m.team2?.name || 'TBD'
+
       const { team1Sets, team2Sets, hasPlayedSets } = computeSetCounts(m)
       let is_winner: boolean | null | undefined
       let my_side: 1 | 2 | undefined
       const isPlayerInTeam1 = isIndividual
-        ? playerIds.includes(m.p1?.id) || playerIds.includes(m.p2?.id)
-        : teamIds.includes(m.team1?.id)
+        ? (!!indivIds[0] && playerIds.includes(indivIds[0])) || (!!indivIds[1] && playerIds.includes(indivIds[1]))
+        : teamIds.includes(m.team1_id) || teamIds.includes(m.team1?.id)
       my_side = isPlayerInTeam1 ? 1 : 2
       if (m.status === 'completed' && hasPlayedSets) {
         is_winner = matchOutcome(isPlayerInTeam1, team1Sets, team2Sets)
@@ -745,7 +750,7 @@ export async function fetchPlayerDashboardData(
     console.error('[PlayerDashboard] Error fetching matches:', err)
     // Fallback: continue with empty matches but still fetch league standings
     await fetchLeagueStandingsOnly(playerAccount.id, name || '', result, playerIds, teamIds)
-    console.timeEnd('[Dashboard] Total load time')
+    logLoadTime()
     return result
   }
 
@@ -754,7 +759,7 @@ export async function fetchPlayerDashboardData(
   // Edge Function is now called separately via enrichDashboardWithEdgeFunction()
   // This allows the dashboard to render immediately with direct query data
 
-  console.timeEnd('[Dashboard] Total load time')
+  logLoadTime()
   return result
 }
 
