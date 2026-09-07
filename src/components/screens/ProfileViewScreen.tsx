@@ -10,6 +10,7 @@ import {
   getInitials,
 } from '../../lib/communityData'
 import { getCachedPlayerData } from '../../lib/playerDataCache'
+import { fetchClubById } from '../../lib/clubAndTournaments'
 import { fetchLevelHistory, type LevelHistoryEntry } from '../../lib/levelHistory'
 import { getPartnerNamesFromMatch, isLikelyTeamLabel } from '../../lib/matchPlayerNames'
 import { GameCardPlaytomic, shortPlayerLabel } from '../shared/matchUi'
