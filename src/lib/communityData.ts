@@ -447,31 +447,29 @@ export async function getFeedMatches(userId: string): Promise<FeedMatchItem[]> {
     since.setDate(since.getDate() - 60)
     const sinceISO = since.toISOString()
 
+    // Select leve: sem embeds aninhados de players (RLS+JOINs geravam 500 no PostgREST).
+    // Nomes/avatares resolvem-se depois via RPC (resolveTeamPlayerNamesMap / resolveIndividualPlayerNames).
     const matchSelect = `
       id, tournament_id, court, scheduled_time,
       team1_score_set1, team2_score_set1, team1_score_set2, team2_score_set2, team1_score_set3, team2_score_set3,
       status, round, team1_id, team2_id,
       player1_individual_id, player2_individual_id, player3_individual_id, player4_individual_id,
-      tournaments!inner(name),
-      team1:teams!matches_team1_id_fkey(id, name, t1p1:players!teams_player1_id_fkey(name), t1p2:players!teams_player2_id_fkey(name)),
-      team2:teams!matches_team2_id_fkey(id, name, t2p1:players!teams_player1_id_fkey(name), t2p2:players!teams_player2_id_fkey(name)),
-      p1:players!matches_player1_individual_id_fkey(id, name),
-      p2:players!matches_player2_individual_id_fkey(id, name),
-      p3:players!matches_player3_individual_id_fkey(id, name),
-      p4:players!matches_player4_individual_id_fkey(id, name)
+      tournaments(name),
+      team1:teams!matches_team1_id_fkey(id, name),
+      team2:teams!matches_team2_id_fkey(id, name)
     `
 
     // 5) Buscar matches em batches separados:
-    //    A) Por team IDs (batches de 25 teams)
-    //    B) Por individual player IDs (batches de 15 players)
+    //    A) Por team IDs
+    //    B) Por individual player IDs
     const allMatchesMap = new Map<string, any>()
 
     // 5A) Matches por teams
     if (teamIds.length > 0) {
-      const teamBatches = chunk(teamIds, 25)
+      const teamBatches = chunk(teamIds, 20)
       for (const batch of teamBatches) {
         const cond = `team1_id.in.(${batch.join(',')}),team2_id.in.(${batch.join(',')})`
-        const { data } = await supabase
+        const { data, error } = await supabase
           .from('matches')
           .select(matchSelect)
           .or(cond)
@@ -479,16 +477,17 @@ export async function getFeedMatches(userId: string): Promise<FeedMatchItem[]> {
           .gte('scheduled_time', sinceISO)
           .order('scheduled_time', { ascending: false })
           .limit(30)
+        if (error) console.error('[Community] Feed matches by team error:', error.message)
         if (data) data.forEach((m: any) => allMatchesMap.set(m.id, m))
       }
     }
 
-    // 5B) Matches por individual player IDs (usar .in.() para URLs curtos)
-    const indivBatches = chunk(playerIds, 50)
+    // 5B) Matches por individual player IDs (batches pequenos → URL + RLS mais leve)
+    const indivBatches = chunk(playerIds, 20)
     for (const batch of indivBatches) {
       const ids = batch.join(',')
       const cond = `player1_individual_id.in.(${ids}),player2_individual_id.in.(${ids}),player3_individual_id.in.(${ids}),player4_individual_id.in.(${ids})`
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('matches')
         .select(matchSelect)
         .or(cond)
@@ -496,6 +495,7 @@ export async function getFeedMatches(userId: string): Promise<FeedMatchItem[]> {
         .gte('scheduled_time', sinceISO)
         .order('scheduled_time', { ascending: false })
         .limit(30)
+      if (error) console.error('[Community] Feed matches by player error:', error.message)
       if (data) data.forEach((m: any) => allMatchesMap.set(m.id, m))
     }
 
@@ -510,10 +510,9 @@ export async function getFeedMatches(userId: string): Promise<FeedMatchItem[]> {
       for (const m of matchesData) {
         if (m.team1_id) teamIdsFromMatches.add(m.team1_id)
         if (m.team2_id) teamIdsFromMatches.add(m.team2_id)
-        if (m.p1) individualPlayersForNames.push(m.p1)
-        if (m.p2) individualPlayersForNames.push(m.p2)
-        if (m.p3) individualPlayersForNames.push(m.p3)
-        if (m.p4) individualPlayersForNames.push(m.p4)
+        for (const pid of [m.player1_individual_id, m.player2_individual_id, m.player3_individual_id, m.player4_individual_id]) {
+          if (pid) individualPlayersForNames.push({ id: pid })
+        }
       }
       const [teamPlayerNamesMap, individualNamesMap] = await Promise.all([
         resolveTeamPlayerNamesMap(teamIdsFromMatches),
@@ -521,12 +520,18 @@ export async function getFeedMatches(userId: string): Promise<FeedMatchItem[]> {
       ])
 
       for (const m of matchesData) {
-        const isIndividual = m.p1 || m.p2 || m.p3 || m.p4
+        const indivIds = [
+          m.player1_individual_id as string | null,
+          m.player2_individual_id as string | null,
+          m.player3_individual_id as string | null,
+          m.player4_individual_id as string | null,
+        ]
+        const isIndividual = indivIds.some(Boolean)
 
         let followedAccountId: string | undefined
 
         if (isIndividual) {
-          for (const pid of [m.p1?.id, m.p2?.id, m.p3?.id, m.p4?.id]) {
+          for (const pid of indivIds) {
             if (pid && playerToAccount.has(pid)) {
               followedAccountId = playerToAccount.get(pid)
               break
@@ -547,15 +552,15 @@ export async function getFeedMatches(userId: string): Promise<FeedMatchItem[]> {
         const team1Players = m.team1_id ? teamPlayerNamesMap.get(m.team1_id) : null
         const team2Players = m.team2_id ? teamPlayerNamesMap.get(m.team2_id) : null
 
-        const r1 = m.p1?.id ? individualNamesMap.get(m.p1.id) : null
-        const r2 = m.p2?.id ? individualNamesMap.get(m.p2.id) : null
-        const r3 = m.p3?.id ? individualNamesMap.get(m.p3.id) : null
-        const r4 = m.p4?.id ? individualNamesMap.get(m.p4.id) : null
+        const r1 = indivIds[0] ? individualNamesMap.get(indivIds[0]) : null
+        const r2 = indivIds[1] ? individualNamesMap.get(indivIds[1]) : null
+        const r3 = indivIds[2] ? individualNamesMap.get(indivIds[2]) : null
+        const r4 = indivIds[3] ? individualNamesMap.get(indivIds[3]) : null
 
-        const p1Name = isIndividual ? (r1?.name || m.p1?.name) : (team1Players?.player1_name || (m.team1 as any)?.t1p1?.name)
-        const p2Name = isIndividual ? (r2?.name || m.p2?.name) : (team1Players?.player2_name || (m.team1 as any)?.t1p2?.name)
-        const p3Name = isIndividual ? (r3?.name || m.p3?.name) : (team2Players?.player1_name || (m.team2 as any)?.t2p1?.name)
-        const p4Name = isIndividual ? (r4?.name || m.p4?.name) : (team2Players?.player2_name || (m.team2 as any)?.t2p2?.name)
+        const p1Name = isIndividual ? r1?.name : team1Players?.player1_name
+        const p2Name = isIndividual ? r2?.name : team1Players?.player2_name
+        const p3Name = isIndividual ? r3?.name : team2Players?.player1_name
+        const p4Name = isIndividual ? r4?.name : team2Players?.player2_name
 
         const team1Name = isIndividual
           ? `${p1Name || 'TBD'}${p2Name ? ' / ' + p2Name : ''}`
@@ -577,10 +582,10 @@ export async function getFeedMatches(userId: string): Promise<FeedMatchItem[]> {
 
         let followedInTeam1 = false
         if (isIndividual) {
-          followedInTeam1 = (m.p1?.id && playerIdSet.has(m.p1.id) && playerToAccount.get(m.p1.id) === followedAccountId) ||
-                            (m.p2?.id && playerIdSet.has(m.p2.id) && playerToAccount.get(m.p2.id) === followedAccountId)
+          followedInTeam1 = (indivIds[0] && playerIdSet.has(indivIds[0]) && playerToAccount.get(indivIds[0]) === followedAccountId) ||
+                            (indivIds[1] && playerIdSet.has(indivIds[1]) && playerToAccount.get(indivIds[1]) === followedAccountId) || false
         } else {
-          followedInTeam1 = m.team1_id && teamToAccount.get(m.team1_id) === followedAccountId
+          followedInTeam1 = !!(m.team1_id && teamToAccount.get(m.team1_id) === followedAccountId)
         }
 
         const followedWon = followedInTeam1 ? team1Sets > team2Sets : team2Sets > team1Sets
@@ -779,8 +784,14 @@ export async function getFeedMatches(userId: string): Promise<FeedMatchItem[]> {
  */
 export async function getUnifiedFeed(userId: string): Promise<FeedItem[]> {
   const [posts, matches] = await Promise.all([
-    getFeedPosts(userId),
-    getFeedMatches(userId),
+    getFeedPosts(userId).catch((err) => {
+      console.error('[Community] getFeedPosts failed:', err)
+      return [] as CommunityPost[]
+    }),
+    getFeedMatches(userId).catch((err) => {
+      console.error('[Community] getFeedMatches failed:', err)
+      return [] as FeedMatchItem[]
+    }),
   ])
 
   const items: FeedItem[] = []
