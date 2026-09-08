@@ -21,6 +21,7 @@ export interface CachedPlayerData {
 // Cache global (module-level singleton)
 let cache: Map<string, CachedPlayerData> | null = null
 let loadingPromise: Promise<void> | null = null
+let preloadScheduled = false
 
 function normalize(name: string): string {
   return name.toLowerCase().trim()
@@ -36,7 +37,7 @@ export async function preloadAllPlayerData(): Promise<void> {
   if (loadingPromise) return loadingPromise // já a carregar
 
   loadingPromise = (async () => {
-    console.time('[PlayerCache] Load all player_accounts')
+    const t0 = performance.now()
     const { data, error } = await supabase
       .from('player_accounts')
       .select('id, name, avatar_url, level, player_category, user_id')
@@ -56,10 +57,26 @@ export async function preloadAllPlayerData(): Promise<void> {
         }
       }
     }
-    console.timeEnd('[PlayerCache] Load all player_accounts')
+    console.log(`[PlayerCache] Load all player_accounts: ${(performance.now() - t0).toFixed(0)} ms (${cache.size} names)`)
   })()
 
   return loadingPromise
+}
+
+/**
+ * Agenda o preload para DEPOIS do first paint (não compete com o dashboard).
+ * Preferir isto a chamar preloadAllPlayerData() no checkAuth.
+ */
+export function schedulePreloadAllPlayerData(): void {
+  if (preloadScheduled || cache || loadingPromise) return
+  preloadScheduled = true
+  const run = () => { void preloadAllPlayerData() }
+  if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+    ;(window as Window & { requestIdleCallback: (cb: () => void, opts?: { timeout: number }) => number })
+      .requestIdleCallback(run, { timeout: 8000 })
+  } else {
+    setTimeout(run, 3000)
+  }
 }
 
 /**

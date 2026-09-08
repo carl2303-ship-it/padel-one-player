@@ -258,10 +258,10 @@ export default function OtherPlayerProfileScreen({
           <p className="text-xl font-bold text-blue-600">{winRate}%</p>
           <p className="text-[10px] text-gray-500 mt-0.5 font-medium">Vitórias %</p>
         </div>
-        <div className="card p-3 text-center">
-          <p className="text-lg mb-0.5">📉</p>
-          <p className="text-xl font-bold text-red-600">{profileLosses}</p>
-          <p className="text-[10px] text-gray-500 mt-0.5 font-medium">Derrotas</p>
+        <div className="card p-3 text-center cursor-pointer hover:bg-gray-50 transition-colors" onClick={() => onOpenFollowsList(targetUserId)}>
+          <p className="text-lg mb-0.5">👀</p>
+          <p className="text-xl font-bold text-gray-900">{profile.followingCount}</p>
+          <p className="text-[10px] text-gray-500 mt-0.5 font-medium">A seguir</p>
         </div>
         <div className="card p-3 text-center cursor-pointer hover:bg-gray-50 transition-colors" onClick={() => onOpenFollowsList(targetUserId)}>
           <p className="text-lg mb-0.5">❤️</p>

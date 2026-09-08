@@ -39,74 +39,96 @@ function cleanPersonName(name: string | null | undefined, teamName?: string | nu
 /**
  * Build a map team_id → { player1_name, player2_name, avatars }
  * for all teams in `teamIds`.
+ *
+ * Por defeito NÃO chama get_tournament_player_names por torneio (N RPCs → 10s+).
+ * Usa players + player_accounts + parse do nome da equipa.
  */
 export async function resolveTeamPlayerNamesMap(
   teamIds: Iterable<string>,
+  opts?: { useTournamentRpc?: boolean }
 ): Promise<Map<string, TeamPlayerNames>> {
   const result = new Map<string, TeamPlayerNames>()
   const ids = [...new Set([...teamIds].filter(Boolean))]
   if (ids.length === 0) return result
 
-  const { data: teams } = await supabase
-    .from('teams')
-    .select('id, name, tournament_id, player1_id, player2_id')
-    .in('id', ids)
+  // Chunk .in() to avoid huge URLs
+  const chunk = <T,>(arr: T[], size: number): T[][] => {
+    const out: T[][] = []
+    for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size))
+    return out
+  }
 
-  if (!teams?.length) return result
+  const teams: any[] = []
+  for (const batch of chunk(ids, 80)) {
+    const { data } = await supabase
+      .from('teams')
+      .select('id, name, tournament_id, player1_id, player2_id')
+      .in('id', batch)
+    if (data) teams.push(...data)
+  }
+
+  if (!teams.length) return result
 
   const playerIds = new Set<string>()
   const tournamentIds = new Set<string>()
-  for (const t of teams as any[]) {
+  for (const t of teams) {
     if (t.player1_id) playerIds.add(t.player1_id)
     if (t.player2_id) playerIds.add(t.player2_id)
     if (t.tournament_id) tournamentIds.add(t.tournament_id)
   }
 
-  // 1) RPC per tournament — bypasses RLS, returns player_accounts names when linked
   const namesByPlayerId = new Map<string, string>()
-  await Promise.all(
-    [...tournamentIds].map(async (tid) => {
-      try {
-        const { data } = await supabase.rpc('get_tournament_player_names', { tournament_uuid: tid })
-        ;(data || []).forEach((p: any) => {
-          if (p?.player_id && p?.player_name) namesByPlayerId.set(p.player_id, String(p.player_name))
-        })
-      } catch (err) {
-        console.warn('[resolveTeamPlayerNames] RPC failed for tournament', tid, err)
-      }
-    }),
-  )
 
-  // 2) Direct players fetch (account link + fallback name; may be partial under RLS)
+  // Opcional e caro: só se explicitamente pedido
+  if (opts?.useTournamentRpc && tournamentIds.size > 0 && tournamentIds.size <= 8) {
+    await Promise.all(
+      [...tournamentIds].map(async (tid) => {
+        try {
+          const { data } = await supabase.rpc('get_tournament_player_names', { tournament_uuid: tid })
+          ;(data || []).forEach((p: any) => {
+            if (p?.player_id && p?.player_name) namesByPlayerId.set(p.player_id, String(p.player_name))
+          })
+        } catch (err) {
+          console.warn('[resolveTeamPlayerNames] RPC failed for tournament', tid, err)
+        }
+      }),
+    )
+  }
+
   const playerMeta = new Map<string, { name?: string; player_account_id?: string | null }>()
   const accountIds = new Set<string>()
-  if (playerIds.size > 0) {
-    const { data: players } = await supabase
-      .from('players')
-      .select('id, name, player_account_id')
-      .in('id', Array.from(playerIds))
-    ;(players || []).forEach((p: any) => {
-      playerMeta.set(p.id, p)
-      if (p.player_account_id) accountIds.add(p.player_account_id)
-      if (p.name && !namesByPlayerId.has(p.id)) namesByPlayerId.set(p.id, p.name)
-    })
+  const playerIdList = Array.from(playerIds)
+  if (playerIdList.length > 0) {
+    for (const batch of chunk(playerIdList, 80)) {
+      const { data: players } = await supabase
+        .from('players')
+        .select('id, name, player_account_id')
+        .in('id', batch)
+      ;(players || []).forEach((p: any) => {
+        playerMeta.set(p.id, p)
+        if (p.player_account_id) accountIds.add(p.player_account_id)
+        if (p.name && !namesByPlayerId.has(p.id)) namesByPlayerId.set(p.id, p.name)
+      })
+    }
   }
 
-  // 3) player_accounts — authoritative display name + avatar
   const accountById = new Map<string, { name: string; avatar_url: string | null; user_id: string | null }>()
-  if (accountIds.size > 0) {
-    const { data: accounts } = await supabase
-      .from('player_accounts')
-      .select('id, name, avatar_url, user_id')
-      .in('id', Array.from(accountIds))
-    ;(accounts || []).forEach((a: any) => {
-      if (a?.id && a?.name) {
-        accountById.set(a.id, { name: a.name, avatar_url: a.avatar_url ?? null, user_id: a.user_id ?? null })
-      }
-    })
+  const accountIdList = Array.from(accountIds)
+  if (accountIdList.length > 0) {
+    for (const batch of chunk(accountIdList, 80)) {
+      const { data: accounts } = await supabase
+        .from('player_accounts')
+        .select('id, name, avatar_url, user_id')
+        .in('id', batch)
+      ;(accounts || []).forEach((a: any) => {
+        if (a?.id && a?.name) {
+          accountById.set(a.id, { name: a.name, avatar_url: a.avatar_url ?? null, user_id: a.user_id ?? null })
+        }
+      })
+    }
   }
 
-  for (const t of teams as any[]) {
+  for (const t of teams) {
     const pick = (playerId: string | null | undefined): ResolvedPerson => {
       if (!playerId) return {}
       const meta = playerMeta.get(playerId)
@@ -135,7 +157,6 @@ export async function resolveTeamPlayerNamesMap(
     let p1 = pick(t.player1_id)
     let p2 = pick(t.player2_id)
 
-    // Last resort: parse "Ana / Pedro" or "Dinis-Carlos" style team labels into people
     if (!p1.name || !p2.name) {
       const [a, b] = parsePersonNamesFromTeamLabel(t.name)
       if (!p1.name && a) p1 = { ...p1, name: a }

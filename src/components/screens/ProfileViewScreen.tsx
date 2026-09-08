@@ -408,7 +408,7 @@ export default function ProfileViewScreen({
         )
       })()}
 
-      {/* Estatísticas - Jogos, Vitórias, %, Derrotas, Seguidores */}
+      {/* Estatísticas - Jogos, Vitórias, %, A seguir, Seguidores */}
       <div className="grid grid-cols-5 gap-2">
         <div className="card p-3 text-center">
           <p className="text-lg mb-0.5">🎾</p>
@@ -425,10 +425,10 @@ export default function ProfileViewScreen({
           <p className="text-xl font-bold text-blue-600">{winRate}%</p>
           <p className="text-[10px] text-gray-500 mt-0.5 font-medium">Vitórias %</p>
         </div>
-        <div className="card p-3 text-center">
-          <p className="text-lg mb-0.5">📉</p>
-          <p className="text-xl font-bold text-red-600">{losses}</p>
-          <p className="text-[10px] text-gray-500 mt-0.5 font-medium">Derrotas</p>
+        <div className="card p-3 text-center cursor-pointer hover:bg-gray-50 transition-colors" onClick={() => userId && onOpenFollowsList(userId)}>
+          <p className="text-lg mb-0.5">👀</p>
+          <p className="text-xl font-bold text-gray-900">{followingCount}</p>
+          <p className="text-[10px] text-gray-500 mt-0.5 font-medium">A seguir</p>
         </div>
         <div className="card p-3 text-center cursor-pointer hover:bg-gray-50 transition-colors" onClick={() => userId && onOpenFollowsList(userId)}>
           <p className="text-lg mb-0.5">❤️</p>

@@ -3457,42 +3457,47 @@ export interface OpenGameMatchResult {
   club_name?: string
 }
 
-export async function fetchConfirmedOpenGameResults(userId: string, playerAccountId?: string): Promise<OpenGameMatchResult[]> {
-  // IMPORTANT: First, update any open_game_players records that have player_account_id but missing user_id
-  if (playerAccountId) {
-    try {
-      await supabase
-        .from('open_game_players')
-        .update({ user_id: userId })
-        .eq('player_account_id', playerAccountId)
-        .is('user_id', null)
-        .eq('status', 'confirmed')
-    } catch (err) {
-      console.error('[OpenGames] Error updating user_id for open_game_players:', err)
-    }
-  }
-
-  // Auto-fix: Try to process ratings for any unprocessed confirmed results
-  // This catches cases where processOpenGameRating failed silently
-  try {
-    const { data: unprocessedResults } = await supabase
-      .from('open_game_results')
-      .select('game_id')
-      .eq('status', 'confirmed')
-      .or('rating_processed.eq.false,rating_processed.is.null')
-      .limit(5)
-
-    if (unprocessedResults && unprocessedResults.length > 0) {
-      for (const r of unprocessedResults) {
-        try {
-          await processOpenGameRating(r.game_id)
-        } catch (err) {
-          console.error('[OpenGames] Retry failed for game:', r.game_id, err)
-        }
+export async function fetchConfirmedOpenGameResults(
+  userId: string,
+  playerAccountId?: string,
+  opts?: { skipSideEffects?: boolean }
+): Promise<OpenGameMatchResult[]> {
+  // Side-effects (UPDATE + reprocess rating) NÃO devem correr no load do dashboard —
+  // atrasam a home e podem alterar níveis como efeito colateral de UI.
+  if (!opts?.skipSideEffects) {
+    if (playerAccountId) {
+      try {
+        await supabase
+          .from('open_game_players')
+          .update({ user_id: userId })
+          .eq('player_account_id', playerAccountId)
+          .is('user_id', null)
+          .eq('status', 'confirmed')
+      } catch (err) {
+        console.error('[OpenGames] Error updating user_id for open_game_players:', err)
       }
     }
-  } catch (err) {
-    console.warn('[OpenGames] Error checking for unprocessed results:', err)
+
+    try {
+      const { data: unprocessedResults } = await supabase
+        .from('open_game_results')
+        .select('game_id')
+        .eq('status', 'confirmed')
+        .or('rating_processed.eq.false,rating_processed.is.null')
+        .limit(5)
+
+      if (unprocessedResults && unprocessedResults.length > 0) {
+        for (const r of unprocessedResults) {
+          try {
+            await processOpenGameRating(r.game_id)
+          } catch (err) {
+            console.error('[OpenGames] Retry failed for game:', r.game_id, err)
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[OpenGames] Error checking for unprocessed results:', err)
+    }
   }
 
   // Get all games where user participated (priority: player_account_id, then user_id)

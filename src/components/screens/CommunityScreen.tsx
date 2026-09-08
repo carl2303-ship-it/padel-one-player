@@ -18,6 +18,7 @@ import {
   type FeedItem,
   type FeedMatchItem,
   getUnifiedFeed,
+  getFeedMatches,
 } from '../../lib/communityData'
 import {
   createGroup,
@@ -38,6 +39,9 @@ export default function CommunityScreen({ userId, playerAccountId: _playerAccoun
   const [feedItems, setFeedItems] = useState<FeedItem[]>([])
   const [feedLoading, setFeedLoading] = useState(true)
   const [followingSet, setFollowingSet] = useState<Set<string>>(new Set())
+  const [matchesExpanded, setMatchesExpanded] = useState(false)
+  const [loadingMoreMatches, setLoadingMoreMatches] = useState(false)
+  const INITIAL_MATCH_LIMIT = 5
 
   // Groups state
   const [myGroups, setMyGroups] = useState<CommunityGroup[]>([])
@@ -79,10 +83,11 @@ export default function CommunityScreen({ userId, playerAccountId: _playerAccoun
 
   async function loadFeed() {
     setFeedLoading(true)
+    setMatchesExpanded(false)
     try {
       const [suggestedData, unifiedData, ids] = await Promise.all([
         getSuggestedPlayers(userId),
-        getUnifiedFeed(userId),
+        getUnifiedFeed(userId, { matchLimit: INITIAL_MATCH_LIMIT, includeOpenGames: false, postLimit: 15 }),
         getFollowingIds(userId),
       ])
       setSuggestions(suggestedData)
@@ -93,6 +98,23 @@ export default function CommunityScreen({ userId, playerAccountId: _playerAccoun
       console.error('[Community] Load feed error:', err)
     }
     setFeedLoading(false)
+  }
+
+  async function loadMoreMatches() {
+    if (loadingMoreMatches || matchesExpanded) return
+    setLoadingMoreMatches(true)
+    try {
+      const more = await getFeedMatches(userId, { limit: 30, includeOpenGames: true })
+      setFeedItems(prev => {
+        const posts = prev.filter(i => i.type === 'post')
+        const matchItems: FeedItem[] = more.map(m => ({ type: 'match' as const, data: m, date: m.played_at }))
+        return [...posts, ...matchItems].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+      })
+      setMatchesExpanded(true)
+    } catch (err) {
+      console.error('[Community] Load more matches error:', err)
+    }
+    setLoadingMoreMatches(false)
   }
 
   async function loadGroups() {
@@ -585,6 +607,16 @@ export default function CommunityScreen({ userId, playerAccountId: _playerAccoun
                       )
                     }
                   })}
+                  {!matchesExpanded && followingSet.size > 0 && (
+                    <button
+                      type="button"
+                      onClick={loadMoreMatches}
+                      disabled={loadingMoreMatches}
+                      className="w-full py-3 text-sm font-semibold text-red-600 bg-white border border-red-100 rounded-xl hover:bg-red-50 disabled:opacity-60 transition-colors"
+                    >
+                      {loadingMoreMatches ? 'A carregar…' : 'Ver mais jogos'}
+                    </button>
+                  )}
                 </div>
               )}
             </>

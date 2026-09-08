@@ -10,6 +10,9 @@ import {
 } from './resolveTeamPlayerNames'
 import { resolvePlayerAccountForUser } from './resolvePlayerAccount'
 
+/** Evita 2 cargas cargas simultâneas do mesmo dashboard (ex.: React Strict Mode). */
+const dashboardInflight = new Map<string, Promise<PlayerDashboardData>>()
+
 export interface TournamentSummary {
   id: string
   name: string
@@ -246,18 +249,17 @@ async function fetchOpenGameMatches(playerAccountId: string, userId?: string): P
   if (!playerAccountId) return []
 
   try {
-    // IMPORTANT: Update user_id for records that have player_account_id but missing user_id
+    // Backfill user_id em background — não bloqueia o dashboard
     if (userId) {
-      try {
-        await supabase
-          .from('open_game_players')
-          .update({ user_id: userId })
-          .eq('player_account_id', playerAccountId)
-          .is('user_id', null)
-          .eq('status', 'confirmed')
-      } catch (err) {
-        console.error('[PlayerDashboard] Error updating user_id for open_game_players:', err)
-      }
+      void supabase
+        .from('open_game_players')
+        .update({ user_id: userId })
+        .eq('player_account_id', playerAccountId)
+        .is('user_id', null)
+        .eq('status', 'confirmed')
+        .then(({ error }) => {
+          if (error) console.error('[PlayerDashboard] Error updating user_id for open_game_players:', error)
+        })
     }
 
     // Get games by player_account_id OR user_id
@@ -363,6 +365,24 @@ export async function fetchPlayerDashboardData(
   userId: string,
   existingPlayerAccount?: { id: string; name: string | null; phone_number: string | null }
 ): Promise<PlayerDashboardData> {
+  // Sempre por userId — senão checkAuth (com/sem account) dispara 2 cargasões.
+  const cacheKey = userId
+  const existing = dashboardInflight.get(cacheKey)
+  if (existing) return existing
+
+  const promise = fetchPlayerDashboardDataUncached(userId, existingPlayerAccount)
+  dashboardInflight.set(cacheKey, promise)
+  try {
+    return await promise
+  } finally {
+    dashboardInflight.delete(cacheKey)
+  }
+}
+
+async function fetchPlayerDashboardDataUncached(
+  userId: string,
+  existingPlayerAccount?: { id: string; name: string | null; phone_number: string | null }
+): Promise<PlayerDashboardData> {
   const loadStartedAt = performance.now()
   const logLoadTime = () => {
     console.log(`[Dashboard] Total load time: ${(performance.now() - loadStartedAt).toFixed(0)} ms`)
@@ -394,22 +414,30 @@ export async function fetchPlayerDashboardData(
 
   const phone = (playerAccount as any).phone_number
   const name = playerAccount.name
+  const mark = (label: string, started: number) => {
+    console.log(`[Dashboard] ${label}: ${(performance.now() - started).toFixed(0)} ms`)
+  }
 
   // OPTIMIZED: Use player_account_id (direct FK) as primary, with fallbacks for unlinked records
-  const [playersByAccountId, playersByPhone, playersByName] = await Promise.all([
-    // Priority 1: Direct FK link (fastest, most reliable)
-    playerAccount.id
-      ? supabase.from('players').select('id, tournament_id').eq('player_account_id', playerAccount.id)
-      : { data: [] },
-    // Fallback: phone match (for records not yet linked by trigger)
-    phone
-      ? supabase.from('players').select('id, tournament_id').eq('phone_number', phone).is('player_account_id', null)
-      : { data: [] },
-    // Fallback: name match (for records without phone or account link)
-    name
-      ? supabase.from('players').select('id, tournament_id').ilike('name', name).is('player_account_id', null)
-      : { data: [] },
-  ])
+  const tPlayers = performance.now()
+  const playersByAccountId = playerAccount.id
+    ? await supabase.from('players').select('id, tournament_id').eq('player_account_id', playerAccount.id)
+    : { data: [] as { id: string; tournament_id: string | null }[] }
+
+  let playersByPhone: { data: any[] | null } = { data: [] }
+  let playersByName: { data: any[] | null } = { data: [] }
+  // Só fallbacks se o FK ainda não ligou jogadores (evita 2 queries extra na maioria dos casos)
+  if (!(playersByAccountId.data || []).length) {
+    ;[playersByPhone, playersByName] = await Promise.all([
+      phone
+        ? supabase.from('players').select('id, tournament_id').eq('phone_number', phone).is('player_account_id', null)
+        : Promise.resolve({ data: [] }),
+      name
+        ? supabase.from('players').select('id, tournament_id').ilike('name', name).is('player_account_id', null)
+        : Promise.resolve({ data: [] }),
+    ])
+  }
+  mark('Resolve players', tPlayers)
 
   const allPlayersMap = new Map<string, { id: string; tournament_id: string | null }>()
   ;[...(playersByAccountId.data || []), ...(playersByPhone.data || []), ...(playersByName.data || [])].forEach((p: any) => {
@@ -426,22 +454,22 @@ export async function fetchPlayerDashboardData(
     return result
   }
 
-  const playerConditions = playerIds.map((id) => `player1_id.eq.${id},player2_id.eq.${id}`).join(',')
-
+  const tTeams = performance.now()
   const [individualTournamentsRes, teamsRes] = await Promise.all([
     tournamentIds.length > 0
       ? supabase
           .from('tournaments')
           .select('id, name, start_date, end_date, status')
           .in('id', tournamentIds)
-      : { data: [] },
+      : Promise.resolve({ data: [] as any[] }),
     playerIds.length > 0
       ? supabase
           .from('teams')
           .select('id, tournament_id, tournaments!inner(id, name, start_date, end_date, status)')
-          .or(playerConditions)
-      : { data: [] },
+          .or(`player1_id.in.(${playerIds.join(',')}),player2_id.in.(${playerIds.join(',')})`)
+      : Promise.resolve({ data: [] as any[] }),
   ])
+  mark('Tournaments + teams', tTeams)
 
   const individualTournaments = individualTournamentsRes.data || []
   const teamsData = teamsRes.data || []
@@ -452,31 +480,16 @@ export async function fetchPlayerDashboardData(
     return acc
   }, [])
 
-  const uniqueTournamentIds = uniqueTournaments.map((t) => t.id)
-  const [playersCountRes, teamsCountRes] = await Promise.all([
-    supabase.from('players').select('tournament_id').in('tournament_id', uniqueTournamentIds),
-    supabase.from('teams').select('tournament_id').in('tournament_id', uniqueTournamentIds),
-  ])
-  const playerCountMap = new Map<string, number>()
-  const teamCountMap = new Map<string, number>()
-  ;(playersCountRes.data || []).forEach((p: any) =>
-    playerCountMap.set(p.tournament_id, (playerCountMap.get(p.tournament_id) || 0) + 1)
-  )
-  ;(teamsCountRes.data || []).forEach((t: any) =>
-    teamCountMap.set(t.tournament_id, (teamCountMap.get(t.tournament_id) || 0) + 1)
-  )
-
+  // enrolled_count: omitido no path crítico (era 2 full-table scans). UI só mostra se !== undefined.
   const now = new Date()
   const upcoming: TournamentSummary[] = []
   const past: TournamentSummary[] = []
 
   uniqueTournaments.forEach((t: any) => {
-    const enrolled_count = teamCountMap.get(t.id) || playerCountMap.get(t.id) || 0
-    const row = { ...t, enrolled_count }
+    const row = { ...t }
     const isOngoing = t.status === 'in_progress' || t.status === 'active'
     const isCompleted = t.status === 'completed' || t.status === 'finished'
     const isCanceled = t.status === 'canceled' || t.status === 'cancelled'
-    // Apenas incluir concluídos, não cancelados
     if (isCompleted && !isCanceled) past.push(row)
     else if (isOngoing && !isCanceled) upcoming.push(row)
     else if (!isCanceled) {
@@ -502,48 +515,27 @@ export async function fetchPlayerDashboardData(
     return result
   }
 
-  // Select leve: JOINs aninhados de players + RLS causavam statement timeout (57014).
-  // Nomes resolvem-se depois via RPC (resolveTeamPlayerNamesMap / resolveIndividualPlayerNames).
-  const selectFields = `
-    id, tournament_id, court, scheduled_time,
-    team1_score_set1, team2_score_set1, team1_score_set2, team2_score_set2, team1_score_set3, team2_score_set3,
-    status, round, team1_id, team2_id,
-    player1_individual_id, player2_individual_id, player3_individual_id, player4_individual_id,
-    tournaments(name),
-    team1:teams!matches_team1_id_fkey(id, name),
-    team2:teams!matches_team2_id_fkey(id, name)
-  `
-
+  // RPC SECURITY DEFINER: evita o timeout do RLS em matches (antes 5–30s+).
   try {
     const matchesFetchStartedAt = performance.now()
-    const matchConditions: string[] = []
-    if (teamIds.length > 0) {
-      matchConditions.push(`team1_id.in.(${teamIds.join(',')})`)
-      matchConditions.push(`team2_id.in.(${teamIds.join(',')})`)
-    }
-    if (playerIds.length > 0) {
-      matchConditions.push(`player1_individual_id.in.(${playerIds.join(',')})`)
-      matchConditions.push(`player2_individual_id.in.(${playerIds.join(',')})`)
-      matchConditions.push(`player3_individual_id.in.(${playerIds.join(',')})`)
-      matchConditions.push(`player4_individual_id.in.(${playerIds.join(',')})`)
-    }
-
     let matchesData: any[] = []
-    if (matchConditions.length > 0) {
-      const { data: fetchedMatches, error: matchError } = await supabase
-        .from('matches')
-        .select(selectFields)
-        .or(matchConditions.join(','))
-        .order('scheduled_time', { ascending: true })
-        .limit(500)
+    const { data: fetchedMatches, error: matchError } = await supabase.rpc('get_dashboard_matches', {
+      p_player_ids: playerIds,
+      p_team_ids: teamIds,
+      p_limit: 500,
+    })
 
-      if (matchError) {
-        console.warn('[PlayerDashboard] Matches query error:', matchError)
-      } else {
-        matchesData = fetchedMatches || []
-      }
+    if (matchError) {
+      console.warn('[PlayerDashboard] Matches RPC error:', matchError)
+    } else {
+      matchesData = (fetchedMatches || []).map((m: any) => ({
+        ...m,
+        tournaments: { name: m.tournament_name || '' },
+        team1: m.team1_id ? { id: m.team1_id, name: m.team1_name || 'TBD' } : null,
+        team2: m.team2_id ? { id: m.team2_id, name: m.team2_name || 'TBD' } : null,
+      }))
     }
-    console.log(`[Dashboard] Fetch matches (single query): ${(performance.now() - matchesFetchStartedAt).toFixed(0)} ms`)
+    mark('Fetch matches (RPC)', matchesFetchStartedAt)
 
     if (matchesData.length === 0) {
       await fetchLeagueStandingsOnly(playerAccount.id, name || '', result, playerIds, teamIds)
@@ -551,10 +543,25 @@ export async function fetchPlayerDashboardData(
       return result
     }
 
-    // Resolve nomes reais via RPC (bypassa RLS) + player_accounts — joins aninhados falham em cross-tournament
+    // Só resolver nomes dos jogos que a UI mostra (não dos 500 do histórico).
+    const nowMs = now.getTime()
+    const matchesForUi = (() => {
+      const upcoming = matchesData
+        .filter((m: any) => m.status === 'scheduled' && m.scheduled_time && new Date(m.scheduled_time).getTime() >= nowMs)
+        .slice(0, 20)
+      const recent = matchesData
+        .filter((m: any) => m.status === 'completed')
+        .slice(-25)
+        .reverse()
+      const byId = new Map<string, any>()
+      ;[...upcoming, ...recent].forEach((m: any) => byId.set(m.id, m))
+      // Stats precisam de todos os completed — nomes só nos visíveis
+      return { visibleIds: byId, all: matchesData }
+    })()
+
     const teamIdsFromMatches = new Set<string>()
     const individualPlayersForNames: Array<{ id?: string | null; name?: string | null }> = []
-    matchesData.forEach((m: any) => {
+    matchesForUi.visibleIds.forEach((m: any) => {
       if (m.team1_id) teamIdsFromMatches.add(m.team1_id)
       if (m.team2_id) teamIdsFromMatches.add(m.team2_id)
       for (const pid of [m.player1_individual_id, m.player2_individual_id, m.player3_individual_id, m.player4_individual_id]) {
@@ -562,16 +569,27 @@ export async function fetchPlayerDashboardData(
       }
     })
 
-    const [teamPlayerNamesMap, individualNamesMap] = await Promise.all([
+    const tParallel = performance.now()
+    const parallel = await Promise.all([
       resolveTeamPlayerNamesMap(teamIdsFromMatches),
       resolveIndividualPlayerNames(individualPlayersForNames),
+      fetchOpenGameMatches(playerAccount.id, userId),
+      import('./openGames').then(({ fetchConfirmedOpenGameResults }) =>
+        fetchConfirmedOpenGameResults(userId, playerAccount.id, { skipSideEffects: true })
+      ),
+      fetchLeagueStandingsOnly(playerAccount.id, name || '', result, playerIds, teamIds),
     ])
+    const teamPlayerNamesMap = parallel[0]
+    const individualNamesMap = parallel[1]
+    const openGameMatches = parallel[2]
+    const openGameResults = parallel[3]
+    mark('Names + open games + standings', tParallel)
 
     // Process matchesData from the combined queries above
     let wins = 0
     let draws = 0
     let losses = 0
-    const matches: PlayerMatch[] = (matchesData as any[]).map((m) => {
+    const matches: PlayerMatch[] = (matchesForUi.all as any[]).map((m) => {
       const indivIds = [
         m.player1_individual_id as string | null,
         m.player2_individual_id as string | null,
@@ -676,19 +694,12 @@ export async function fetchPlayerDashboardData(
     })
     const upcomingMatches = matches.filter((m) => new Date(m.start_time) >= now && m.status === 'scheduled')
     const recentMatches = matches.filter((m) => m.status === 'completed').reverse()
-    
-    // Fetch open games and combine with tournament matches (consolidated, was duplicated)
-    const openGameMatches = await fetchOpenGameMatches(playerAccount.id, userId)
+
     result.upcomingMatches = [...upcomingMatches, ...openGameMatches].sort((a, b) =>
       new Date(a.start_time).getTime() - new Date(b.start_time).getTime()
     )
 
-    // Fetch confirmed open game results and merge with tournament recentMatches
     try {
-      const { fetchConfirmedOpenGameResults } = await import('./openGames')
-      const openGameResults = await fetchConfirmedOpenGameResults(userId, playerAccount.id)
-      
-      // Convert to PlayerMatch format and merge
       const openResultMatches: PlayerMatch[] = openGameResults.map(r => ({
         id: r.id,
         tournament_id: r.tournament_id,
@@ -718,21 +729,19 @@ export async function fetchPlayerDashboardData(
         open_game_id: r.open_game_id,
         club_name: r.club_name,
       }))
-      
-      // Merge and sort by date descending
+
       const allRecent = [...recentMatches, ...openResultMatches]
         .sort((a, b) => new Date(b.start_time).getTime() - new Date(a.start_time).getTime())
-      
+
       result.recentMatches = allRecent
-      
-      // Count open game wins/draws/losses for stats
+
       openGameResults.forEach(r => {
         if (r.is_winner === true) wins++
         else if (r.is_winner === false) losses++
         else if (r.is_winner === null) draws++
       })
     } catch (err) {
-      console.error('[PlayerDashboard] Error fetching open game results:', err)
+      console.error('[PlayerDashboard] Error merging open game results:', err)
       result.recentMatches = recentMatches
     }
 
@@ -753,8 +762,6 @@ export async function fetchPlayerDashboardData(
     logLoadTime()
     return result
   }
-
-  await fetchLeagueStandingsOnly(playerAccount.id, name || '', result, playerIds, teamIds)
 
   // Edge Function is now called separately via enrichDashboardWithEdgeFunction()
   // This allows the dashboard to render immediately with direct query data
@@ -1086,7 +1093,8 @@ export interface TournamentMyMatch {
   set3?: string
   status: string
   round: string
-  is_winner?: boolean
+  is_winner?: boolean | null
+  my_side?: 1 | 2
   category_id?: string
 }
 
@@ -1130,9 +1138,13 @@ export async function fetchTournamentStandingsAndMatches(
     })
   }
 
-  // Complementar com dados da tabela players (group_name, final_position) se a RPC não os tem
-  // Também serve como fallback completo se a RPC falhou
-  const needsExtra = players.length === 0 || !players[0].group_name
+  // Complementar com group_name / final_position / category_id da tabela players.
+  // A RPC get_tournament_player_names NÃO devolve category_id — sem isto, com categorias
+  // no torneio, catStandings fica vazio e a UI só mostra a fase eliminatória.
+  const needsExtra =
+    players.length === 0 ||
+    !players[0].group_name ||
+    ((tournamentCategories?.length || 0) > 0 && players.some((p: any) => !p.category_id))
   if (needsExtra) {
     const { data: directPlayers } = await supabase.from('players').select('id, name, group_name, final_position, category_id').eq('tournament_id', tournamentId)
     if (directPlayers && directPlayers.length > 0) {
@@ -1143,7 +1155,7 @@ export async function fetchTournamentStandingsAndMatches(
           players.push(p)
         })
       } else {
-        // RPC funcionou para nomes, enriquecer com group_name/final_position
+        // RPC funcionou para nomes — enriquecer metadados em falta
         const extraMap = new Map<string, any>()
         directPlayers.forEach((p: any) => extraMap.set(p.id, p))
         players.forEach((p: any) => {
@@ -1481,89 +1493,137 @@ export async function fetchTournamentStandingsAndMatches(
   const entityIds = new Set<string>()
   const { data: playerAccount } = await supabase
     .from('player_accounts')
-    .select('phone_number, name')
+    .select('id, phone_number, name')
     .eq('user_id', userId)
     .maybeSingle()
 
   if (playerAccount) {
-    const phone = (playerAccount as any).phone_number
+    const accountId = (playerAccount as any).id as string | undefined
+    const phone = (playerAccount as any).phone_number as string | null
     const name = playerAccount.name
-    const [byPhone, byName] = await Promise.all([
-      phone ? supabase.from('players').select('id').eq('phone_number', phone) : { data: [] },
-      name ? supabase.from('players').select('id').ilike('name', name) : { data: [] },
+
+    // Preferir jogadores DESTE torneio (evita IDs órfãos de outros torneios)
+    const [byAccount, byPhoneTour, byNameTour, byPhoneAny, byNameAny] = await Promise.all([
+      accountId
+        ? supabase.from('players').select('id').eq('tournament_id', tournamentId).eq('player_account_id', accountId)
+        : Promise.resolve({ data: [] as { id: string }[] }),
+      phone
+        ? supabase.from('players').select('id').eq('tournament_id', tournamentId).eq('phone_number', phone)
+        : Promise.resolve({ data: [] as { id: string }[] }),
+      name
+        ? supabase.from('players').select('id').eq('tournament_id', tournamentId).ilike('name', name)
+        : Promise.resolve({ data: [] as { id: string }[] }),
+      phone ? supabase.from('players').select('id').eq('phone_number', phone) : Promise.resolve({ data: [] as { id: string }[] }),
+      name ? supabase.from('players').select('id').ilike('name', name) : Promise.resolve({ data: [] as { id: string }[] }),
     ])
+
     const pids = new Set<string>()
-    ;[(byPhone.data || []), (byName.data || [])].flat().forEach((p: any) => pids.add(p.id))
+    ;[
+      ...(byAccount.data || []),
+      ...(byPhoneTour.data || []),
+      ...(byNameTour.data || []),
+      ...(byPhoneAny.data || []),
+      ...(byNameAny.data || []),
+    ].forEach((p: any) => pids.add(p.id))
     const playerIds = Array.from(pids)
     playerIds.forEach((id) => entityIds.add(id))
-    if (playerIds.length > 0) {
-      const cond = playerIds.map((id) => `player1_id.eq.${id},player2_id.eq.${id}`).join(',')
-      const { data: myTeams } = await supabase.from('teams').select('id').or(cond)
-      const teamIds = (myTeams || []).map((t: any) => t.id)
-      teamIds.forEach((id) => entityIds.add(id))
-      const teamMatchCond =
-        teamIds.length > 0 ? `team1_id.in.(${teamIds.join(',')}),team2_id.in.(${teamIds.join(',')})` : ''
-      const pidsJoined = playerIds.join(',')
-      const indCond = `player1_individual_id.in.(${pidsJoined}),player2_individual_id.in.(${pidsJoined}),player3_individual_id.in.(${pidsJoined}),player4_individual_id.in.(${pidsJoined})`
-      const allCond = [teamMatchCond, indCond].filter((c) => c.length > 0).join(',')
-      if (allCond) {
-        const { data: playerMatches } = await supabase
-          .from('matches')
-          .select(
-            `
-            id, court, scheduled_time, team1_score_set1, team2_score_set1, team1_score_set2, team2_score_set2, team1_score_set3, team2_score_set3, status, round, team1_id, team2_id, category_id,
-            team1:teams!matches_team1_id_fkey(id, name), team2:teams!matches_team2_id_fkey(id, name),
-            p1:players!matches_player1_individual_id_fkey(id, name), p2:players!matches_player2_individual_id_fkey(id, name),
-            p3:players!matches_player3_individual_id_fkey(id, name), p4:players!matches_player4_individual_id_fkey(id, name)
-          `
-          )
-          .eq('tournament_id', tournamentId)
-          .or(allCond)
-          .order('scheduled_time', { ascending: true })
 
-        if (playerMatches) {
-          myMatches = (playerMatches as any[]).map((m: any) => {
-            const isInd = m.p1 || m.p2 || m.p3 || m.p4
-            const team1Name = isInd
-              ? `${m.p1?.name || 'TBD'}${m.p2 ? ' / ' + m.p2.name : ''}`
-              : m.team1?.name || 'TBD'
-            const team2Name = isInd
-              ? `${m.p3?.name || 'TBD'}${m.p4 ? ' / ' + m.p4.name : ''}`
-              : m.team2?.name || 'TBD'
-            const { team1Sets: t1Sets, team2Sets: t2Sets, hasPlayedSets } = computeSetCounts(m)
-            let is_winner: boolean | null | undefined
-            if (m.status === 'completed' && hasPlayedSets) {
-              const inTeam1 = isInd
-                ? playerIds.includes(m.p1?.id) || playerIds.includes(m.p2?.id)
-                : teamIds.includes(m.team1?.id)
-              is_winner = matchOutcome(inTeam1, t1Sets, t2Sets)
-            }
-            const set1 = m.team1_score_set1 != null && m.team2_score_set1 != null
-              ? `${m.team1_score_set1}-${m.team2_score_set1}` : undefined
-            const set2 = m.team1_score_set2 != null && m.team2_score_set2 != null && (m.team1_score_set2 > 0 || m.team2_score_set2 > 0)
-              ? `${m.team1_score_set2}-${m.team2_score_set2}` : undefined
-            const set3 = m.team1_score_set3 != null && m.team2_score_set3 != null && (m.team1_score_set3 > 0 || m.team2_score_set3 > 0)
-              ? `${m.team1_score_set3}-${m.team2_score_set3}` : undefined
-            return {
-              id: m.id,
-              court: m.court || '',
-              scheduled_time: m.scheduled_time || '',
-              team1_name: team1Name,
-              team2_name: team2Name,
-              team1_score: t1Sets,
-              team2_score: t2Sets,
-              set1,
-              set2,
-              set3,
-              status: m.status,
-              round: m.round || '',
-              is_winner,
-              category_id: m.category_id || undefined,
-            }
-          })
-        }
+    // Equipas deste torneio (já carregadas) — não depender de 2ª query RLS
+    const playerIdSet = new Set(playerIds)
+    const myTeamIds = (teams || [])
+      .filter((t: any) =>
+        (t.player1_id && playerIdSet.has(t.player1_id)) ||
+        (t.player2_id && playerIdSet.has(t.player2_id))
+      )
+      .map((t: any) => t.id as string)
+    myTeamIds.forEach((id) => entityIds.add(id))
+    const teamIdSet = new Set(myTeamIds)
+
+    // Derivar "os meus jogos" da lista completa do torneio (grupos + eliminatória)
+    const rawMine = (matches || []).filter((m: any) => {
+      if (m.team1_id && teamIdSet.has(m.team1_id)) return true
+      if (m.team2_id && teamIdSet.has(m.team2_id)) return true
+      for (const pid of [
+        m.player1_individual_id,
+        m.player2_individual_id,
+        m.player3_individual_id,
+        m.player4_individual_id,
+      ]) {
+        if (pid && playerIdSet.has(pid)) return true
       }
+      return false
+    })
+
+    const knockoutKeywords = ['quarter', 'semi', 'final', '3rd', '5th', '7th', 'round_of_16', 'round_of_8']
+    const isKoRound = (round: string) => {
+      const r = (round || '').toLowerCase()
+      if (r.startsWith('group') || r.includes('round_robin') || r.startsWith('swiss') || r.includes('grupo')) return false
+      return knockoutKeywords.some((k) => r.includes(k))
     }
+
+    myMatches = rawMine
+      .map((m: any) => {
+        const isInd = !!(m.player1_individual_id || m.player2_individual_id || m.player3_individual_id || m.player4_individual_id)
+        let team1Name: string
+        let team2Name: string
+        if (isInd) {
+          const p1 = m.player1_individual_id ? (playerNamesMap.get(m.player1_individual_id) || 'TBD') : 'TBD'
+          const p2 = m.player2_individual_id ? (playerNamesMap.get(m.player2_individual_id) || '') : ''
+          const p3 = m.player3_individual_id ? (playerNamesMap.get(m.player3_individual_id) || 'TBD') : 'TBD'
+          const p4 = m.player4_individual_id ? (playerNamesMap.get(m.player4_individual_id) || '') : ''
+          team1Name = p2 ? `${p1} / ${p2}` : p1
+          team2Name = p4 ? `${p3} / ${p4}` : p3
+        } else {
+          team1Name = standingsMap.get(m.team1_id)?.name || 'TBD'
+          team2Name = standingsMap.get(m.team2_id)?.name || 'TBD'
+        }
+        const { team1Sets: t1Sets, team2Sets: t2Sets, hasPlayedSets } = computeSetCounts(m)
+        const inTeam1 = isInd
+          ? !!(m.player1_individual_id && playerIdSet.has(m.player1_individual_id)) ||
+            !!(m.player2_individual_id && playerIdSet.has(m.player2_individual_id))
+          : !!(m.team1_id && teamIdSet.has(m.team1_id))
+        const my_side: 1 | 2 = inTeam1 ? 1 : 2
+        let is_winner: boolean | null | undefined
+        if (m.status === 'completed' && hasPlayedSets) {
+          is_winner = matchOutcome(inTeam1, t1Sets, t2Sets)
+        }
+        const set1 =
+          m.team1_score_set1 != null && m.team2_score_set1 != null
+            ? `${m.team1_score_set1}-${m.team2_score_set1}`
+            : undefined
+        const set2 =
+          m.team1_score_set2 != null && m.team2_score_set2 != null && (m.team1_score_set2 > 0 || m.team2_score_set2 > 0)
+            ? `${m.team1_score_set2}-${m.team2_score_set2}`
+            : undefined
+        const set3 =
+          m.team1_score_set3 != null && m.team2_score_set3 != null && (m.team1_score_set3 > 0 || m.team2_score_set3 > 0)
+            ? `${m.team1_score_set3}-${m.team2_score_set3}`
+            : undefined
+        return {
+          id: m.id,
+          court: m.court || '',
+          scheduled_time: m.scheduled_time || '',
+          team1_name: team1Name,
+          team2_name: team2Name,
+          team1_score: t1Sets,
+          team2_score: t2Sets,
+          set1,
+          set2,
+          set3,
+          status: m.status || '',
+          round: m.round || '',
+          is_winner,
+          my_side,
+          category_id: m.category_id || undefined,
+        } as TournamentMyMatch
+      })
+      // Grupos primeiro, depois eliminatória
+      .sort((a, b) => {
+        const aKo = isKoRound(a.round) ? 1 : 0
+        const bKo = isKoRound(b.round) ? 1 : 0
+        if (aKo !== bKo) return aKo - bKo
+        return String(a.scheduled_time).localeCompare(String(b.scheduled_time))
+      })
   }
 
   let playerPosition: number | undefined
@@ -1607,9 +1667,17 @@ export async function fetchTournamentStandingsAndMatches(
     }
 
     for (const cat of tournamentCategories) {
-      const catStandings = standingsArray.filter((s: any) => s.category_id === cat.id)
-      const catMatches = myMatches.filter(m => m.category_id === cat.id)
-      const catAllRaw = (matches || []).filter((m: any) => m.category_id === cat.id && m.status === 'completed')
+      let catStandings = standingsArray.filter((s: any) => s.category_id === cat.id)
+      // Torneio com 1 categoria: se category_id falhou no enrich, usar toda a classificação
+      if (catStandings.length === 0 && tournamentCategories.length === 1) {
+        catStandings = standingsArray
+      }
+      const catMatches = myMatches.filter(m => m.category_id === cat.id || (!m.category_id && tournamentCategories.length === 1))
+      const catAllRaw = (matches || []).filter(
+        (m: any) =>
+          m.status === 'completed' &&
+          (m.category_id === cat.id || (!m.category_id && tournamentCategories.length === 1))
+      )
       const catAllMatches = catAllRaw.map(resolveMatchNames)
       let catPosition: number | undefined
       const catPosIdx = catStandings.findIndex((row: any) => entityIds.has(row.id))

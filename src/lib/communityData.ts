@@ -298,7 +298,7 @@ export async function getSuggestedPlayers(userId: string): Promise<CommunityPlay
 // Feed Posts
 // ============================================
 
-export async function getFeedPosts(userId: string): Promise<CommunityPost[]> {
+export async function getFeedPosts(userId: string, limit = 15): Promise<CommunityPost[]> {
   // Get who I follow
   const followingIds = await getFollowingIds(userId)
   // Include my own posts too
@@ -311,7 +311,7 @@ export async function getFeedPosts(userId: string): Promise<CommunityPost[]> {
     .select('*')
     .in('user_id', allUserIds)
     .order('created_at', { ascending: false })
-    .limit(50)
+    .limit(limit)
 
   if (!posts || posts.length === 0) return []
 
@@ -347,7 +347,13 @@ export async function getFeedPosts(userId: string): Promise<CommunityPost[]> {
  * Inclui jogos de torneio (matches) E jogos abertos (open_games).
  * Retorna até 30 jogos mais recentes, com info do jogador seguido.
  */
-export async function getFeedMatches(userId: string): Promise<FeedMatchItem[]> {
+export async function getFeedMatches(
+  userId: string,
+  opts?: { limit?: number; includeOpenGames?: boolean }
+): Promise<FeedMatchItem[]> {
+  const limit = Math.max(1, Math.min(opts?.limit ?? 5, 40))
+  const includeOpenGames = opts?.includeOpenGames === true
+
   // 1) Quem eu sigo
   const followingIds = await getFollowingIds(userId)
   if (followingIds.length === 0) return []
@@ -447,56 +453,26 @@ export async function getFeedMatches(userId: string): Promise<FeedMatchItem[]> {
     since.setDate(since.getDate() - 60)
     const sinceISO = since.toISOString()
 
-    // Select leve: sem embeds aninhados de players (RLS+JOINs geravam 500 no PostgREST).
-    // Nomes/avatares resolvem-se depois via RPC (resolveTeamPlayerNamesMap / resolveIndividualPlayerNames).
-    const matchSelect = `
-      id, tournament_id, court, scheduled_time,
-      team1_score_set1, team2_score_set1, team1_score_set2, team2_score_set2, team1_score_set3, team2_score_set3,
-      status, round, team1_id, team2_id,
-      player1_individual_id, player2_individual_id, player3_individual_id, player4_individual_id,
-      tournaments(name),
-      team1:teams!matches_team1_id_fkey(id, name),
-      team2:teams!matches_team2_id_fkey(id, name)
-    `
-
-    // 5) Buscar matches em batches separados:
-    //    A) Por team IDs
-    //    B) Por individual player IDs
+    // RPC SECURITY DEFINER — evita timeout RLS em matches (REST .or() dava 500).
     const allMatchesMap = new Map<string, any>()
-
-    // 5A) Matches por teams
-    if (teamIds.length > 0) {
-      const teamBatches = chunk(teamIds, 20)
-      for (const batch of teamBatches) {
-        const cond = `team1_id.in.(${batch.join(',')}),team2_id.in.(${batch.join(',')})`
-        const { data, error } = await supabase
-          .from('matches')
-          .select(matchSelect)
-          .or(cond)
-          .eq('status', 'completed')
-          .gte('scheduled_time', sinceISO)
-          .order('scheduled_time', { ascending: false })
-          .limit(30)
-        if (error) console.error('[Community] Feed matches by team error:', error.message)
-        if (data) data.forEach((m: any) => allMatchesMap.set(m.id, m))
-      }
-    }
-
-    // 5B) Matches por individual player IDs (batches pequenos → URL + RLS mais leve)
-    const indivBatches = chunk(playerIds, 20)
-    for (const batch of indivBatches) {
-      const ids = batch.join(',')
-      const cond = `player1_individual_id.in.(${ids}),player2_individual_id.in.(${ids}),player3_individual_id.in.(${ids}),player4_individual_id.in.(${ids})`
-      const { data, error } = await supabase
-        .from('matches')
-        .select(matchSelect)
-        .or(cond)
-        .eq('status', 'completed')
-        .gte('scheduled_time', sinceISO)
-        .order('scheduled_time', { ascending: false })
-        .limit(30)
-      if (error) console.error('[Community] Feed matches by player error:', error.message)
-      if (data) data.forEach((m: any) => allMatchesMap.set(m.id, m))
+    const rpcLimit = Math.min(Math.max(limit * 2, limit + 5), 40)
+    const { data: feedMatches, error: feedMatchError } = await supabase.rpc('get_feed_matches', {
+      p_team_ids: teamIds.length > 0 ? teamIds : [],
+      p_player_ids: playerIds,
+      p_since: sinceISO,
+      p_limit: rpcLimit,
+    })
+    if (feedMatchError) {
+      console.error('[Community] Feed matches RPC error:', feedMatchError.message)
+    } else {
+      ;(feedMatches || []).forEach((m: any) => {
+        allMatchesMap.set(m.id, {
+          ...m,
+          tournaments: { name: m.tournament_name || '' },
+          team1: m.team1_id ? { id: m.team1_id, name: m.team1_name || 'TBD' } : null,
+          team2: m.team2_id ? { id: m.team2_id, name: m.team2_name || 'TBD' } : null,
+        })
+      })
     }
 
     const matchesData = Array.from(allMatchesMap.values())
@@ -631,9 +607,9 @@ export async function getFeedMatches(userId: string): Promise<FeedMatchItem[]> {
   }
 
   // ============================================
-  // PARTE B: Jogos Abertos (open_games table)
+  // PARTE B: Jogos Abertos (só no "Ver mais")
   // ============================================
-  try {
+  if (includeOpenGames) try {
     const since = new Date()
     since.setDate(since.getDate() - 60)
 
@@ -771,7 +747,7 @@ export async function getFeedMatches(userId: string): Promise<FeedMatchItem[]> {
   // Ordenar tudo por data (mais recente primeiro)
   results.sort((a, b) => new Date(b.played_at).getTime() - new Date(a.played_at).getTime())
 
-  return results.slice(0, 30)
+  return results.slice(0, limit)
 }
 
 // ============================================
@@ -781,14 +757,22 @@ export async function getFeedMatches(userId: string): Promise<FeedMatchItem[]> {
 /**
  * Retorna um feed unificado com posts e jogos dos seguidos,
  * ordenado por data (mais recente primeiro).
+ * Por defeito: 5 jogos (sem open games) + 15 posts — rápido.
  */
-export async function getUnifiedFeed(userId: string): Promise<FeedItem[]> {
+export async function getUnifiedFeed(
+  userId: string,
+  opts?: { matchLimit?: number; includeOpenGames?: boolean; postLimit?: number }
+): Promise<FeedItem[]> {
+  const matchLimit = opts?.matchLimit ?? 5
+  const includeOpenGames = opts?.includeOpenGames === true
+  const postLimit = opts?.postLimit ?? 15
+
   const [posts, matches] = await Promise.all([
-    getFeedPosts(userId).catch((err) => {
+    getFeedPosts(userId, postLimit).catch((err) => {
       console.error('[Community] getFeedPosts failed:', err)
       return [] as CommunityPost[]
     }),
-    getFeedMatches(userId).catch((err) => {
+    getFeedMatches(userId, { limit: matchLimit, includeOpenGames }).catch((err) => {
       console.error('[Community] getFeedMatches failed:', err)
       return [] as FeedMatchItem[]
     }),

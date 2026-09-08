@@ -106,7 +106,7 @@ export function ActionButton({ icon: Icon, label, color, onClick, emoji }: {
       <div className={`action-btn-icon ${colorClasses[color]} flex items-center justify-center`}>
         {emoji ? <span className="text-2xl">{emoji}</span> : <Icon className="w-6 h-6 text-white" />}
       </div>
-      <span className="text-xs font-medium text-gray-700">{label}</span>
+      <span className="text-[10px] sm:text-xs font-medium text-gray-700 text-center leading-tight line-clamp-2">{label}</span>
     </button>
   )
 }

@@ -104,8 +104,7 @@ import { fetchClubById,
   type ClubDetail,
   type NearbyFullClub,
   } from './lib/clubAndTournaments'
-import { preloadAllPlayerData,
-  getCachedPlayerData } from './lib/playerDataCache'
+import { schedulePreloadAllPlayerData, getCachedPlayerData } from './lib/playerDataCache'
 import { isPushSupported,
   checkIsSubscribed,
   subscribeToPush,
@@ -120,7 +119,7 @@ import {
   formatPhoneDisplay,
   } from './lib/phoneUtils'
 import { isLikelyTeamLabel } from './lib/matchPlayerNames'
-import { translations } from './lib/translations'
+import { getQuizPages } from './lib/levelQuiz'
 import {
   fetchPendingPartnerInvites,
   acceptPartnerInvite,
@@ -139,7 +138,7 @@ import {
   OpenGameCard,
 } from './components/shared/matchUi'
 
-type Screen = 'home' | 'games' | 'profile-view' | 'profile-edit' | 'club' | 'club-detail' | 'clubs-list' | 'compete' | 'community' | 'player-profile' | 'follows-list' | 'learn' | 'find-game' | 'game-results' | 'rewards' | 'booking' | 'payments' | 'group-detail' | 'rankings'
+type Screen = 'home' | 'games' | 'profile-view' | 'profile-edit' | 'club' | 'club-detail' | 'clubs-list' | 'compete' | 'my-results' | 'community' | 'player-profile' | 'follows-list' | 'learn' | 'find-game' | 'game-results' | 'rewards' | 'booking' | 'payments' | 'group-detail' | 'rankings'
 
 function App() {
   const { t, language, setLanguage, languageNames, languageFlags } = useI18n()
@@ -393,7 +392,7 @@ function App() {
         fetchPlayerClubs(fullAccount.id).then(ids => setPlayer(prev => prev ? { ...prev, club_ids: ids } as any : prev))
         // Cache de todos os jogadores (usado só para fuzzy-match de nomes em cards de jogo) —
         // não bloqueia o ecrã inicial, corre em segundo plano.
-        preloadAllPlayerData()
+        schedulePreloadAllPlayerData()
         if (fullAccount.user_id) {
           const dash = await fetchPlayerDashboardData(fullAccount.user_id, {
             id: fullAccount.id,
@@ -437,7 +436,7 @@ function App() {
         setAuthUserId(session.user.id)
         setIsAuthenticated(true)
         fetchPlayerClubs(playerAccount.id).then(ids => setPlayer(prev => prev ? { ...prev, club_ids: ids } as any : prev))
-        preloadAllPlayerData()
+        schedulePreloadAllPlayerData()
         const data = await fetchPlayerDashboardData(session.user.id, {
           id: playerAccount.id,
           name: playerAccount.name,
@@ -611,7 +610,7 @@ function App() {
         setPlayer(playerAccount as any)
         setAuthUserId(authData?.user?.id || playerAccount.user_id || null)
         fetchPlayerClubs(playerAccount.id).then(ids => setPlayer(prev => prev ? { ...prev, club_ids: ids } as any : prev))
-        preloadAllPlayerData()
+        schedulePreloadAllPlayerData()
         if (playerAccount.user_id) {
           const data = await fetchPlayerDashboardData(playerAccount.user_id, {
             id: playerAccount.id,
@@ -715,7 +714,7 @@ function App() {
         window.history.pushState({}, '', '/')
         setPublicPage('landing')
         fetchPlayerClubs(pa.id).then(ids => setPlayer(prev => prev ? { ...prev, club_ids: ids } as any : prev))
-        preloadAllPlayerData()
+        schedulePreloadAllPlayerData()
         if (pa.user_id) {
           const data = await fetchPlayerDashboardData(pa.user_id, { id: pa.id, name: pa.name, phone_number: pa.phone_number })
           setDashboardData(data)
@@ -910,8 +909,13 @@ function App() {
             onRefresh={refreshDashboard}
             onOpenClub={() => setCurrentScreen('club')}
             onOpenCompete={() => setCurrentScreen('compete')}
+            onOpenMyResults={() => setCurrentScreen('my-results')}
             onOpenLearn={() => setCurrentScreen('learn')}
             onOpenGames={(tab?: 'upcoming' | 'history') => {
+              if (tab === 'history') {
+                setCurrentScreen('my-results')
+                return
+              }
               if (tab) setGamesInitialTab(tab)
               setCurrentScreen('games')
             }}
@@ -1009,6 +1013,30 @@ function App() {
                   : undefined
               }
               onOpenPlayerProfile={(uid: string, opts) => openPlayerProfile(uid, opts)}
+              mode="compete"
+            />
+          </Suspense>
+        )}
+        {currentScreen === 'my-results' && (
+          <Suspense fallback={<ScreenLoadingFallback />}>
+            <CompeteScreen
+              dashboardData={effectiveDashboard}
+              favoriteClubId={player?.favorite_club_id ?? null}
+              clubIds={player?.club_ids ?? []}
+              userId={authUserId || player?.user_id || null}
+              playerAccountId={player?.id ?? null}
+              player={player}
+              onBack={() => setCurrentScreen('home')}
+              onOpenCommunityGroupChat={
+                player?.user_id
+                  ? (groupId: string) => {
+                      setSelectedGroupId(groupId)
+                      setCurrentScreen('group-detail')
+                    }
+                  : undefined
+              }
+              onOpenPlayerProfile={(uid: string, opts) => openPlayerProfile(uid, opts)}
+              mode="results"
             />
           </Suspense>
         )}
@@ -1096,6 +1124,10 @@ function App() {
               dashboardData={effectiveDashboard}
               userId={authUserId || player?.user_id || null}
               onOpenGames={(tab?: 'upcoming' | 'history') => {
+                if (tab === 'history') {
+                  setCurrentScreen('my-results')
+                  return
+                }
                 if (tab) setGamesInitialTab(tab)
                 setCurrentScreen('games')
               }}
@@ -1397,6 +1429,7 @@ function HomeScreen({
   onRefresh,
   onOpenClub,
   onOpenCompete,
+  onOpenMyResults,
   onOpenLearn,
   onOpenGames,
   onOpenFollowsList,
@@ -1423,6 +1456,7 @@ function HomeScreen({
   onRefresh: () => Promise<void>
   onOpenClub: () => void
   onOpenCompete: () => void
+  onOpenMyResults: () => void
   onOpenTournamentDetail: (tournamentId: string) => void
   onOpenLearn: () => void
   onOpenGames: (tab?: 'upcoming' | 'history') => void
@@ -1704,21 +1738,25 @@ function HomeScreen({
         </div>
       )}
 
-      {/* Quick Actions */}
-      <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 sm:gap-3">
-        {canBook && !isLiteMode && <ActionButton icon={Calendar} label={t.home.book} color="lime" onClick={onOpenBooking} />}
-        {!isLiteMode && <ActionButton icon={Building2} label="Clubes" color="blue" onClick={onOpenClubsList} />}
+      {/* Quick Actions — 4 principais sempre numa linha */}
+      <div className="grid grid-cols-4 gap-1 sm:gap-2">
         <ActionButton icon={TrendingUp} label={t.home.rankings} color="rose" onClick={onOpenRankings} />
         <ActionButton icon={Trophy} label={t.home.tournaments} color="amber" onClick={onOpenCompete} />
-        {isLiteMode || !canFindGame ? (
-          <ActionButton icon={Target} label={t.common.quickResult} color="emerald" emoji="📊" onClick={onOpenGameResults} />
-        ) : (
-          <>
-            <ActionButton icon={Gamepad2} label={t.home.findGame} color="purple" emoji="🎾" onClick={onOpenFindGame} />
-            <ActionButton icon={GraduationCap} label={t.home.learn} color="emerald" onClick={onOpenLearn} />
-          </>
-        )}
+        <ActionButton icon={Target} label="Resultados" color="rose" emoji="📊" onClick={onOpenMyResults} />
+        <ActionButton icon={Target} label={t.common.quickResult} color="emerald" emoji="✍️" onClick={onOpenGameResults} />
       </div>
+      {!isLiteMode && (
+        <div className="grid grid-cols-4 gap-1 sm:gap-2">
+          {canBook && <ActionButton icon={Calendar} label={t.home.book} color="lime" onClick={onOpenBooking} />}
+          <ActionButton icon={Building2} label="Clubes" color="blue" onClick={onOpenClubsList} />
+          {canFindGame && (
+            <>
+              <ActionButton icon={Gamepad2} label={t.home.findGame} color="purple" emoji="🎾" onClick={onOpenFindGame} />
+              <ActionButton icon={GraduationCap} label={t.home.learn} color="emerald" onClick={onOpenLearn} />
+            </>
+          )}
+        </div>
+      )}
 
       {/* Profile Card - Foto + Nome + Bio */}
       <div className="card p-5">
@@ -1786,7 +1824,7 @@ function HomeScreen({
         </button>
       )}
 
-      {/* Estatísticas - Jogos, Vitórias, %, Derrotas, Seguidores */}
+      {/* Estatísticas - Jogos, Vitórias, %, A seguir, Seguidores */}
       <div className="grid grid-cols-5 gap-2">
         <div className="card p-3 text-center">
           <p className="text-lg mb-0.5">🎾</p>
@@ -1803,10 +1841,10 @@ function HomeScreen({
           <p className="text-xl font-bold text-blue-600">{winRate}%</p>
           <p className="text-[10px] text-gray-500 mt-0.5 font-medium">Vitórias %</p>
         </div>
-        <div className="card p-3 text-center">
-          <p className="text-lg mb-0.5">📉</p>
-          <p className="text-xl font-bold text-red-600">{losses}</p>
-          <p className="text-[10px] text-gray-500 mt-0.5 font-medium">Derrotas</p>
+        <div className="card p-3 text-center cursor-pointer hover:bg-gray-50 transition-colors" onClick={() => userId && onOpenFollowsList(userId)}>
+          <p className="text-lg mb-0.5">👀</p>
+          <p className="text-xl font-bold text-gray-900">{followingCount}</p>
+          <p className="text-[10px] text-gray-500 mt-0.5 font-medium">A seguir</p>
         </div>
         <div className="card p-3 text-center cursor-pointer hover:bg-gray-50 transition-colors" onClick={() => userId && onOpenFollowsList(userId)}>
           <p className="text-lg mb-0.5">❤️</p>
@@ -2237,34 +2275,6 @@ function HomeScreen({
           )}
         </div>
       </div>
-
-      {/* Resultados Recentes – lista horizontal ao estilo Playtomic */}
-      {d && d.recentMatches.length > 0 && (
-        <div>
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-              <span>📊</span> {t.home.recentResults}
-            </h2>
-            <button onClick={() => onOpenGames('history')} className="text-red-600 text-sm font-medium flex items-center gap-1">
-              {t.home.viewAll} <ChevronRight className="w-4 h-4" />
-            </button>
-          </div>
-          <div className="overflow-x-auto pb-2 -mx-4 px-4 sm:mx-0 sm:px-0 snap-x snap-mandatory scroll-smooth games-horizontal-scroll">
-            <div className="flex gap-4" style={{ width: 'max-content' }}>
-              {d.recentMatches.map((match) => (
-                <div key={match.id} className="snap-center">
-                  <GameCardPlaytomic 
-                    match={match} 
-                    currentPlayerAvatar={player?.avatar_url} 
-                    currentPlayerName={player?.name}
-                    onPlayerClick={handlePlayerClick}
-                  />
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
 
     </div>
   )
