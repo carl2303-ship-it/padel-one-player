@@ -41,6 +41,33 @@ export function categoryToLevel(category?: string | null): number | undefined {
   return map[num]
 }
 
+/**
+ * Categoria de torneio (M1–M6 / F1–F6) a partir do género + nível ELO.
+ * Não altera o nível — só deriva o prefixo M/F e a faixa.
+ * Faixas alinhadas com categoryToLevel: 1≥6, 2≥5, 3≥4, 4≥3, 5≥2, 6<2.
+ */
+export function levelToPlayerCategory(
+  level: number | null | undefined,
+  gender: 'male' | 'female' | 'M' | 'F' | string | null | undefined,
+): string | null {
+  if (!gender) return null
+  const g = String(gender).trim().toLowerCase()
+  const prefix =
+    g === 'male' || g === 'm' || g === 'masculino' ? 'M'
+    : g === 'female' || g === 'f' || g === 'feminino' ? 'F'
+    : null
+  if (!prefix) return null
+
+  const lvl = typeof level === 'number' && Number.isFinite(level) ? level : 1
+  let band = 6
+  if (lvl >= 6) band = 1
+  else if (lvl >= 5) band = 2
+  else if (lvl >= 4) band = 3
+  else if (lvl >= 3) band = 4
+  else if (lvl >= 2) band = 5
+  return `${prefix}${band}`
+}
+
 /** Cores por nível numérico */
 export function levelColors(level?: number | null): { bg: string; text: string; border: string; hex: string; hexTo: string } {
   const lvl = level ?? 0

@@ -92,6 +92,7 @@ import {
   getFollowingCount,
   getFollowersCount,
   levelColors,
+  levelToPlayerCategory,
 } from './lib/communityData'
 import { fetchClubById,
   fetchMyTournamentInvites,
@@ -2413,8 +2414,10 @@ function RegisterScreen({ onBack, onSuccess, returnTo }: {
 
       if (!userId) { setError(t.register.errorCreatingAccount); setSaving(false); return }
 
-      // 2. Calcular nível
+      // 2. Calcular nível + género/categoria (M/F) logo no registo
       const level = calculateLevel()
+      const genderDb: 'male' | 'female' = gender === 'F' ? 'female' : 'male'
+      const playerCategory = levelToPlayerCategory(level, genderDb)
 
       // 3. Criar player_account
       const { data: pa, error: paError } = await supabase
@@ -2425,6 +2428,8 @@ function RegisterScreen({ onBack, onSuccess, returnTo }: {
           phone_number: normalizedPhone,
           email: email.trim(),
           level,
+          gender: genderDb,
+          player_category: playerCategory,
           level_reliability_percent: 10,
           wins: 0,
           losses: 0,
@@ -2775,12 +2780,20 @@ function RegisterScreen({ onBack, onSuccess, returnTo }: {
                   <p className="font-medium">{formatPhoneDisplay(composeInternationalPhone(dialCodeForIso(regCountryIso), regPhone)) || regPhone}</p>
                 </div>
                 <div>
+                  <p className="text-gray-500">{t.register?.gender || 'Género'}</p>
+                  <p className="font-medium">{gender === 'F' ? (t.games?.female || 'Feminino') : (t.games?.male || 'Masculino')}</p>
+                </div>
+                <div>
                   <p className="text-gray-500">{t.register.estimatedLevel}</p>
                   <p className="font-bold text-red-600 text-lg">{calculateLevel().toFixed(2)}</p>
                 </div>
                 <div>
                   <p className="text-gray-500">{t.register.reliability}</p>
                   <p className="font-medium text-amber-600">{QUIZ_INITIAL_RELIABILITY}%</p>
+                </div>
+                <div>
+                  <p className="text-gray-500">{t.partner?.category || 'Categoria'}</p>
+                  <p className="font-bold text-gray-900">{levelToPlayerCategory(calculateLevel(), gender) || '—'}</p>
                 </div>
               </div>
             </div>

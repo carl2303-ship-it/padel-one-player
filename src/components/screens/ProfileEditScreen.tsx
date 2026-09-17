@@ -3,6 +3,7 @@ import { ChevronRight, Camera, GraduationCap, ExternalLink, Save, HelpCircle, Sh
 import { useI18n } from '../../lib/i18nContext'
 import { supabase, type PlayerAccount } from '../../lib/supabase'
 import { geocodeAddress } from '../../lib/geocoding'
+import { levelToPlayerCategory } from '../../lib/communityData'
 
 export default function ProfileEditScreen({
   player,
@@ -137,6 +138,18 @@ export default function ProfileEditScreen({
         bio: editBio.trim() || undefined,
         game_type: 'competitive',
         preferred_time: editPreferredTime as any,
+      }
+
+      // Se o género ficou definido e a categoria ainda falta (ou o prefixo não bate),
+      // deriva M/F + faixa a partir do nível actual — sem alterar o nível ELO.
+      if (editGender) {
+        const nextCategory = levelToPlayerCategory(player?.level, editGender)
+        const currentCat = (player?.player_category || '').toUpperCase()
+        const currentPrefix = currentCat.charAt(0)
+        const nextPrefix = nextCategory?.charAt(0)
+        if (nextCategory && (!currentCat || (nextPrefix && currentPrefix !== nextPrefix))) {
+          updates.player_category = nextCategory
+        }
       }
 
       if (editLocation.trim() && editLocation.trim() !== (player?.location || '')) {
