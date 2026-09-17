@@ -44,7 +44,8 @@ export function categoryToLevel(category?: string | null): number | undefined {
 /**
  * Categoria de torneio (M1–M6 / F1–F6) a partir do género + nível ELO.
  * Não altera o nível — só deriva o prefixo M/F e a faixa.
- * Faixas alinhadas com categoryToLevel: 1≥6, 2≥5, 3≥4, 4≥3, 5≥2, 6<2.
+ * Faixas oficiais:
+ *   0–2.99 → 6 | 3–3.99 → 5 | 4–4.99 → 4 | 5–5.99 → 3 | 6–6.99 → 2 | ≥7 → 1
  */
 export function levelToPlayerCategory(
   level: number | null | undefined,
@@ -58,13 +59,14 @@ export function levelToPlayerCategory(
     : null
   if (!prefix) return null
 
-  const lvl = typeof level === 'number' && Number.isFinite(level) ? level : 1
+  const lvl = typeof level === 'number' && Number.isFinite(level) ? level : 0
   let band = 6
-  if (lvl >= 6) band = 1
-  else if (lvl >= 5) band = 2
-  else if (lvl >= 4) band = 3
-  else if (lvl >= 3) band = 4
-  else if (lvl >= 2) band = 5
+  if (lvl >= 7) band = 1
+  else if (lvl >= 6) band = 2
+  else if (lvl >= 5) band = 3
+  else if (lvl >= 4) band = 4
+  else if (lvl >= 3) band = 5
+  else band = 6
   return `${prefix}${band}`
 }
 
