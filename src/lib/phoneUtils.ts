@@ -50,6 +50,7 @@ export const COUNTRY_DIAL_CODES: { iso: string; dial: string; flag: string; name
 export function defaultCountryIso(language?: string): string {
   if (language === 'es') return 'ES';
   if (language === 'fr') return 'FR';
+  if (language === 'en') return 'GB';
   return 'PT';
 }
 
@@ -61,9 +62,15 @@ function isPtMobile(digits: string): boolean {
   return /^9[1236]\d{7}$/.test(digits);
 }
 
+/** UK mobile national body: 7xxxxxxxxx (10 digits). Distinct from FR/ES 9-digit 6/7… */
+function isUkMobile(digits: string): boolean {
+  return /^7\d{9}$/.test(digits);
+}
+
 /**
  * Junta o indicativo selecionado com o número local.
  * Se o jogador colar um número internacional (+351… / 00…), usa esse valor.
+ * Móveis UK 07… / 7xxxxxxxxx forçam +44 (formato inequívoco de 10 dígitos).
  */
 export function composeInternationalPhone(dialCode: string, localNumber: string): string {
   const raw = (localNumber || '').trim();
@@ -76,6 +83,15 @@ export function composeInternationalPhone(dialCode: string, localNumber: string)
   let localDigits = cleaned.replace(/\D/g, '');
   if (!localDigits) return '';
   if (localDigits.startsWith('0')) localDigits = localDigits.slice(1);
+
+  // Already international without +
+  if (localDigits.startsWith('44') && localDigits.length >= 12) return '+44' + localDigits.slice(2);
+  if (localDigits.startsWith('351') && localDigits.length >= 12) return '+351' + localDigits.slice(3);
+
+  // UK mobile is unambiguous at 10 digits starting with 7 (FR/ES mobiles are 9 digits).
+  if (isUkMobile(localDigits)) return '+44' + localDigits;
+  if (isPtMobile(localDigits)) return '+351' + localDigits;
+
   if (localDigits.startsWith(dialCode)) return '+' + localDigits;
   return '+' + dialCode + localDigits;
 }
@@ -84,6 +100,7 @@ export function composeInternationalPhone(dialCode: string, localNumber: string)
  * Normaliza para dígitos com indicativo (sem +).
  * +351 912 345 678 → 351912345678
  * 912345678 (móvel PT) → 351912345678
+ * 07xxx / 7xxxxxxxxx (móvel UK) → 447xxxxxxxxx
  */
 export function normalizePhone(phone: string | null | undefined): string {
   if (!phone) return '';
@@ -97,11 +114,16 @@ export function normalizePhone(phone: string | null | undefined): string {
   let digits = cleaned.replace(/\D/g, '');
   if (!digits) return '';
 
-  if (digits.startsWith('0') && digits.length <= 10) {
+  // Local trunk prefix (UK 07…, etc.)
+  if (digits.startsWith('0') && digits.length >= 10 && digits.length <= 11) {
     digits = digits.slice(1);
   }
 
+  if (digits.startsWith('44') && digits.length >= 12) return digits;
+  if (digits.startsWith('351') && digits.length >= 12) return digits;
+
   if (isPtMobile(digits)) return '351' + digits;
+  if (isUkMobile(digits)) return '44' + digits;
 
   return digits;
 }
@@ -118,6 +140,8 @@ export function normalizePhoneKey(phone: string | null | undefined): string {
   if (/^3519\d{8}$/.test(digits)) return digits.slice(3);
   if (/^34[67]\d{8}$/.test(digits)) return digits.slice(2);
   if (/^33[67]\d{8}$/.test(digits)) return digits.slice(2);
+  if (/^447\d{9}$/.test(digits)) return digits.slice(2);
+  if (/^44[127]\d{8,9}$/.test(digits)) return digits.slice(2);
   // Generic: strip longest matching known dial prefix
   const dials = [...COUNTRY_DIAL_CODES.map(c => c.dial)].sort((a, b) => b.length - a.length);
   for (const d of dials) {
@@ -162,6 +186,10 @@ export function phoneLookupCandidates(phone: string | null | undefined): string[
   }
   if (/^9[1236]\d{7}$/.test(key)) {
     add('351' + key); add('+351' + key);
+  }
+  if (/^7\d{9}$/.test(key)) {
+    add('44' + key); add('+44' + key);
+    add('0' + key); add('+0' + key);
   }
 
   const raw = (phone || '').replace(/\D/g, '');

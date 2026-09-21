@@ -2385,7 +2385,7 @@ function RegisterScreen({ onBack, onSuccess, returnTo }: {
 
     try {
       const fullPhone = composeInternationalPhone(dialCodeForIso(regCountryIso), regPhone)
-      const normalizedPhone = normalizePhone(fullPhone)
+      const normalizedPhone = formatPhoneDisplay(fullPhone) || normalizePhone(fullPhone)
 
       // Validações
       if (!name.trim()) { setError(t.register.nameRequired); setSaving(false); return }
@@ -2399,11 +2399,16 @@ function RegisterScreen({ onBack, onSuccess, returnTo }: {
       if (regPassword !== confirmPwd) { setError(t.register.passwordsMismatch); setSaving(false); return }
 
       // Verificar se telefone ou email já existem
-      const { data: existingPhone } = await supabase
-        .from('player_accounts')
-        .select('id')
-        .eq('phone_number', normalizedPhone)
-        .maybeSingle()
+      const phoneCandidates = phoneLookupCandidates(fullPhone)
+      let existingPhone = null
+      for (const candidate of phoneCandidates) {
+        const { data } = await supabase
+          .from('player_accounts')
+          .select('id')
+          .eq('phone_number', candidate)
+          .maybeSingle()
+        if (data) { existingPhone = data; break }
+      }
       
       if (existingPhone) { setError(t.register.phoneAlreadyRegistered); setSaving(false); return }
 
@@ -2673,12 +2678,16 @@ function RegisterScreen({ onBack, onSuccess, returnTo }: {
                 if (regPassword.length < 6) { setError(t.register.passwordMin); return }
                 if (regPassword !== confirmPwd) { setError(t.register.passwordsMismatch); return }
 
-                const checkPhone = normalizePhone(fullPhone)
-                const { data: dupPhone } = await supabase
-                  .from('player_accounts')
-                  .select('id')
-                  .eq('phone_number', checkPhone)
-                  .maybeSingle()
+                const checkPhone = formatPhoneDisplay(fullPhone) || normalizePhone(fullPhone)
+                let dupPhone = null
+                for (const candidate of phoneLookupCandidates(fullPhone)) {
+                  const { data } = await supabase
+                    .from('player_accounts')
+                    .select('id')
+                    .eq('phone_number', candidate)
+                    .maybeSingle()
+                  if (data) { dupPhone = data; break }
+                }
                 if (dupPhone) { setError(t.register.phoneAlreadyRegistered); return }
 
                 if (mode === 'bookOnly') {
