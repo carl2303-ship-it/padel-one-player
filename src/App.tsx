@@ -118,6 +118,7 @@ import {
   defaultCountryIso,
   dialCodeForIso,
   formatPhoneDisplay,
+  phoneLookupCandidates,
   } from './lib/phoneUtils'
 import { isLikelyTeamLabel } from './lib/matchPlayerNames'
 import { getQuizPages } from './lib/levelQuiz'
@@ -166,6 +167,7 @@ function App() {
   
   // Auth states
   const [phone, setPhone] = useState('')
+  const [loginCountryIso, setLoginCountryIso] = useState(() => defaultCountryIso(language))
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [authError, setAuthError] = useState('')
@@ -544,23 +546,30 @@ function App() {
       let playerAccount: any = null
 
       // Login via telefone - usa Edge Function como o Tour
-      const normalizedPhone = normalizePhone(phone)
+      const composedPhone = composeInternationalPhone(dialCodeForIso(loginCountryIso), phone)
+      const normalizedPhone = normalizePhone(composedPhone) || normalizePhone(phone)
+      const loginCandidates = phoneLookupCandidates(composedPhone || phone)
 
       // Chamar Edge Function para obter o email (usa Service Role Key, ignora RLS)
-      const response = await fetch(
-        'https://rqiwnxcexsccguruiteq.supabase.co/functions/v1/get-player-login-email',
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJxaXdueGNleHNjY2d1cnVpdGVxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk3Njc5MzcsImV4cCI6MjA3NTM0MzkzN30.Dl05zPQDtPVpmvn_Y-JokT3wDq0Oh9uF3op5xcHZpkY',
-          },
-          body: JSON.stringify({ phone_number: normalizedPhone }),
-        }
-      )
-
-      const emailData = await response.json()
-      if (!response.ok || !emailData?.success || !emailData?.email) {
+      // Tenta vários formatos (+33/+34/dígitos) porque contas antigas têm indicativos misturados
+      let emailData: any = null
+      let response: Response | null = null
+      for (const candidate of (loginCandidates.length ? loginCandidates : [normalizedPhone]).filter(Boolean)) {
+        response = await fetch(
+          'https://rqiwnxcexsccguruiteq.supabase.co/functions/v1/get-player-login-email',
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJxaXdueGNleHNjY2d1cnVpdGVxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk3Njc5MzcsImV4cCI6MjA3NTM0MzkzN30.Dl05zPQDtPVpmvn_Y-JokT3wDq0Oh9uF3op5xcHZpkY',
+            },
+            body: JSON.stringify({ phone_number: candidate }),
+          }
+        )
+        emailData = await response.json()
+        if (response.ok && emailData?.success && emailData?.email) break
+      }
+      if (!response || !emailData?.success || !emailData?.email) {
         if (emailData?.error === 'Player account not found') {
           setAuthError(t.common.phoneNotFound)
         } else if (emailData?.error === 'Player account has no email') {
@@ -590,7 +599,7 @@ function App() {
       }
 
       // Buscar player_account pelo telefone (mais fiável que auth user_id)
-      const phoneResolved = await fetchPlayerAccountByPhone(normalizedPhone)
+      const phoneResolved = await fetchPlayerAccountByPhone(composedPhone || normalizedPhone)
       if (phoneResolved) {
         playerAccount = phoneResolved
       }
@@ -598,14 +607,17 @@ function App() {
       // Fallback: buscar pelo auth user_id se telefone não encontrou
       if (!playerAccount && authData?.user) {
         const resolved = await resolvePlayerAccountForUser(authData.user.id, {
-          phoneNumber: normalizedPhone,
+          phoneNumber: composedPhone || normalizedPhone,
         })
         if (resolved) {
           playerAccount = resolved
         }
       }
 
-      localStorage.setItem('padel_one_player_phone', normalizedPhone)
+      localStorage.setItem(
+        'padel_one_player_phone',
+        playerAccount?.phone_number || normalizedPhone || composedPhone,
+      )
 
       if (playerAccount) {
         setPlayer(playerAccount as any)
@@ -731,6 +743,8 @@ function App() {
       return <LoginScreen 
         phone={phone}
         setPhone={setPhone}
+        loginCountryIso={loginCountryIso}
+        setLoginCountryIso={setLoginCountryIso}
         password={password}
         setPassword={setPassword}
         showPassword={showPassword}
@@ -1260,9 +1274,11 @@ function NavItem({ icon: Icon, label, active, onClick }: {
   )
 }
 
-function LoginScreen({ phone, setPhone, password, setPassword, showPassword, setShowPassword, error, isLoading, onLogin, onRegister }: {
+function LoginScreen({ phone, setPhone, loginCountryIso, setLoginCountryIso, password, setPassword, showPassword, setShowPassword, error, isLoading, onLogin, onRegister }: {
   phone: string
   setPhone: (v: string) => void
+  loginCountryIso: string
+  setLoginCountryIso: (v: string) => void
   password: string
   setPassword: (v: string) => void
   showPassword: boolean
@@ -1294,7 +1310,11 @@ function LoginScreen({ phone, setPhone, password, setPassword, showPassword, set
               {(Object.keys(languageNames) as Array<keyof typeof languageNames>).map((lang) => (
                 <button
                   key={lang}
-                  onClick={() => { setLanguage(lang as any); setLangOpen(false) }}
+                  onClick={() => {
+                    setLanguage(lang as any)
+                    setLoginCountryIso(defaultCountryIso(lang))
+                    setLangOpen(false)
+                  }}
                   className={`w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-left hover:bg-gray-50 transition-colors ${language === lang ? 'bg-red-50 text-red-700 font-semibold' : 'text-gray-700'}`}
                 >
                   <span className="text-lg">{languageFlags[lang]}</span>
@@ -1333,15 +1353,30 @@ function LoginScreen({ phone, setPhone, password, setPassword, showPassword, set
             </div>
           )}
 
-          <div className="relative">
-            <Smartphone className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-            <input
-              type="tel"
-              placeholder={t.login.phonePlaceholder}
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              className="w-full pl-12 pr-4 py-4 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:border-red-500 focus:ring-2 focus:ring-red-500/20 transition-all"
-            />
+          <div className="flex gap-2">
+            <select
+              value={loginCountryIso}
+              onChange={(e) => setLoginCountryIso(e.target.value)}
+              aria-label={t.register?.addCountryCode || 'Indicativo'}
+              className="w-[9.5rem] shrink-0 py-4 pl-2 pr-1 bg-gray-50 border border-gray-200 rounded-xl text-sm font-medium text-gray-800 focus:outline-none focus:border-red-500 focus:ring-2 focus:ring-red-500/20"
+            >
+              {COUNTRY_DIAL_CODES.map((c) => (
+                <option key={c.iso} value={c.iso}>
+                  {c.flag} +{c.dial} {c.name}
+                </option>
+              ))}
+            </select>
+            <div className="relative flex-1 min-w-0">
+              <Smartphone className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <input
+                type="tel"
+                inputMode="tel"
+                placeholder={t.login.phonePlaceholder}
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                className="w-full pl-12 pr-4 py-4 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:border-red-500 focus:ring-2 focus:ring-red-500/20 transition-all"
+              />
+            </div>
           </div>
 
           <div className="relative">
