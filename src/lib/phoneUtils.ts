@@ -131,14 +131,17 @@ export function formatPhoneDisplay(phone: string | null | undefined): string {
   return digits ? '+' + digits : '';
 }
 
-/** Compare phones regardless of + prefix or spacing (+351… vs 351…). */
+/** Compare phones regardless of + prefix, spacing, or FR/ES dial mix-ups. */
 export function phonesEqual(
   a: string | null | undefined,
   b: string | null | undefined,
 ): boolean {
   const na = normalizePhone(a);
   const nb = normalizePhone(b);
-  return na.length > 0 && na === nb;
+  if (na.length > 0 && na === nb) return true;
+  const ka = normalizePhoneKey(a);
+  const kb = normalizePhoneKey(b);
+  return ka.length >= 8 && ka === kb;
 }
 
 /** Lookup candidates including common FR/ES dial mix-ups for the same national body. */
