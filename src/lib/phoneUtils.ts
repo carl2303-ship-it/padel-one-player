@@ -111,9 +111,19 @@ export function isValidPhone(phone: string): boolean {
   return normalized.length >= MIN_PHONE_DIGITS && normalized.length <= MAX_PHONE_DIGITS;
 }
 
-/** Alias used across Tour for membership/payment matching */
+/** National digits without country calling code (for flexible lookup). */
 export function normalizePhoneKey(phone: string | null | undefined): string {
-  return normalizePhone(phone);
+  const digits = normalizePhone(phone);
+  if (!digits) return '';
+  if (/^3519\d{8}$/.test(digits)) return digits.slice(3);
+  if (/^34[67]\d{8}$/.test(digits)) return digits.slice(2);
+  if (/^33[67]\d{8}$/.test(digits)) return digits.slice(2);
+  // Generic: strip longest matching known dial prefix
+  const dials = [...COUNTRY_DIAL_CODES.map(c => c.dial)].sort((a, b) => b.length - a.length);
+  for (const d of dials) {
+    if (digits.startsWith(d) && digits.length - d.length >= 6) return digits.slice(d.length);
+  }
+  return digits;
 }
 
 export function formatPhoneDisplay(phone: string | null | undefined): string {
@@ -129,4 +139,29 @@ export function phonesEqual(
   const na = normalizePhone(a);
   const nb = normalizePhone(b);
   return na.length > 0 && na === nb;
+}
+
+/** Lookup candidates including common FR/ES dial mix-ups for the same national body. */
+export function phoneLookupCandidates(phone: string | null | undefined): string[] {
+  const out: string[] = [];
+  const add = (v: string) => { if (v && !out.includes(v)) out.push(v); };
+
+  const digits = normalizePhone(phone);
+  if (digits) {
+    add(digits);
+    add('+' + digits);
+  }
+
+  const key = normalizePhoneKey(phone);
+  if (/^[67]\d{8}$/.test(key)) {
+    add('33' + key); add('+33' + key);
+    add('34' + key); add('+34' + key);
+  }
+  if (/^9[1236]\d{7}$/.test(key)) {
+    add('351' + key); add('+351' + key);
+  }
+
+  const raw = (phone || '').replace(/\D/g, '');
+  if (raw) { add(raw); add('+' + raw); }
+  return out;
 }

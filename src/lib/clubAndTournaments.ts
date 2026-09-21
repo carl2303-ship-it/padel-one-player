@@ -771,6 +771,7 @@ export async function updateTournamentInviteStatus(
         name: account.name,
         phone_number: account.phone_number,
         player_account_id: playerAccountId,
+        user_id: null,
       })
       if (insertError) {
         console.error('[updateTournamentInviteStatus] INSERT em players falhou (RLS?):', insertError)

@@ -1,5 +1,5 @@
 import { supabase, PlayerAccount } from './supabase'
-import { normalizePhone, phonesEqual } from './phoneUtils'
+import { normalizePhone, phonesEqual, phoneLookupCandidates, normalizePhoneKey } from './phoneUtils'
 
 // Linha completa de player_accounts (não só id/user_id/name/phone_number).
 // Evita uma segunda ida à BD (round-trip extra) só para buscar o resto dos
@@ -39,10 +39,10 @@ export async function fetchPlayerAccountByPhone(
   phone: string,
 ): Promise<ResolvedPlayerAccount | null> {
   const normalized = normalizePhone(phone)
-  if (!normalized) return null
+  const candidates = phoneLookupCandidates(phone)
+  if (!normalized && candidates.length === 0) return null
 
-  const exactCandidates = [normalized, `+${normalized}`]
-  for (const candidate of exactCandidates) {
+  for (const candidate of candidates) {
     const { data } = await supabase
       .from('player_accounts')
       .select(ACCOUNT_FIELDS)
@@ -51,21 +51,27 @@ export async function fetchPlayerAccountByPhone(
     if (data) return data as ResolvedPlayerAccount
   }
 
-  const last9 = normalized.slice(-9)
+  const key = normalizePhoneKey(phone)
+  const last9 = (key || normalized).slice(-9)
   if (last9.length >= 9) {
     const { data: suffixMatches } = await supabase
       .from('player_accounts')
       .select(ACCOUNT_FIELDS)
       .ilike('phone_number', `%${last9}`)
-      .limit(10)
+      .limit(20)
 
-    const matches = (suffixMatches || []).filter((r) =>
-      phonesEqual(r.phone_number, phone),
-    ) as ResolvedPlayerAccount[]
+    const rows = (suffixMatches || []) as ResolvedPlayerAccount[]
+    const exact = rows.filter((r) => phonesEqual(r.phone_number, phone))
+    if (exact.length === 1) return exact[0]
+    if (exact.length > 1) {
+      return pickBestAccount(exact, { phoneNumber: normalized || phone }) || exact[0]
+    }
 
-    if (matches.length === 1) return matches[0]
-    if (matches.length > 1) {
-      return pickBestAccount(matches, { phoneNumber: normalized }) || matches[0]
+    // FR/ES dial mix-up: same national body, different country code
+    const byNational = rows.filter((r) => normalizePhoneKey(r.phone_number) === key)
+    if (byNational.length === 1) return byNational[0]
+    if (byNational.length > 1) {
+      return pickBestAccount(byNational, { phoneNumber: normalized || phone }) || byNational[0]
     }
   }
 
