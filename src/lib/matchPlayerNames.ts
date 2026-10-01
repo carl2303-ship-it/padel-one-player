@@ -2,6 +2,45 @@
  * Helpers to always show real player names (never team labels) in match UIs.
  */
 
+/** Fold accents / case for fuzzy name compares. */
+export function foldPlayerName(name: string): string {
+  return name
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, ' ')
+}
+
+/**
+ * Extract a usable person display name.
+ * Club-path accounts like "Carlos/Padel1/BoostPadel" → "Carlos".
+ * Team labels / placeholders → null.
+ */
+export function cleanPlayerDisplayName(
+  name: string | null | undefined,
+  teamName?: string | null,
+): string | null {
+  if (!name?.trim()) return null
+  let n = name.trim()
+
+  // Account names sometimes embed club paths: "Carlos/Padel1/BoostPadel" → "Carlos"
+  if ((n.match(/\//g) || []).length >= 2) {
+    const primary = n.split(/\s*\/\s*/)[0]?.trim()
+    if (primary && !isLikelyTeamLabel(primary, teamName)) return primary
+    return null
+  }
+
+  if (isLikelyTeamLabel(n, teamName)) return null
+  return n
+}
+
+/** Stable key for deduping partners across slight name variants. */
+export function partnerNameKey(name: string): string {
+  const cleaned = cleanPlayerDisplayName(name) || name
+  return foldPlayerName(cleaned.split(/\s*\/\s*/)[0] || cleaned)
+}
+
 /** True if a string is clearly a team/acronym label, not a person. */
 export function isLikelyTeamLabel(name: string | null | undefined, teamName?: string | null): boolean {
   if (!name) return true
@@ -55,6 +94,8 @@ export function parsePersonNamesFromTeamLabel(teamName: string | null | undefine
     if (/^[A-ZÁÉÍÓÚ]{1,3}$/.test(c)) return false
     if (/\b(lda|ltd|sa|team|equipa)\b/i.test(c)) return false
     if (/^jogador\s*\d*$/i.test(c) || /^player\s*\d*$/i.test(c)) return false
+    // Club-path segment is OK as a person token
+    if ((c.match(/\//g) || []).length >= 2) return false
     return true
   }
   if (!candidates.every(looksLikePerson)) return [null, null]
@@ -78,6 +119,8 @@ function absorbPair(
 
   const keep = (n: string | null): string | null => {
     if (!n) return null
+    const cleaned = cleanPlayerDisplayName(n, teamName)
+    if (cleaned) return cleaned
     if (isLikelyTeamLabel(n, teamName)) {
       const [x, y] = parsePersonNamesFromTeamLabel(n)
       // pair handled above; single team token → drop
@@ -125,7 +168,7 @@ export function resolveFourPlayerNames(match: {
   }
 
   const guard = (n: string | null, team?: string | null) =>
-    n && !isLikelyTeamLabel(n, team) ? n : '?'
+    cleanPlayerDisplayName(n, team) || '?'
 
   return [
     guard(p1, match.team1_name),
@@ -136,14 +179,24 @@ export function resolveFourPlayerNames(match: {
 }
 
 export function namesMatch(a: string, b: string): boolean {
-  const x = a.trim().toLowerCase()
-  const y = b.trim().toLowerCase()
+  const ca = cleanPlayerDisplayName(a) || a.trim()
+  const cb = cleanPlayerDisplayName(b) || b.trim()
+  const x = foldPlayerName(ca)
+  const y = foldPlayerName(cb)
   if (!x || !y) return false
   if (x === y) return true
   const xPrimary = x.split(/\s*\/\s*/)[0]
   const yPrimary = y.split(/\s*\/\s*/)[0]
   if (xPrimary === yPrimary) return true
-  return x.startsWith(y) || y.startsWith(x) || xPrimary.startsWith(yPrimary) || yPrimary.startsWith(xPrimary)
+  // Avoid matching very short tokens ("Jo", "Ana") against longer unrelated names
+  const minLen = Math.min(xPrimary.length, yPrimary.length)
+  if (minLen < 3) return false
+  return (
+    x.startsWith(y) ||
+    y.startsWith(x) ||
+    xPrimary.startsWith(yPrimary) ||
+    yPrimary.startsWith(xPrimary)
+  )
 }
 
 type MatchNames = {
@@ -159,24 +212,65 @@ type MatchNames = {
 
 /**
  * Partners only (same team) — for "jogadores com quem mais joga".
- * Never returns opponents.
+ * Never returns opponents or the current player.
  */
 export function getPartnerNamesFromMatch(
   match: MatchNames,
   currentName?: string | null,
 ): string[] {
   const [n1, n2, n3, n4] = resolveFourPlayerNames(match)
-  const keep = (n: string) => n && n !== '?' && !isLikelyTeamLabel(n)
+  const keep = (n: string) => Boolean(n && n !== '?' && cleanPlayerDisplayName(n))
+
+  const selfName = currentName ? cleanPlayerDisplayName(currentName) || currentName.trim() : null
 
   let side: 1 | 2 | null = match.my_side ?? null
-  if (!side && currentName) {
-    if (namesMatch(n1, currentName) || namesMatch(n2, currentName)) side = 1
-    else if (namesMatch(n3, currentName) || namesMatch(n4, currentName)) side = 2
+  if (!side && selfName) {
+    if (namesMatch(n1, selfName) || namesMatch(n2, selfName)) side = 1
+    else if (namesMatch(n3, selfName) || namesMatch(n4, selfName)) side = 2
   }
   if (!side) return []
 
   const pair = side === 1 ? [n1, n2] : [n3, n4]
-  return pair.filter((n) => keep(n) && (!currentName || !namesMatch(n, currentName)))
+  const usable = pair.filter(keep)
+  if (!selfName) return usable
+
+  const selfKey = partnerNameKey(selfName)
+  return usable.filter(
+    (n) => !namesMatch(n, selfName) && partnerNameKey(n) !== selfKey,
+  )
+}
+
+/**
+ * Aggregate partner counts from matches, deduping name variants and excluding self.
+ */
+export function buildTopPartnersFromMatches(
+  matches: MatchNames[],
+  currentName?: string | null,
+  limit = 10,
+): Array<{ name: string; count: number }> {
+  const map = new Map<string, { name: string; count: number }>()
+  const selfKey = currentName ? partnerNameKey(currentName) : null
+
+  for (const match of matches) {
+    for (const raw of getPartnerNamesFromMatch(match, currentName)) {
+      const name = cleanPlayerDisplayName(raw) || raw
+      const key = partnerNameKey(name)
+      if (!key || (selfKey && key === selfKey)) continue
+      if (currentName && namesMatch(name, currentName)) continue
+      const prev = map.get(key)
+      if (prev) {
+        prev.count += 1
+        // Prefer the longer / more complete display name
+        if (name.length > prev.name.length) prev.name = name
+      } else {
+        map.set(key, { name, count: 1 })
+      }
+    }
+  }
+
+  return Array.from(map.values())
+    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
+    .slice(0, limit)
 }
 
 /** @deprecated Prefer getPartnerNamesFromMatch for "com quem joga". Kept for feed-style "others". */
