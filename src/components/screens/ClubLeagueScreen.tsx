@@ -7,6 +7,7 @@ import {
   Crown,
   History,
   Loader2,
+  Lock,
   Trophy,
   Users,
 } from 'lucide-react'
@@ -19,6 +20,10 @@ import {
   type ClubLeagueConfrontationRow,
   type ClubLeagueTeamRow,
 } from '../../lib/clubLeagueData'
+import ClubLeagueLineupModal, {
+  isLineupPublic,
+  lineupLockAt,
+} from '../ClubLeagueLineupModal'
 
 type Tab = 'teams' | 'standings' | 'calendar' | 'history'
 type CalendarMode = 'matchdays' | 'teams'
@@ -27,6 +32,7 @@ type Props = {
   tournamentId: string
   tournamentName: string
   categories?: { id: string; name: string }[]
+  playerAccountId?: string | null
   onBack: () => void
 }
 
@@ -39,6 +45,7 @@ export default function ClubLeagueScreen({
   tournamentId,
   tournamentName,
   categories = [],
+  playerAccountId = null,
   onBack,
 }: Props) {
   const [tab, setTab] = useState<Tab>('teams')
@@ -50,6 +57,10 @@ export default function ClubLeagueScreen({
   const [selectedCategory, setSelectedCategory] = useState<string | null>(categories[0]?.id ?? null)
   const [expandedTeamId, setExpandedTeamId] = useState<string | null>(null)
   const [expandedConfrontationId, setExpandedConfrontationId] = useState<string | null>(null)
+  const [lineupCtx, setLineupCtx] = useState<{
+    confrontation: ClubLeagueConfrontationRow
+    team: ClubLeagueTeamRow
+  } | null>(null)
 
   useEffect(() => {
     if (!selectedCategory && categories[0]?.id) setSelectedCategory(categories[0].id)
@@ -77,6 +88,32 @@ export default function ClubLeagueScreen({
     ;(bundle?.teams || []).forEach((t) => m.set(t.id, t))
     return m
   }, [bundle])
+
+  const captainTeamIds = useMemo(() => {
+    const ids = new Set<string>()
+    if (!playerAccountId) return ids
+    for (const team of bundle?.teams || []) {
+      const isCaptain = (team.club_league_players || []).some(
+        (p) => p.is_captain && p.player_account_id === playerAccountId
+      )
+      if (isCaptain) ids.add(team.id)
+    }
+    return ids
+  }, [bundle, playerAccountId])
+
+  const myCaptainTeam = useMemo(() => {
+    for (const id of captainTeamIds) {
+      const t = teamById.get(id)
+      if (t) return t
+    }
+    return null
+  }, [captainTeamIds, teamById])
+
+  useEffect(() => {
+    if (myCaptainTeam && calendarMode === 'teams') {
+      setCalendarTeamId(myCaptainTeam.id)
+    }
+  }, [myCaptainTeam?.id])
 
   const names = useMemo(() => playerNameById(bundle?.teams || []), [bundle])
 
@@ -167,6 +204,91 @@ export default function ClubLeagueScreen({
     { id: 'history', label: 'Histórico', icon: History },
   ]
 
+  const renderLineupStatus = (
+    c: ClubLeagueConfrontationRow,
+    teamId: string | null | undefined,
+    sideLabel: string
+  ) => {
+    if (!teamId) return null
+    const lineup = lineupsByConfrontationTeam.get(`${c.id}:${teamId}`)
+    const publicNow = isLineupPublic(c.scheduled_time)
+    const lock = lineupLockAt(c.scheduled_time)
+    const iAmCaptain = captainTeamIds.has(teamId)
+
+    if (lineup && (publicNow || iAmCaptain)) {
+      return (
+        <div className="text-xs text-gray-700 space-y-0.5">
+          <p className="font-medium text-gray-900">
+            {sideLabel}
+            {!publicNow && iAmCaptain ? (
+              <span className="ml-1 text-amber-700 font-normal">(secreta para adversários)</span>
+            ) : null}
+          </p>
+          <p>D1: {duoLabel(lineup, names, 1)}</p>
+          <p>D2: {duoLabel(lineup, names, 2)}</p>
+          <p>D3: {duoLabel(lineup, names, 3)}</p>
+        </div>
+      )
+    }
+
+    if (!publicNow) {
+      return (
+        <p className="text-xs text-gray-500 flex items-center gap-1">
+          <Lock className="w-3.5 h-3.5 shrink-0" />
+          {sideLabel}: secreta
+          {lock
+            ? ` até ${lock.toLocaleString('pt-PT', {
+                day: '2-digit',
+                month: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                hourCycle: 'h23',
+              })}`
+            : ''}
+        </p>
+      )
+    }
+
+    return <p className="text-xs text-gray-500">{sideLabel}: lineup ainda não submetida</p>
+  }
+
+  const renderCaptainLineupButton = (c: ClubLeagueConfrontationRow) => {
+    const myTeamId = c.home_team_id && captainTeamIds.has(c.home_team_id)
+      ? c.home_team_id
+      : c.away_team_id && captainTeamIds.has(c.away_team_id)
+        ? c.away_team_id
+        : null
+    if (!myTeamId) return null
+    const team = teamById.get(myTeamId)
+    if (!team) return null
+    const hasLineup = Boolean(lineupsByConfrontationTeam.get(`${c.id}:${myTeamId}`))
+    const publicNow = isLineupPublic(c.scheduled_time)
+    const locked = publicNow
+
+    return (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation()
+          setLineupCtx({ confrontation: c, team })
+        }}
+        className={`w-full mt-2 px-3 py-2 rounded-xl text-sm font-medium ${
+          locked
+            ? 'bg-gray-100 text-gray-600 border border-gray-200'
+            : 'bg-red-600 text-white'
+        }`}
+      >
+        {locked
+          ? hasLineup
+            ? 'Ver lineup (bloqueada)'
+            : 'Lineup bloqueada (T−30)'
+          : hasLineup
+            ? 'Editar / resubmeter lineup'
+            : 'Criar e submeter lineup'}
+      </button>
+    )
+  }
+
   const renderConfrontationGames = (c: ClubLeagueConfrontationRow) => {
     const homeLineup = c.home_team_id
       ? lineupsByConfrontationTeam.get(`${c.id}:${c.home_team_id}`)
@@ -175,11 +297,19 @@ export default function ClubLeagueScreen({
       ? lineupsByConfrontationTeam.get(`${c.id}:${c.away_team_id}`)
       : undefined
     const games = gamesByConfrontation.get(c.id) || []
+    const publicNow = isLineupPublic(c.scheduled_time)
 
     return (
-      <div className="border-t border-gray-100 bg-gray-50 p-3 space-y-2">
+      <div className="border-t border-gray-100 bg-gray-50 p-3 space-y-3">
+        <div className="space-y-2">
+          {renderLineupStatus(c, c.home_team_id, 'Casa')}
+          {renderLineupStatus(c, c.away_team_id, 'Fora')}
+        </div>
+        {renderCaptainLineupButton(c)}
         {games.length === 0 ? (
-          <p className="text-xs text-gray-500 text-center py-2">Sem resultados de duplas ainda.</p>
+          publicNow && homeLineup && awayLineup ? (
+            <p className="text-xs text-gray-500 text-center py-1">Sem resultados de duplas ainda.</p>
+          ) : null
         ) : (
           games.map((g) => {
             const which = g.game_type === 'duo2' ? 2 : g.game_type === 'duo3' ? 3 : 1
@@ -276,6 +406,12 @@ export default function ClubLeagueScreen({
         <p className="text-sm text-red-100 mt-2">
           {(bundle?.teams || []).length} clubes inscritos
         </p>
+        {myCaptainTeam && (
+          <p className="text-xs text-red-50 mt-2 bg-white/10 rounded-lg px-3 py-2">
+            És capitão de <strong>{myCaptainTeam.name}</strong>. Submete a lineup no calendário
+            (secreta até 30 min antes do jogo).
+          </p>
+        )}
       </div>
 
       {categories.length > 1 && (
@@ -652,6 +788,18 @@ export default function ClubLeagueScreen({
             </div>
           )}
         </>
+      )}
+
+      {lineupCtx && (
+        <ClubLeagueLineupModal
+          confrontation={lineupCtx.confrontation}
+          team={lineupCtx.team}
+          onClose={() => setLineupCtx(null)}
+          onSuccess={() => {
+            setLineupCtx(null)
+            void load()
+          }}
+        />
       )}
     </div>
   )

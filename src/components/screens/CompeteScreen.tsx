@@ -775,6 +775,7 @@ export default function CompeteScreen({
             tournamentId={td.id}
             tournamentName={td.name}
             categories={td.categories || []}
+            playerAccountId={playerAccountId}
             onBack={() => {
               setSelectedTournamentDetail(null)
               setSelectedTournamentLoading(false)
