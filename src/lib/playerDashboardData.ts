@@ -516,6 +516,17 @@ async function fetchPlayerDashboardDataUncached(
   const clubLeagueEarly = await fetchClubLeagueTournamentsForPlayer(playerAccount.id, phone)
   if (allPlayers.length === 0) {
     if (clubLeagueEarly.length > 0) {
+      const clubLeagueIds = clubLeagueEarly.map((t) => t.id)
+      const { data: clCounts } = await supabase
+        .from('club_league_teams')
+        .select('tournament_id')
+        .in('tournament_id', clubLeagueIds)
+      const countMap = new Map<string, number>()
+      for (const row of clCounts || []) {
+        const id = (row as { tournament_id: string }).tournament_id
+        countMap.set(id, (countMap.get(id) || 0) + 1)
+      }
+      for (const t of clubLeagueEarly) t.enrolled_count = countMap.get(t.id) || 0
       const split = splitUpcomingPast(clubLeagueEarly)
       result.upcomingTournaments = split.upcoming
       result.pastTournaments = split.past
@@ -555,8 +566,27 @@ async function fetchPlayerDashboardDataUncached(
     return acc
   }, [])
 
-  // enrolled_count: omitido no path critico. UI so mostra se !== undefined.
+  // enrolled_count: para club_league conta clubes; resto fica undefined (UI omite).
+  const clubLeagueIds = uniqueTournaments
+    .filter((t: any) => t.format === 'club_league')
+    .map((t: any) => t.id as string)
+  if (clubLeagueIds.length > 0) {
+    const { data: clCounts } = await supabase
+      .from('club_league_teams')
+      .select('tournament_id')
+      .in('tournament_id', clubLeagueIds)
+    const countMap = new Map<string, number>()
+    for (const row of clCounts || []) {
+      const id = (row as { tournament_id: string }).tournament_id
+      countMap.set(id, (countMap.get(id) || 0) + 1)
+    }
+    for (const t of uniqueTournaments) {
+      if (t.format === 'club_league') t.enrolled_count = countMap.get(t.id) || 0
+    }
+  }
+
   const { upcoming, past } = splitUpcomingPast(uniqueTournaments)
+  const now = new Date()
 
   result.upcomingTournaments = upcoming
   result.pastTournaments = past

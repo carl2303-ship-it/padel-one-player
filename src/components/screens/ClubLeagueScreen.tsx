@@ -1,0 +1,475 @@
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import {
+  ArrowLeft,
+  Calendar,
+  ChevronDown,
+  ChevronRight,
+  Crown,
+  History,
+  Loader2,
+  Trophy,
+  Users,
+} from 'lucide-react'
+import {
+  duoLabel,
+  fetchClubLeagueBundle,
+  formatDuoScore,
+  playerNameById,
+  type ClubLeagueBundle,
+  type ClubLeagueConfrontationRow,
+  type ClubLeagueTeamRow,
+} from '../../lib/clubLeagueData'
+
+type Tab = 'teams' | 'standings' | 'calendar' | 'history'
+
+type Props = {
+  tournamentId: string
+  tournamentName: string
+  categories?: { id: string; name: string }[]
+  onBack: () => void
+}
+
+function confrontationScore(c: ClubLeagueConfrontationRow): string {
+  if (c.status !== 'completed') return c.status === 'scheduled' ? 'Agendado' : c.status
+  return `${c.home_duos_won}–${c.away_duos_won}`
+}
+
+export default function ClubLeagueScreen({
+  tournamentId,
+  tournamentName,
+  categories = [],
+  onBack,
+}: Props) {
+  const [tab, setTab] = useState<Tab>('teams')
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [bundle, setBundle] = useState<ClubLeagueBundle | null>(null)
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(categories[0]?.id ?? null)
+  const [expandedTeamId, setExpandedTeamId] = useState<string | null>(null)
+  const [expandedConfrontationId, setExpandedConfrontationId] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!selectedCategory && categories[0]?.id) setSelectedCategory(categories[0].id)
+  }, [categories, selectedCategory])
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const data = await fetchClubLeagueBundle(tournamentId, selectedCategory)
+      setBundle(data)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Erro ao carregar a liga')
+    } finally {
+      setLoading(false)
+    }
+  }, [tournamentId, selectedCategory])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  const teamById = useMemo(() => {
+    const m = new Map<string, ClubLeagueTeamRow>()
+    ;(bundle?.teams || []).forEach((t) => m.set(t.id, t))
+    return m
+  }, [bundle])
+
+  const names = useMemo(() => playerNameById(bundle?.teams || []), [bundle])
+
+  const rankedStandings = useMemo(() => {
+    return [...(bundle?.standings || [])].sort((a, b) => {
+      if ((a.position || 999) !== (b.position || 999)) return (a.position || 999) - (b.position || 999)
+      return b.points - a.points
+    })
+  }, [bundle])
+
+  const confrontationsByMatchday = useMemo(() => {
+    const map = new Map<string, ClubLeagueConfrontationRow[]>()
+    for (const c of bundle?.confrontations || []) {
+      const key = c.matchday_id || 'none'
+      if (!map.has(key)) map.set(key, [])
+      map.get(key)!.push(c)
+    }
+    return map
+  }, [bundle])
+
+  const gamesByConfrontation = useMemo(() => {
+    const map = new Map<string, NonNullable<typeof bundle>['games']>()
+    for (const g of bundle?.games || []) {
+      if (!map.has(g.confrontation_id)) map.set(g.confrontation_id, [])
+      map.get(g.confrontation_id)!.push(g)
+    }
+    for (const list of map.values()) list.sort((a, b) => a.game_order - b.game_order)
+    return map
+  }, [bundle])
+
+  const lineupsByConfrontationTeam = useMemo(() => {
+    const map = new Map<string, NonNullable<typeof bundle>['lineups'][number]>()
+    for (const l of bundle?.lineups || []) {
+      map.set(`${l.confrontation_id}:${l.team_id}`, l)
+    }
+    return map
+  }, [bundle])
+
+  const completedMatchdays = useMemo(() => {
+    return (bundle?.matchdays || []).filter((md) => {
+      const list = confrontationsByMatchday.get(md.id) || []
+      return list.some((c) => c.status === 'completed')
+    })
+  }, [bundle, confrontationsByMatchday])
+
+  const tabs: { id: Tab; label: string; icon: typeof Users }[] = [
+    { id: 'teams', label: 'Equipas', icon: Users },
+    { id: 'standings', label: 'Classificação', icon: Trophy },
+    { id: 'calendar', label: 'Calendário', icon: Calendar },
+    { id: 'history', label: 'Histórico', icon: History },
+  ]
+
+  const renderConfrontationDetail = (c: ClubLeagueConfrontationRow) => {
+    const home = c.home_team_id ? teamById.get(c.home_team_id) : null
+    const away = c.away_team_id ? teamById.get(c.away_team_id) : null
+    const homeLineup = c.home_team_id
+      ? lineupsByConfrontationTeam.get(`${c.id}:${c.home_team_id}`)
+      : undefined
+    const awayLineup = c.away_team_id
+      ? lineupsByConfrontationTeam.get(`${c.id}:${c.away_team_id}`)
+      : undefined
+    const games = gamesByConfrontation.get(c.id) || []
+    const expanded = expandedConfrontationId === c.id
+
+    return (
+      <div key={c.id} className="border border-gray-100 rounded-xl overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setExpandedConfrontationId(expanded ? null : c.id)}
+          className="w-full p-3 flex items-center justify-between gap-2 text-left hover:bg-gray-50"
+        >
+          <div className="min-w-0">
+            <p className="font-semibold text-gray-900 text-sm truncate">
+              {home?.name || '?'} <span className="text-gray-400 font-normal">vs</span> {away?.name || '?'}
+            </p>
+            <p className="text-xs text-gray-500 mt-0.5">
+              {c.scheduled_time
+                ? new Date(c.scheduled_time).toLocaleString('pt-PT', {
+                    day: '2-digit',
+                    month: 'short',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })
+                : 'Sem hora'}
+              {c.venue ? ` · ${c.venue}` : ''}
+            </p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <span
+              className={`px-2 py-1 rounded-lg text-xs font-bold ${
+                c.status === 'completed'
+                  ? 'bg-green-100 text-green-700'
+                  : 'bg-gray-100 text-gray-600'
+              }`}
+            >
+              {confrontationScore(c)}
+            </span>
+            {expanded ? (
+              <ChevronDown className="w-4 h-4 text-gray-400" />
+            ) : (
+              <ChevronRight className="w-4 h-4 text-gray-400" />
+            )}
+          </div>
+        </button>
+
+        {expanded && (
+          <div className="border-t border-gray-100 bg-gray-50 p-3 space-y-2">
+            {games.length === 0 ? (
+              <p className="text-xs text-gray-500 text-center py-2">Sem resultados de duplas ainda.</p>
+            ) : (
+              games.map((g) => {
+                const which = g.game_type === 'duo2' ? 2 : g.game_type === 'duo3' ? 3 : 1
+                return (
+                  <div key={g.id} className="bg-white rounded-lg p-3 border border-gray-100">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 space-y-1">
+                        <p className="text-[11px] font-semibold text-red-600 uppercase tracking-wide">
+                          Dupla {which}
+                        </p>
+                        <p className="text-xs text-gray-800">
+                          <span className="text-gray-500">Casa:</span>{' '}
+                          {duoLabel(homeLineup, names, which as 1 | 2 | 3)}
+                        </p>
+                        <p className="text-xs text-gray-800">
+                          <span className="text-gray-500">Fora:</span>{' '}
+                          {duoLabel(awayLineup, names, which as 1 | 2 | 3)}
+                        </p>
+                      </div>
+                      <p className="text-sm font-bold text-gray-900 shrink-0">{formatDuoScore(g)}</p>
+                    </div>
+                  </div>
+                )
+              })
+            )}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-4 animate-fade-in">
+      <button
+        type="button"
+        onClick={onBack}
+        className="flex items-center gap-2 text-gray-600 hover:text-gray-900"
+      >
+        <ArrowLeft className="w-5 h-5" /> Voltar
+      </button>
+
+      <div className="bg-gradient-to-br from-red-600 to-red-800 rounded-2xl p-5 text-white">
+        <p className="text-xs uppercase tracking-wide text-red-100 mb-1">Liga de Clubes</p>
+        <h1 className="text-xl font-bold leading-tight">{tournamentName}</h1>
+        <p className="text-sm text-red-100 mt-2">
+          {(bundle?.teams || []).length} clubes inscritos
+        </p>
+      </div>
+
+      {categories.length > 1 && (
+        <div className="flex flex-wrap gap-2">
+          {categories.map((c) => (
+            <button
+              key={c.id}
+              type="button"
+              onClick={() => setSelectedCategory(c.id)}
+              className={`px-3 py-1.5 text-sm rounded-full font-medium ${
+                selectedCategory === c.id
+                  ? 'bg-red-600 text-white'
+                  : 'bg-white border border-gray-200 text-gray-700'
+              }`}
+            >
+              {c.name}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div className="flex gap-1 overflow-x-auto pb-1 -mx-1 px-1">
+        {tabs.map(({ id, label, icon: Icon }) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => setTab(id)}
+            className={`flex items-center gap-1.5 px-3 py-2 text-sm rounded-xl whitespace-nowrap font-medium ${
+              tab === id ? 'bg-red-600 text-white' : 'bg-white text-gray-700 border border-gray-200'
+            }`}
+          >
+            <Icon className="w-4 h-4" />
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {error && (
+        <div className="bg-red-50 text-red-700 text-sm px-3 py-2 rounded-xl">{error}</div>
+      )}
+
+      {loading ? (
+        <div className="flex justify-center py-16">
+          <Loader2 className="w-8 h-8 animate-spin text-red-600" />
+        </div>
+      ) : (
+        <>
+          {tab === 'teams' && (
+            <div className="space-y-3">
+              {(bundle?.teams || []).length === 0 ? (
+                <div className="card p-6 text-center text-gray-500 text-sm">
+                  Ainda sem clubes inscritos.
+                </div>
+              ) : (
+                (bundle?.teams || []).map((team) => {
+                  const roster = team.club_league_players || []
+                  const open = expandedTeamId === team.id
+                  return (
+                    <div key={team.id} className="card overflow-hidden">
+                      <button
+                        type="button"
+                        onClick={() => setExpandedTeamId(open ? null : team.id)}
+                        className="w-full p-4 flex items-center justify-between gap-3 text-left"
+                      >
+                        <div className="min-w-0">
+                          <h3 className="font-semibold text-gray-900 truncate">{team.name}</h3>
+                          <p className="text-xs text-gray-500 mt-0.5">
+                            {roster.length} jogadores
+                            {roster.find((p) => p.is_captain)
+                              ? ` · Capitão: ${roster.find((p) => p.is_captain)!.name}`
+                              : ''}
+                          </p>
+                        </div>
+                        {open ? (
+                          <ChevronDown className="w-5 h-5 text-gray-400 shrink-0" />
+                        ) : (
+                          <ChevronRight className="w-5 h-5 text-gray-400 shrink-0" />
+                        )}
+                      </button>
+                      {open && (
+                        <div className="border-t border-gray-100 px-4 pb-4 pt-2 space-y-2">
+                          {roster.length === 0 ? (
+                            <p className="text-sm text-gray-500">Plantel por completar.</p>
+                          ) : (
+                            roster.map((p) => (
+                              <div
+                                key={p.id}
+                                className="flex items-center justify-between gap-2 py-2 border-b border-gray-50 last:border-0"
+                              >
+                                <div className="flex items-center gap-2 min-w-0">
+                                  {p.is_captain && (
+                                    <Crown className="w-4 h-4 text-amber-500 shrink-0" />
+                                  )}
+                                  <span className="text-sm font-medium text-gray-900 truncate">
+                                    {p.name}
+                                  </span>
+                                </div>
+                                <span className="text-sm font-bold text-red-600 shrink-0">
+                                  {Number(p.fpp_points)} FPP
+                                </span>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })
+              )}
+            </div>
+          )}
+
+          {tab === 'standings' && (
+            <div className="card overflow-hidden">
+              <div className="p-4 border-b border-gray-100">
+                <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+                  <Trophy className="w-5 h-5 text-amber-500" />
+                  Classificação geral
+                </h3>
+                <p className="text-xs text-gray-500 mt-1">
+                  Vitória 3 pts · Derrota 1 pt · Desempate H2H
+                </p>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 text-left text-xs text-gray-500">
+                    <tr>
+                      <th className="px-3 py-2">#</th>
+                      <th className="px-3 py-2">Clube</th>
+                      <th className="px-3 py-2 text-center">J</th>
+                      <th className="px-3 py-2 text-center">V</th>
+                      <th className="px-3 py-2 text-center">D</th>
+                      <th className="px-3 py-2 text-center">Sets</th>
+                      <th className="px-3 py-2 text-center">Pts</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rankedStandings.map((row) => (
+                      <tr key={row.id} className="border-t border-gray-100">
+                        <td className="px-3 py-2.5 font-semibold text-gray-500">
+                          {row.position ?? '—'}
+                        </td>
+                        <td className="px-3 py-2.5 font-medium text-gray-900">
+                          {teamById.get(row.team_id)?.name || '—'}
+                        </td>
+                        <td className="px-3 py-2.5 text-center">{row.played}</td>
+                        <td className="px-3 py-2.5 text-center">{row.won}</td>
+                        <td className="px-3 py-2.5 text-center">{row.lost}</td>
+                        <td className="px-3 py-2.5 text-center">
+                          {row.sets_won}-{row.sets_lost}
+                        </td>
+                        <td className="px-3 py-2.5 text-center font-bold text-red-600">
+                          {row.points}
+                        </td>
+                      </tr>
+                    ))}
+                    {rankedStandings.length === 0 && (
+                      <tr>
+                        <td colSpan={7} className="px-3 py-8 text-center text-gray-500">
+                          Sem classificação ainda.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {tab === 'calendar' && (
+            <div className="space-y-4">
+              {(bundle?.matchdays || []).length === 0 ? (
+                <div className="card p-6 text-center text-gray-500 text-sm">
+                  Calendário ainda não gerado.
+                </div>
+              ) : (
+                (bundle?.matchdays || []).map((md) => {
+                  const list = confrontationsByMatchday.get(md.id) || []
+                  return (
+                    <div key={md.id} className="card p-4 space-y-3">
+                      <div>
+                        <h3 className="font-semibold text-gray-900">
+                          {md.label || `Jornada ${md.matchday_number}`}
+                        </h3>
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          {md.matchday_date
+                            ? new Date(md.matchday_date + 'T12:00:00').toLocaleDateString('pt-PT', {
+                                weekday: 'short',
+                                day: '2-digit',
+                                month: 'short',
+                              })
+                            : 'Data a definir'}
+                          {' · '}
+                          {md.leg === 'away' ? 'Volta' : 'Ida'}
+                        </p>
+                      </div>
+                      <div className="space-y-2">
+                        {list.length === 0 ? (
+                          <p className="text-xs text-gray-500">Sem confrontos nesta jornada.</p>
+                        ) : (
+                          list.map((c) => renderConfrontationDetail(c))
+                        )}
+                      </div>
+                    </div>
+                  )
+                })
+              )}
+            </div>
+          )}
+
+          {tab === 'history' && (
+            <div className="space-y-4">
+              {completedMatchdays.length === 0 ? (
+                <div className="card p-6 text-center text-gray-500 text-sm">
+                  Ainda sem jornadas concluídas.
+                </div>
+              ) : (
+                completedMatchdays.map((md) => {
+                  const list = (confrontationsByMatchday.get(md.id) || []).filter(
+                    (c) => c.status === 'completed'
+                  )
+                  return (
+                    <div key={md.id} className="card p-4 space-y-3">
+                      <div>
+                        <h3 className="font-semibold text-gray-900">
+                          {md.label || `Jornada ${md.matchday_number}`}
+                        </h3>
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          Resultados · {list.length} confronto{list.length === 1 ? '' : 's'}
+                        </p>
+                      </div>
+                      <div className="space-y-2">{list.map((c) => renderConfrontationDetail(c))}</div>
+                    </div>
+                  )
+                })
+              )}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}

@@ -33,6 +33,7 @@ import { getCachedPlayerData } from '../../lib/playerDataCache'
 import { isLikelyTeamLabel } from '../../lib/matchPlayerNames'
 import { normalizePhone } from '../../lib/phoneUtils'
 import PlayerLadderTournamentPanel from '../PlayerLadderTournamentPanel'
+import ClubLeagueScreen from './ClubLeagueScreen'
 import {
   formatDate,
   formatDateTime,
@@ -635,6 +636,7 @@ export default function CompeteScreen({
       'individual_groups_knockout': t.common.tournamentFormatIndividualGroupsKnockout,
       'ladder': t.common.tournamentFormatLadder,
       'super_teams': 'Super Equipas', // TODO: traduzir
+      'club_league': 'Liga de Clubes',
     }
     return formatMap[format] || format
   }
@@ -765,6 +767,23 @@ export default function CompeteScreen({
     const td = selectedTournamentDetail
     const enrolledIds = new Set((d?.upcomingTournaments ?? []).map((t) => t.id))
     const isEnrolled = td ? enrolledIds.has(td.id) : false
+
+    if (!selectedTournamentLoading && td?.format === 'club_league') {
+      return (
+        <>
+          <ClubLeagueScreen
+            tournamentId={td.id}
+            tournamentName={td.name}
+            categories={td.categories || []}
+            onBack={() => {
+              setSelectedTournamentDetail(null)
+              setSelectedTournamentLoading(false)
+            }}
+          />
+          {playerPreviewModal}
+        </>
+      )
+    }
 
     return (
       <>
@@ -1484,7 +1503,7 @@ export default function CompeteScreen({
                       {count > 0 && (
                         <p className="text-sm text-gray-500 flex items-center gap-1">
                           <Users className="w-4 h-4" />
-                          {count} inscritos
+                          {count} {t.format === 'club_league' ? 'clubes' : 'inscritos'}
                         </p>
                       )}
                       {t.host_clubs_label && (
@@ -1522,7 +1541,7 @@ export default function CompeteScreen({
                         {count > 0 && (
                           <p className="text-xs text-white/80 flex items-center gap-1">
                             <Users className="w-3 h-3" />
-                            {count} inscritos
+                            {count} {t.format === 'club_league' ? 'clubes' : 'inscritos'}
                           </p>
                         )}
                       </div>

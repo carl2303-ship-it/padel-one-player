@@ -516,12 +516,44 @@ export async function fetchTournamentFullDetail(tournamentId: string, playerAcco
     .order('name')
 
   // 4) Inscritos por categoria (reutiliza a função existente)
-  const enrolled = await fetchEnrolledByCategory(tournamentId)
+  let enrolled = await fetchEnrolledByCategory(tournamentId)
 
   // Contar total de inscritos e verificar se está cheio
   let total_enrolled = 0
-  for (const cat of enrolled) {
-    total_enrolled += cat.items.length
+  if (t.format === 'club_league') {
+    const { data: clTeams } = await supabase
+      .from('club_league_teams')
+      .select('id, name, category_id, club_league_players!club_league_players_team_id_fkey(id, name)')
+      .eq('tournament_id', tournamentId)
+      .order('registration_order')
+    total_enrolled = (clTeams || []).length
+    const byCat = new Map<string, EnrolledByCategory>()
+    for (const cat of categories || []) {
+      byCat.set(cat.id, { category_id: cat.id, category_name: cat.name, items: [] })
+    }
+    const fallback: EnrolledByCategory = {
+      category_id: 'all',
+      category_name: 'Clubes',
+      items: [],
+    }
+    for (const team of clTeams || []) {
+      const players = ((team as any).club_league_players || []).map((p: any) => ({
+        id: p.id,
+        name: p.name,
+      }))
+      const item = {
+        id: team.id,
+        name: team.name,
+        players,
+      }
+      const bucket = (team.category_id && byCat.get(team.category_id)) || fallback
+      bucket.items.push(item)
+    }
+    enrolled = byCat.size > 0 ? Array.from(byCat.values()) : [fallback]
+  } else {
+    for (const cat of enrolled) {
+      total_enrolled += cat.items.length
+    }
   }
   const totalMax = (categories || []).reduce((sum, c) => c.max_teams ? sum + c.max_teams : sum, 0)
   const is_full = totalMax > 0 && total_enrolled >= totalMax
@@ -600,25 +632,36 @@ export async function fetchUpcomingTournaments(
   return enrichTournamentsWithHostClubLabels(allTournaments as Record<string, unknown>[])
 }
 
-/** Busca contagem de inscritos para uma lista de torneios (teams + players). */
+/** Busca contagem de inscritos para uma lista de torneios (teams + players + club league). */
 export async function fetchTournamentEnrolledCounts(tournamentIds: string[]): Promise<Map<string, number>> {
   const result = new Map<string, number>()
   if (tournamentIds.length === 0) return result
-  const [teamsRes, playersRes, superTeamsRes, invitesRes] = await Promise.all([
+  const [teamsRes, playersRes, superTeamsRes, invitesRes, clubLeagueRes, formatsRes] = await Promise.all([
     supabase.from('teams').select('tournament_id').in('tournament_id', tournamentIds),
     supabase.from('players').select('tournament_id').in('tournament_id', tournamentIds),
     supabase.from('super_teams').select('tournament_id').in('tournament_id', tournamentIds),
     supabase.from('tournament_invites').select('tournament_id').in('tournament_id', tournamentIds).eq('status', 'accepted'),
+    supabase.from('club_league_teams').select('tournament_id').in('tournament_id', tournamentIds),
+    supabase.from('tournaments').select('id, format').in('id', tournamentIds),
   ])
   const teamsMap = new Map<string, number>()
   const playersMap = new Map<string, number>()
   const superTeamsMap = new Map<string, number>()
   const invitesMap = new Map<string, number>()
+  const clubLeagueMap = new Map<string, number>()
+  const formatById = new Map<string, string>()
   ;(teamsRes.data || []).forEach((t: any) => teamsMap.set(t.tournament_id, (teamsMap.get(t.tournament_id) || 0) + 1))
   ;(playersRes.data || []).forEach((p: any) => playersMap.set(p.tournament_id, (playersMap.get(p.tournament_id) || 0) + 1))
   ;(superTeamsRes.data || []).forEach((s: any) => superTeamsMap.set(s.tournament_id, (superTeamsMap.get(s.tournament_id) || 0) + 1))
   ;(invitesRes.data || []).forEach((i: any) => invitesMap.set(i.tournament_id, (invitesMap.get(i.tournament_id) || 0) + 1))
+  ;(clubLeagueRes.data || []).forEach((c: any) => clubLeagueMap.set(c.tournament_id, (clubLeagueMap.get(c.tournament_id) || 0) + 1))
+  ;(formatsRes.data || []).forEach((t: any) => formatById.set(t.id, t.format))
   tournamentIds.forEach(id => {
+    if (formatById.get(id) === 'club_league') {
+      const n = clubLeagueMap.get(id) || 0
+      if (n > 0) result.set(id, n)
+      return
+    }
     const fromTables = teamsMap.get(id) || playersMap.get(id) || superTeamsMap.get(id) || 0
     const fromInvites = invitesMap.get(id) || 0
     const count = Math.max(fromTables, fromInvites)

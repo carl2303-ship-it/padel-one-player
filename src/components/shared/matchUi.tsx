@@ -15,6 +15,7 @@ export type TournamentForCard = {
   name: string
   start_date: string
   status?: string
+  format?: string
   enrolled_count?: number
 }
 
@@ -542,7 +543,10 @@ export function TournamentCard({
                 {formatDate(tournament.start_date)}
               </span>
               {tournament.enrolled_count !== undefined && (
-                <span className="text-xs text-red-600">{tournament.enrolled_count} inscritos</span>
+                <span className="text-xs text-red-600">
+                  {tournament.enrolled_count}{' '}
+                  {tournament.format === 'club_league' ? 'clubes' : 'inscritos'}
+                </span>
               )}
             </div>
           </div>
