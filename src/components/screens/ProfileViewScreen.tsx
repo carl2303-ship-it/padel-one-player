@@ -12,7 +12,8 @@ import {
 import { getCachedPlayerData } from '../../lib/playerDataCache'
 import { fetchClubById } from '../../lib/clubAndTournaments'
 import { fetchLevelHistory, type LevelHistoryEntry } from '../../lib/levelHistory'
-import { buildTopPartnersFromMatches, isLikelyTeamLabel } from '../../lib/matchPlayerNames'
+import { isLikelyTeamLabel } from '../../lib/matchPlayerNames'
+import { fetchTopPartnersForAccount, type TopPartner } from '../../lib/topPartners'
 import { GameCardPlaytomic, shortPlayerLabel } from '../shared/matchUi'
 
 export default function ProfileViewScreen({
@@ -49,8 +50,19 @@ export default function ProfileViewScreen({
   const recentMatches = (d?.recentMatches ?? []).slice(0, 5)
   const upcomingMatches = (d?.upcomingMatches ?? []).slice(0, 5)
 
-  const handlePlayerClick = async (playerName: string) => {
+  const handlePlayerClick = async (playerName: string, accountId?: string | null) => {
     if (!playerName || isLikelyTeamLabel(playerName)) return
+    if (accountId) {
+      const { data: acc } = await supabase
+        .from('player_accounts')
+        .select('id, user_id, name')
+        .eq('id', accountId)
+        .maybeSingle()
+      if (acc?.user_id) {
+        onOpenPlayerProfile(acc.user_id, { accountId: acc.id, nameHint: acc.name || playerName })
+        return
+      }
+    }
     const { findPlayerAccountByName } = await import('../../lib/classes')
     const acc = await findPlayerAccountByName(playerName)
     if (acc?.user_id) {
@@ -58,15 +70,30 @@ export default function ProfileViewScreen({
     }
   }
 
-  // Jogadores com quem mais joga (parceiros da mesma equipa, dedupe + sem o próprio)
-  const allRecentMatches = d?.recentMatches ?? []
-  const topPlayers = buildTopPartnersFromMatches(allRecentMatches, player?.name, 10)
-  
-  // Avatares dos top players (do cache global — sem queries adicionais)
+  // Jogadores com quem mais joga — por ID de conta (não só nomes dos 5/50 recentes)
+  const [topPlayers, setTopPlayers] = useState<TopPartner[]>([])
+  useEffect(() => {
+    if (!player?.id) {
+      setTopPlayers([])
+      return
+    }
+    let active = true
+    fetchTopPartnersForAccount(player.id, player.name, 10).then((list) => {
+      if (active) setTopPlayers(list)
+    })
+    return () => {
+      active = false
+    }
+  }, [player?.id, player?.name, d?.recentMatches?.length])
+
+  // Avatares: preferir os que vieram do fetch; fallback ao cache global
   const topPlayersAvatars: Record<string, string | null> = {}
-  topPlayers.forEach(({ name }) => {
-    const cached = getCachedPlayerData(name)
-    if (cached?.avatar_url) topPlayersAvatars[name] = cached.avatar_url
+  topPlayers.forEach(({ name, avatar_url }) => {
+    if (avatar_url) topPlayersAvatars[name] = avatar_url
+    else {
+      const cached = getCachedPlayerData(name)
+      if (cached?.avatar_url) topPlayersAvatars[name] = cached.avatar_url
+    }
   })
 
   // Clubes onde joga (favorito + dos torneios)
@@ -518,13 +545,13 @@ export default function ProfileViewScreen({
         {topPlayers.length > 0 ? (
           <div className="overflow-x-auto pb-2 -mx-4 px-4 sm:mx-0 sm:px-0 snap-x snap-mandatory scroll-smooth">
             <div className="flex gap-3" style={{ width: 'max-content' }}>
-              {topPlayers.map(({ name, count }) => {
+              {topPlayers.map(({ name, count, accountId }) => {
                 const display = shortPlayerLabel(name)
                 return (
                 <div 
-                  key={name} 
+                  key={accountId || name} 
                   className="snap-center flex-shrink-0 w-[100px] card p-3 text-center cursor-pointer hover:shadow-md transition-shadow"
-                  onClick={() => handlePlayerClick(name)}
+                  onClick={() => handlePlayerClick(name, accountId)}
                 >
                   <div className="w-12 h-12 rounded-full bg-gray-900 flex items-center justify-center mx-auto mb-2 overflow-hidden">
                     {topPlayersAvatars[name] ? (
