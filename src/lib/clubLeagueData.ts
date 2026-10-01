@@ -129,7 +129,7 @@ export async function fetchClubLeagueBundle(
 ): Promise<ClubLeagueBundle> {
   let teamsQ = supabase
     .from('club_league_teams')
-    .select('*, club_league_players!club_league_players_team_id_fkey(*)')
+    .select('*')
     .eq('tournament_id', tournamentId)
     .order('registration_order')
   if (categoryId) teamsQ = teamsQ.eq('category_id', categoryId)
@@ -162,10 +162,28 @@ export async function fetchClubLeagueBundle(
   if (stRes.error) throw stRes.error
 
   const teams = (teamsRes.data || []) as ClubLeagueTeamRow[]
-  for (const team of teams) {
-    team.club_league_players = [...(team.club_league_players || [])].sort(
-      (a, b) => a.player_order - b.player_order
-    )
+  const teamIds = teams.map((t) => t.id)
+
+  // Carregar plantel à parte (evita ambiguidade do FK captain_player_id no embed)
+  if (teamIds.length > 0) {
+    const { data: playersData, error: playersError } = await supabase
+      .from('club_league_players')
+      .select('*')
+      .in('team_id', teamIds)
+      .order('player_order')
+    if (playersError) throw playersError
+    const byTeam = new Map<string, ClubLeaguePlayerRow[]>()
+    for (const p of (playersData || []) as ClubLeaguePlayerRow[]) {
+      if (!byTeam.has(p.team_id)) byTeam.set(p.team_id, [])
+      byTeam.get(p.team_id)!.push(p)
+    }
+    for (const team of teams) {
+      team.club_league_players = byTeam.get(team.id) || []
+    }
+  } else {
+    for (const team of teams) {
+      team.club_league_players = []
+    }
   }
 
   const confrontations = (confRes.data || []) as ClubLeagueConfrontationRow[]

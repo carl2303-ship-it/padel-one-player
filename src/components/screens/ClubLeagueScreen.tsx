@@ -21,6 +21,7 @@ import {
   type ClubLeagueTeamRow,
 } from '../../lib/clubLeagueData'
 import ClubLeagueLineupModal, {
+  isLineupLocked,
   isLineupPublic,
   lineupLockAt,
 } from '../ClubLeagueLineupModal'
@@ -48,7 +49,7 @@ export default function ClubLeagueScreen({
   playerAccountId = null,
   onBack,
 }: Props) {
-  const [tab, setTab] = useState<Tab>('teams')
+  const [tab, setTab] = useState<Tab>('calendar')
   const [calendarMode, setCalendarMode] = useState<CalendarMode>('teams')
   const [calendarTeamId, setCalendarTeamId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -93,10 +94,17 @@ export default function ClubLeagueScreen({
     const ids = new Set<string>()
     if (!playerAccountId) return ids
     for (const team of bundle?.teams || []) {
-      const isCaptain = (team.club_league_players || []).some(
+      const roster = team.club_league_players || []
+      const me = roster.find((p) => p.player_account_id === playerAccountId)
+      const flaggedCaptain = roster.some(
         (p) => p.is_captain && p.player_account_id === playerAccountId
       )
-      if (isCaptain) ids.add(team.id)
+      const captainByFk =
+        Boolean(team.captain_player_id) &&
+        roster.some(
+          (p) => p.id === team.captain_player_id && p.player_account_id === playerAccountId
+        )
+      if (flaggedCaptain || captainByFk || (me?.is_captain ?? false)) ids.add(team.id)
     }
     return ids
   }, [bundle, playerAccountId])
@@ -190,6 +198,42 @@ export default function ClubLeagueScreen({
     return map
   }, [bundle])
 
+  const nextCaptainMatch = useMemo(() => {
+    if (!myCaptainTeam || !bundle) return null
+    const now = Date.now()
+    const upcoming = bundle.confrontations
+      .filter(
+        (c) =>
+          (c.home_team_id === myCaptainTeam.id || c.away_team_id === myCaptainTeam.id) &&
+          c.status !== 'completed'
+      )
+      .map((c) => {
+        const md = c.matchday_id ? matchdayById.get(c.matchday_id) : undefined
+        const sortTime = c.scheduled_time
+          ? new Date(c.scheduled_time).getTime()
+          : md?.matchday_date
+            ? new Date(md.matchday_date + 'T12:00:00').getTime()
+            : Number.MAX_SAFE_INTEGER
+        return { c, md, sortTime }
+      })
+      .sort((a, b) => a.sortTime - b.sortTime)
+
+    const next =
+      upcoming.find((x) => !x.c.scheduled_time || x.sortTime >= now - 3 * 60 * 60 * 1000) ||
+      upcoming[0] ||
+      null
+    if (!next) return null
+    const isHome = next.c.home_team_id === myCaptainTeam.id
+    const opponentId = isHome ? next.c.away_team_id : next.c.home_team_id
+    return {
+      ...next,
+      isHome,
+      opponent: opponentId ? teamById.get(opponentId) : null,
+      hasLineup: Boolean(lineupsByConfrontationTeam.get(`${next.c.id}:${myCaptainTeam.id}`)),
+      locked: isLineupLocked(next.c.scheduled_time),
+    }
+  }, [myCaptainTeam, bundle, matchdayById, teamById, lineupsByConfrontationTeam])
+
   const completedMatchdays = useMemo(() => {
     return (bundle?.matchdays || []).filter((md) => {
       const list = confrontationsByMatchday.get(md.id) || []
@@ -262,8 +306,7 @@ export default function ClubLeagueScreen({
     const team = teamById.get(myTeamId)
     if (!team) return null
     const hasLineup = Boolean(lineupsByConfrontationTeam.get(`${c.id}:${myTeamId}`))
-    const publicNow = isLineupPublic(c.scheduled_time)
-    const locked = publicNow
+    const locked = isLineupLocked(c.scheduled_time)
 
     return (
       <button
@@ -272,10 +315,10 @@ export default function ClubLeagueScreen({
           e.stopPropagation()
           setLineupCtx({ confrontation: c, team })
         }}
-        className={`w-full mt-2 px-3 py-2 rounded-xl text-sm font-medium ${
+        className={`w-full mt-2 px-3 py-2.5 rounded-xl text-sm font-semibold ${
           locked
             ? 'bg-gray-100 text-gray-600 border border-gray-200'
-            : 'bg-red-600 text-white'
+            : 'bg-red-600 text-white shadow-sm'
         }`}
       >
         {locked
@@ -283,8 +326,8 @@ export default function ClubLeagueScreen({
             ? 'Ver lineup (bloqueada)'
             : 'Lineup bloqueada (T−30)'
           : hasLineup
-            ? 'Editar / resubmeter lineup'
-            : 'Criar e submeter lineup'}
+            ? 'Editar / resubmeter duplas'
+            : 'Montar duplas (lineup)'}
       </button>
     )
   }
@@ -343,6 +386,9 @@ export default function ClubLeagueScreen({
     const home = c.home_team_id ? teamById.get(c.home_team_id) : null
     const away = c.away_team_id ? teamById.get(c.away_team_id) : null
     const expanded = expandedConfrontationId === c.id
+    const isMyMatch =
+      (c.home_team_id && captainTeamIds.has(c.home_team_id)) ||
+      (c.away_team_id && captainTeamIds.has(c.away_team_id))
 
     return (
       <div key={c.id} className="border border-gray-100 rounded-xl overflow-hidden">
@@ -385,6 +431,9 @@ export default function ClubLeagueScreen({
           </div>
         </button>
 
+        {isMyMatch && !expanded && (
+          <div className="px-3 pb-3">{renderCaptainLineupButton(c)}</div>
+        )}
         {expanded && renderConfrontationGames(c)}
       </div>
     )
@@ -408,11 +457,69 @@ export default function ClubLeagueScreen({
         </p>
         {myCaptainTeam && (
           <p className="text-xs text-red-50 mt-2 bg-white/10 rounded-lg px-3 py-2">
-            És capitão de <strong>{myCaptainTeam.name}</strong>. Submete a lineup no calendário
-            (secreta até 30 min antes do jogo).
+            És capitão de <strong>{myCaptainTeam.name}</strong>. A lineup fica secreta até 30 min
+            antes do jogo.
           </p>
         )}
       </div>
+
+      {!loading && myCaptainTeam && nextCaptainMatch && (
+        <div className="card p-4 border-2 border-red-200 bg-red-50/40 space-y-3">
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-red-600">
+              Próximo jogo · {myCaptainTeam.name}
+            </p>
+            <h2 className="text-base font-bold text-gray-900 mt-1">
+              {nextCaptainMatch.isHome ? 'Casa' : 'Fora'} vs{' '}
+              {nextCaptainMatch.opponent?.name || '?'}
+            </h2>
+            <p className="text-xs text-gray-600 mt-1">
+              {nextCaptainMatch.md?.label ||
+                (nextCaptainMatch.md
+                  ? `Jornada ${nextCaptainMatch.md.matchday_number}`
+                  : 'Jornada')}
+              {' · '}
+              {nextCaptainMatch.c.scheduled_time
+                ? new Date(nextCaptainMatch.c.scheduled_time).toLocaleString('pt-PT', {
+                    weekday: 'short',
+                    day: '2-digit',
+                    month: 'short',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hourCycle: 'h23',
+                  })
+                : 'Hora a definir'}
+              {nextCaptainMatch.c.venue ? ` · ${nextCaptainMatch.c.venue}` : ''}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() =>
+              setLineupCtx({ confrontation: nextCaptainMatch.c, team: myCaptainTeam })
+            }
+            className={`w-full px-4 py-3 rounded-xl text-sm font-bold ${
+              nextCaptainMatch.locked
+                ? 'bg-gray-200 text-gray-600'
+                : 'bg-red-600 text-white shadow'
+            }`}
+          >
+            {nextCaptainMatch.locked
+              ? nextCaptainMatch.hasLineup
+                ? 'Ver lineup (já bloqueada)'
+                : 'Lineup bloqueada (T−30)'
+              : nextCaptainMatch.hasLineup
+                ? 'Editar / resubmeter as minhas duplas'
+                : 'Montar as minhas duplas para este jogo'}
+          </button>
+        </div>
+      )}
+
+      {!loading && Boolean(playerAccountId) && !myCaptainTeam && (bundle?.teams || []).length > 0 && (
+        <div className="bg-amber-50 text-amber-900 text-sm px-3 py-2 rounded-xl">
+          Não foste detetado como capitão neste torneio. Se és capitão, pede ao organizador para
+          ligar a tua conta ao plantel.
+        </div>
+      )}
 
       {categories.length > 1 && (
         <div className="flex flex-wrap gap-2">
@@ -712,6 +819,11 @@ export default function ClubLeagueScreen({
                                     )}
                                   </div>
                                 </button>
+                                {calendarTeamId &&
+                                  captainTeamIds.has(calendarTeamId) &&
+                                  !expanded && (
+                                    <div className="px-3 pb-3">{renderCaptainLineupButton(c)}</div>
+                                  )}
                                 {expanded && renderConfrontationGames(c)}
                               </div>
                             )
