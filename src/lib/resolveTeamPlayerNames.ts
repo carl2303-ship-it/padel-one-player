@@ -4,7 +4,10 @@
  * Nested players joins often fail for cross-tournament team refs — never rely on them alone.
  */
 import { supabase } from './supabase'
-import { isLikelyTeamLabel, parsePersonNamesFromTeamLabel } from './matchPlayerNames'
+import {
+  cleanPlayerDisplayName,
+  parsePersonNamesFromTeamLabel,
+} from './matchPlayerNames'
 
 export type TeamPlayerNames = {
   player1_name?: string
@@ -25,15 +28,7 @@ export type ResolvedPerson = {
 }
 
 function cleanPersonName(name: string | null | undefined, teamName?: string | null): string | undefined {
-  if (!name?.trim()) return undefined
-  let n = name.trim()
-  // Account names sometimes embed club paths: "Carlos/Padel1/BoostPadel" → "Carlos"
-  if ((n.match(/\//g) || []).length >= 2) {
-    const primary = n.split(/\s*\/\s*/)[0]?.trim()
-    if (primary && !isLikelyTeamLabel(primary, teamName)) return primary
-  }
-  if (isLikelyTeamLabel(n, teamName)) return undefined
-  return n
+  return cleanPlayerDisplayName(name, teamName) ?? undefined
 }
 
 /**
@@ -252,8 +247,31 @@ export function preferResolvedMatchNames<T extends {
   player2_avatar?: string | null
   player3_avatar?: string | null
   player4_avatar?: string | null
+  my_side?: 1 | 2
 }>(preferred: T | undefined, fallback: T): T {
   if (!preferred) return fallback
+
+  const prefSide = preferred.my_side
+  const falSide = fallback.my_side
+  const conflictingSides = Boolean(prefSide && falSide && prefSide !== falSide)
+
+  // Conflicting team orientation: keep client names + my_side together (never mix).
+  if (conflictingSides) {
+    return {
+      ...fallback,
+      team1_name: preferred.team1_name ?? fallback.team1_name,
+      team2_name: preferred.team2_name ?? fallback.team2_name,
+      player1_name: preferred.player1_name ?? fallback.player1_name,
+      player2_name: preferred.player2_name ?? fallback.player2_name,
+      player3_name: preferred.player3_name ?? fallback.player3_name,
+      player4_name: preferred.player4_name ?? fallback.player4_name,
+      player1_avatar: preferred.player1_avatar ?? fallback.player1_avatar,
+      player2_avatar: preferred.player2_avatar ?? fallback.player2_avatar,
+      player3_avatar: preferred.player3_avatar ?? fallback.player3_avatar,
+      player4_avatar: preferred.player4_avatar ?? fallback.player4_avatar,
+      my_side: prefSide,
+    }
+  }
 
   const team1 = preferred.team1_name || fallback.team1_name
   const team2 = preferred.team2_name || fallback.team2_name
@@ -288,5 +306,7 @@ export function preferResolvedMatchNames<T extends {
     player2_avatar: pickAvatar(preferred.player2_avatar, fallback.player2_avatar, preferred.player2_name, team1),
     player3_avatar: pickAvatar(preferred.player3_avatar, fallback.player3_avatar, preferred.player3_name, team2),
     player4_avatar: pickAvatar(preferred.player4_avatar, fallback.player4_avatar, preferred.player4_name, team2),
+    // Edge historically omitted my_side — keep the client value whenever present
+    my_side: prefSide || falSide,
   }
 }

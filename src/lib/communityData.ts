@@ -1,7 +1,7 @@
 import { supabase } from './supabase'
 import { sendPushToPlayer } from './pushNotifications'
 import { getTranslations } from './translations'
-import { getPartnerNamesFromMatch, isLikelyTeamLabel } from './matchPlayerNames'
+import { getPartnerNamesFromMatch, isLikelyTeamLabel, cleanPlayerDisplayName, partnerNameKey, namesMatch } from './matchPlayerNames'
 import { resolveTeamPlayerNamesMap, resolveIndividualPlayerNames } from './resolveTeamPlayerNames'
 
 // ============================================
@@ -1031,7 +1031,25 @@ export async function getPlayerProfile(
   const playerIds = allPlayerEntries.map((p) => p.id)
 
   let recentMatches: ProfileMatch[] = []
-  const topPlayersMap = new Map<string, number>()
+  /** key → { name, count } — keyed by account id when known, else normalized name */
+  const topPlayersAgg = new Map<string, { name: string; count: number }>()
+  const selfNameKey = playerName ? partnerNameKey(playerName) : null
+
+  const bumpPartner = (rawName: string | null | undefined, accountId?: string | null) => {
+    if (accountId && accountId === pa.id) return
+    const name = cleanPlayerDisplayName(rawName) || (rawName || '').trim()
+    if (!name || name === '?' || isLikelyTeamLabel(name)) return
+    if (playerName && namesMatch(name, playerName)) return
+    const key = accountId ? `id:${accountId}` : `n:${partnerNameKey(name)}`
+    if (selfNameKey && key === `n:${selfNameKey}`) return
+    const prev = topPlayersAgg.get(key)
+    if (prev) {
+      prev.count += 1
+      if (name.length > prev.name.length) prev.name = name
+    } else {
+      topPlayersAgg.set(key, { name, count: 1 })
+    }
+  }
 
   if (playerIds.length > 0) {
     // 4) Find all teams this player belongs to
@@ -1181,19 +1199,44 @@ export async function getPlayerProfile(
             played_at: m.scheduled_time,
           } as any)
 
-          // Count partners only (same team)
-          getPartnerNamesFromMatch(
-            {
-              team1_name: isPlayerInTeam1 ? team1Name : team2Name,
-              team2_name: isPlayerInTeam1 ? team2Name : team1Name,
-              player1_name: isPlayerInTeam1 ? p1Name : p3Name,
-              player2_name: isPlayerInTeam1 ? p2Name : p4Name,
-              player3_name: isPlayerInTeam1 ? p3Name : p1Name,
-              player4_name: isPlayerInTeam1 ? p4Name : p2Name,
-              my_side: 1,
-            },
-            playerName,
-          ).forEach((n) => topPlayersMap.set(n, (topPlayersMap.get(n) || 0) + 1))
+          // Count true partner by player/account id (avoids name mismatches & self)
+          if (isIndividual) {
+            const slots = [
+              { id: m.p1?.id as string | undefined, name: p1Name, accountId: r1?.account_id },
+              { id: m.p2?.id as string | undefined, name: p2Name, accountId: r2?.account_id },
+              { id: m.p3?.id as string | undefined, name: p3Name, accountId: r3?.account_id },
+              { id: m.p4?.id as string | undefined, name: p4Name, accountId: r4?.account_id },
+            ]
+            const myIdx = slots.findIndex((s) => s.id && playerIdSet.has(s.id))
+            if (myIdx >= 0) {
+              const partnerIdx = myIdx ^ 1
+              const partner = slots[partnerIdx]
+              bumpPartner(partner?.name, partner?.accountId)
+            }
+          } else {
+            const myTeamMeta = isPlayerInTeam1 ? team1Players : team2Players
+            if (myTeamMeta) {
+              const a1 = myTeamMeta.player1_account_id
+              const a2 = myTeamMeta.player2_account_id
+              if (a1 && a1 === pa.id) bumpPartner(myTeamMeta.player2_name, a2)
+              else if (a2 && a2 === pa.id) bumpPartner(myTeamMeta.player1_name, a1)
+              else {
+                // Fallback when account_id missing: use name helper with known side
+                getPartnerNamesFromMatch(
+                  {
+                    team1_name: isPlayerInTeam1 ? team1Name : team2Name,
+                    team2_name: isPlayerInTeam1 ? team2Name : team1Name,
+                    player1_name: isPlayerInTeam1 ? p1Name : p3Name,
+                    player2_name: isPlayerInTeam1 ? p2Name : p4Name,
+                    player3_name: isPlayerInTeam1 ? p3Name : p1Name,
+                    player4_name: isPlayerInTeam1 ? p4Name : p2Name,
+                    my_side: 1,
+                  },
+                  playerName,
+                ).forEach((n) => bumpPartner(n))
+              }
+            }
+          }
         }
       }
     }
@@ -1258,7 +1301,14 @@ export async function getPlayerProfile(
         const p3Name = i3.name
         const p4Name = i4.name
 
-        const isInTeam1 = gamePlayers[0].player_account_id === pa.id || gamePlayers[1].player_account_id === pa.id
+        // Clean club-path names for display bubbles
+        const d1 = cleanPlayerDisplayName(p1Name) || p1Name
+        const d2 = cleanPlayerDisplayName(p2Name) || p2Name
+        const d3 = cleanPlayerDisplayName(p3Name) || p3Name
+        const d4 = cleanPlayerDisplayName(p4Name) || p4Name
+
+        const myIdx = gamePlayers.findIndex((p: any) => p.player_account_id === pa.id)
+        const isInTeam1 = myIdx === 0 || myIdx === 1
 
         const s1 = `${result.team1_score_set1 ?? 0}-${result.team2_score_set1 ?? 0}`
         const s2 = (result.team1_score_set2 > 0 || result.team2_score_set2 > 0)
@@ -1290,12 +1340,12 @@ export async function getPlayerProfile(
           id: result.game_id,
           tournament_id: null as any,
           tournament_name: clubName,
-          team1_name: isInTeam1 ? `${p1Name} / ${p2Name}` : `${p3Name} / ${p4Name}`,
-          team2_name: isInTeam1 ? `${p3Name} / ${p4Name}` : `${p1Name} / ${p2Name}`,
-          player1_name: isInTeam1 ? p1Name : p3Name,
-          player2_name: isInTeam1 ? p2Name : p4Name,
-          player3_name: isInTeam1 ? p3Name : p1Name,
-          player4_name: isInTeam1 ? p4Name : p2Name,
+          team1_name: isInTeam1 ? `${d1} / ${d2}` : `${d3} / ${d4}`,
+          team2_name: isInTeam1 ? `${d3} / ${d4}` : `${d1} / ${d2}`,
+          player1_name: isInTeam1 ? d1 : d3,
+          player2_name: isInTeam1 ? d2 : d4,
+          player3_name: isInTeam1 ? d3 : d1,
+          player4_name: isInTeam1 ? d4 : d2,
           player1_avatar: isInTeam1 ? i1.avatar_url : i3.avatar_url,
           player2_avatar: isInTeam1 ? i2.avatar_url : i4.avatar_url,
           player3_avatar: isInTeam1 ? i3.avatar_url : i1.avatar_url,
@@ -1311,30 +1361,25 @@ export async function getPlayerProfile(
           is_open_game: true,
         } as any)
 
-        getPartnerNamesFromMatch(
-          {
-            team1_name: isInTeam1 ? `${p1Name} / ${p2Name}` : `${p3Name} / ${p4Name}`,
-            team2_name: isInTeam1 ? `${p3Name} / ${p4Name}` : `${p1Name} / ${p2Name}`,
-            player1_name: isInTeam1 ? p1Name : p3Name,
-            player2_name: isInTeam1 ? p2Name : p4Name,
-            player3_name: isInTeam1 ? p3Name : p1Name,
-            player4_name: isInTeam1 ? p4Name : p2Name,
-            my_side: 1,
-          },
-          playerName,
-        ).forEach((n) => topPlayersMap.set(n, (topPlayersMap.get(n) || 0) + 1))
+        // Partner by seat: positions 1-2 and 3-4 are pairs
+        if (myIdx >= 0) {
+          const partnerIdx = myIdx ^ 1
+          const partnerPaId = gamePlayers[partnerIdx]?.player_account_id as string | undefined
+          const partnerInfo = partnerPaId ? ogAccountMap.get(partnerPaId) : null
+          bumpPartner(partnerInfo?.name || null, partnerPaId)
+        }
       }
 
       recentMatches.sort((a, b) => new Date(b.played_at || 0).getTime() - new Date(a.played_at || 0).getTime())
     }
   }
 
-  // Build topPlayers — only real person names
-  const topPlayers: TopPlayer[] = Array.from(topPlayersMap.entries())
-    .filter(([name]) => name && !isLikelyTeamLabel(name) && name !== '?')
-    .sort((a, b) => b[1] - a[1])
+  // Build topPlayers — only real person names, deduped
+  const topPlayers: TopPlayer[] = Array.from(topPlayersAgg.values())
+    .filter((p) => p.name && !isLikelyTeamLabel(p.name) && p.name !== '?')
+    .filter((p) => !(playerName && namesMatch(p.name, playerName)))
+    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
     .slice(0, 10)
-    .map(([name, count]) => ({ name, count }))
 
   // Fetch favorite club
   let favoriteClub: FavoriteClub | null = null

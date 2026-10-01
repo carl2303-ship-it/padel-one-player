@@ -12,7 +12,7 @@ import {
 import { getCachedPlayerData } from '../../lib/playerDataCache'
 import { fetchClubById } from '../../lib/clubAndTournaments'
 import { fetchLevelHistory, type LevelHistoryEntry } from '../../lib/levelHistory'
-import { getPartnerNamesFromMatch, isLikelyTeamLabel } from '../../lib/matchPlayerNames'
+import { buildTopPartnersFromMatches, isLikelyTeamLabel } from '../../lib/matchPlayerNames'
 import { GameCardPlaytomic, shortPlayerLabel } from '../shared/matchUi'
 
 export default function ProfileViewScreen({
@@ -58,19 +58,9 @@ export default function ProfileViewScreen({
     }
   }
 
-  // Jogadores com quem mais joga (extrair de todos os jogos recentes)
+  // Jogadores com quem mais joga (parceiros da mesma equipa, dedupe + sem o próprio)
   const allRecentMatches = d?.recentMatches ?? []
-  const playerCountMap = new Map<string, number>()
-  allRecentMatches.forEach((match) => {
-    getPartnerNamesFromMatch(match, player?.name).forEach((name) => {
-      if (isLikelyTeamLabel(name)) return
-      playerCountMap.set(name, (playerCountMap.get(name) || 0) + 1)
-    })
-  })
-  const topPlayers = Array.from(playerCountMap.entries())
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 10)
-    .map(([name, count]) => ({ name, count }))
+  const topPlayers = buildTopPartnersFromMatches(allRecentMatches, player?.name, 10)
   
   // Avatares dos top players (do cache global — sem queries adicionais)
   const topPlayersAvatars: Record<string, string | null> = {}

@@ -6,6 +6,7 @@ import { supabase } from './supabase'
 import { normalizePhone } from './phoneUtils'
 import { notifyOpenGamePlayers, notifyGameCreator, sendPushToPlayer } from './pushNotifications'
 import { getTranslations } from './translations'
+import { cleanPlayerDisplayName } from './matchPlayerNames'
 import { calculateNewRatings, calculateReliability, calculateProtectedReliability } from './ratingEngine'
 import { reverseRatingForSource } from './levelHistory'
 
@@ -3678,10 +3679,10 @@ export async function fetchConfirmedOpenGameResults(
     const p3 = getPlayerInfo(2)
     const p4 = getPlayerInfo(3)
     
-    const p1Name = p1.name
-    const p2Name = p2.name
-    const p3Name = p3.name
-    const p4Name = p4.name
+    const p1Name = cleanPlayerDisplayName(p1.name) || p1.name
+    const p2Name = cleanPlayerDisplayName(p2.name) || p2.name
+    const p3Name = cleanPlayerDisplayName(p3.name) || p3.name
+    const p4Name = cleanPlayerDisplayName(p4.name) || p4.name
 
     const s1 = `${result.team1_score_set1 || 0}-${result.team2_score_set1 || 0}`
     const s2 = (result.team1_score_set2 > 0 || result.team2_score_set2 > 0) ? `${result.team1_score_set2}-${result.team2_score_set2}` : undefined
