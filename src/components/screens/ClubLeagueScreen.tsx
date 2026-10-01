@@ -21,6 +21,7 @@ import {
 } from '../../lib/clubLeagueData'
 
 type Tab = 'teams' | 'standings' | 'calendar' | 'history'
+type CalendarMode = 'matchdays' | 'teams'
 
 type Props = {
   tournamentId: string
@@ -41,6 +42,8 @@ export default function ClubLeagueScreen({
   onBack,
 }: Props) {
   const [tab, setTab] = useState<Tab>('teams')
+  const [calendarMode, setCalendarMode] = useState<CalendarMode>('teams')
+  const [calendarTeamId, setCalendarTeamId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [bundle, setBundle] = useState<ClubLeagueBundle | null>(null)
@@ -94,6 +97,44 @@ export default function ClubLeagueScreen({
     return map
   }, [bundle])
 
+  const matchdayById = useMemo(() => {
+    const m = new Map<string, NonNullable<typeof bundle>['matchdays'][number]>()
+    ;(bundle?.matchdays || []).forEach((md) => m.set(md.id, md))
+    return m
+  }, [bundle])
+
+  useEffect(() => {
+    const teams = bundle?.teams || []
+    if (teams.length === 0) {
+      setCalendarTeamId(null)
+      return
+    }
+    if (!calendarTeamId || !teams.some((t) => t.id === calendarTeamId)) {
+      setCalendarTeamId(teams[0].id)
+    }
+  }, [bundle, calendarTeamId])
+
+  const teamCalendar = useMemo(() => {
+    if (!calendarTeamId || !bundle) return []
+    return bundle.confrontations
+      .filter((c) => c.home_team_id === calendarTeamId || c.away_team_id === calendarTeamId)
+      .map((c) => {
+        const md = c.matchday_id ? matchdayById.get(c.matchday_id) : undefined
+        const isHome = c.home_team_id === calendarTeamId
+        const opponentId = isHome ? c.away_team_id : c.home_team_id
+        const sortTime = c.scheduled_time
+          ? new Date(c.scheduled_time).getTime()
+          : md?.matchday_date
+            ? new Date(md.matchday_date + 'T12:00:00').getTime()
+            : (md?.matchday_number || 0) * 1e12
+        return { c, md, isHome, opponentId, sortTime }
+      })
+      .sort((a, b) => {
+        if (a.sortTime !== b.sortTime) return a.sortTime - b.sortTime
+        return (a.md?.matchday_number || 0) - (b.md?.matchday_number || 0)
+      })
+  }, [bundle, calendarTeamId, matchdayById])
+
   const gamesByConfrontation = useMemo(() => {
     const map = new Map<string, NonNullable<typeof bundle>['games']>()
     for (const g of bundle?.games || []) {
@@ -126,9 +167,7 @@ export default function ClubLeagueScreen({
     { id: 'history', label: 'Histórico', icon: History },
   ]
 
-  const renderConfrontationDetail = (c: ClubLeagueConfrontationRow) => {
-    const home = c.home_team_id ? teamById.get(c.home_team_id) : null
-    const away = c.away_team_id ? teamById.get(c.away_team_id) : null
+  const renderConfrontationGames = (c: ClubLeagueConfrontationRow) => {
     const homeLineup = c.home_team_id
       ? lineupsByConfrontationTeam.get(`${c.id}:${c.home_team_id}`)
       : undefined
@@ -136,6 +175,43 @@ export default function ClubLeagueScreen({
       ? lineupsByConfrontationTeam.get(`${c.id}:${c.away_team_id}`)
       : undefined
     const games = gamesByConfrontation.get(c.id) || []
+
+    return (
+      <div className="border-t border-gray-100 bg-gray-50 p-3 space-y-2">
+        {games.length === 0 ? (
+          <p className="text-xs text-gray-500 text-center py-2">Sem resultados de duplas ainda.</p>
+        ) : (
+          games.map((g) => {
+            const which = g.game_type === 'duo2' ? 2 : g.game_type === 'duo3' ? 3 : 1
+            return (
+              <div key={g.id} className="bg-white rounded-lg p-3 border border-gray-100">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 space-y-1">
+                    <p className="text-[11px] font-semibold text-red-600 uppercase tracking-wide">
+                      Dupla {which}
+                    </p>
+                    <p className="text-xs text-gray-800">
+                      <span className="text-gray-500">Casa:</span>{' '}
+                      {duoLabel(homeLineup, names, which as 1 | 2 | 3)}
+                    </p>
+                    <p className="text-xs text-gray-800">
+                      <span className="text-gray-500">Fora:</span>{' '}
+                      {duoLabel(awayLineup, names, which as 1 | 2 | 3)}
+                    </p>
+                  </div>
+                  <p className="text-sm font-bold text-gray-900 shrink-0">{formatDuoScore(g)}</p>
+                </div>
+              </div>
+            )
+          })
+        )}
+      </div>
+    )
+  }
+
+  const renderConfrontationDetail = (c: ClubLeagueConfrontationRow) => {
+    const home = c.home_team_id ? teamById.get(c.home_team_id) : null
+    const away = c.away_team_id ? teamById.get(c.away_team_id) : null
     const expanded = expandedConfrontationId === c.id
 
     return (
@@ -179,37 +255,7 @@ export default function ClubLeagueScreen({
           </div>
         </button>
 
-        {expanded && (
-          <div className="border-t border-gray-100 bg-gray-50 p-3 space-y-2">
-            {games.length === 0 ? (
-              <p className="text-xs text-gray-500 text-center py-2">Sem resultados de duplas ainda.</p>
-            ) : (
-              games.map((g) => {
-                const which = g.game_type === 'duo2' ? 2 : g.game_type === 'duo3' ? 3 : 1
-                return (
-                  <div key={g.id} className="bg-white rounded-lg p-3 border border-gray-100">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0 space-y-1">
-                        <p className="text-[11px] font-semibold text-red-600 uppercase tracking-wide">
-                          Dupla {which}
-                        </p>
-                        <p className="text-xs text-gray-800">
-                          <span className="text-gray-500">Casa:</span>{' '}
-                          {duoLabel(homeLineup, names, which as 1 | 2 | 3)}
-                        </p>
-                        <p className="text-xs text-gray-800">
-                          <span className="text-gray-500">Fora:</span>{' '}
-                          {duoLabel(awayLineup, names, which as 1 | 2 | 3)}
-                        </p>
-                      </div>
-                      <p className="text-sm font-bold text-gray-900 shrink-0">{formatDuoScore(g)}</p>
-                    </div>
-                  </div>
-                )
-              })
-            )}
-          </div>
-        )}
+        {expanded && renderConfrontationGames(c)}
       </div>
     )
   }
@@ -406,36 +452,173 @@ export default function ClubLeagueScreen({
                   Calendário ainda não gerado.
                 </div>
               ) : (
-                (bundle?.matchdays || []).map((md) => {
-                  const list = confrontationsByMatchday.get(md.id) || []
-                  return (
-                    <div key={md.id} className="card p-4 space-y-3">
+                <>
+                  <div className="card p-3 space-y-3">
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setCalendarMode('teams')}
+                        className={`flex-1 px-3 py-2 text-sm rounded-xl font-medium ${
+                          calendarMode === 'teams'
+                            ? 'bg-red-600 text-white'
+                            : 'bg-gray-50 text-gray-700 border border-gray-200'
+                        }`}
+                      >
+                        Por equipa
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCalendarMode('matchdays')}
+                        className={`flex-1 px-3 py-2 text-sm rounded-xl font-medium ${
+                          calendarMode === 'matchdays'
+                            ? 'bg-red-600 text-white'
+                            : 'bg-gray-50 text-gray-700 border border-gray-200'
+                        }`}
+                      >
+                        Por jornadas
+                      </button>
+                    </div>
+
+                    {calendarMode === 'teams' && (
+                      <div className="flex flex-wrap gap-2">
+                        {(bundle?.teams || []).map((t) => (
+                          <button
+                            key={t.id}
+                            type="button"
+                            onClick={() => setCalendarTeamId(t.id)}
+                            className={`px-3 py-1.5 text-xs rounded-full font-medium ${
+                              calendarTeamId === t.id
+                                ? 'bg-red-100 text-red-800 border border-red-300'
+                                : 'bg-white text-gray-700 border border-gray-200'
+                            }`}
+                          >
+                            {t.name}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {calendarMode === 'teams' ? (
+                    <div className="card p-4 space-y-3">
                       <div>
                         <h3 className="font-semibold text-gray-900">
-                          {md.label || `Jornada ${md.matchday_number}`}
+                          {calendarTeamId ? teamById.get(calendarTeamId)?.name : 'Equipa'}
                         </h3>
                         <p className="text-xs text-gray-500 mt-0.5">
-                          {md.matchday_date
-                            ? new Date(md.matchday_date + 'T12:00:00').toLocaleDateString('pt-PT', {
-                                weekday: 'short',
-                                day: '2-digit',
-                                month: 'short',
-                              })
-                            : 'Data a definir'}
-                          {' · '}
-                          {md.leg === 'away' ? 'Volta' : 'Ida'}
+                          {teamCalendar.length} jogo{teamCalendar.length === 1 ? '' : 's'} · casa e fora
                         </p>
                       </div>
-                      <div className="space-y-2">
-                        {list.length === 0 ? (
-                          <p className="text-xs text-gray-500">Sem confrontos nesta jornada.</p>
-                        ) : (
-                          list.map((c) => renderConfrontationDetail(c))
-                        )}
-                      </div>
+                      {teamCalendar.length === 0 ? (
+                        <p className="text-sm text-gray-500">Sem jogos para esta equipa.</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {teamCalendar.map(({ c, md, isHome, opponentId }) => {
+                            const opponent = opponentId ? teamById.get(opponentId) : null
+                            const expanded = expandedConfrontationId === c.id
+                            return (
+                              <div
+                                key={c.id}
+                                className="border border-gray-100 rounded-xl overflow-hidden"
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setExpandedConfrontationId(expanded ? null : c.id)
+                                  }
+                                  className="w-full p-3 flex items-center justify-between gap-2 text-left hover:bg-gray-50"
+                                >
+                                  <div className="min-w-0">
+                                    <div className="flex flex-wrap items-center gap-2 mb-1">
+                                      <span
+                                        className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${
+                                          isHome
+                                            ? 'bg-emerald-100 text-emerald-800'
+                                            : 'bg-sky-100 text-sky-800'
+                                        }`}
+                                      >
+                                        {isHome ? 'Casa' : 'Fora'}
+                                      </span>
+                                      <span className="text-xs text-gray-500">
+                                        {md?.label ||
+                                          (md ? `Jornada ${md.matchday_number}` : 'Jornada')}
+                                      </span>
+                                    </div>
+                                    <p className="font-semibold text-gray-900 text-sm truncate">
+                                      vs {opponent?.name || '?'}
+                                    </p>
+                                    <p className="text-xs text-gray-500 mt-0.5">
+                                      {c.scheduled_time
+                                        ? new Date(c.scheduled_time).toLocaleString('pt-PT', {
+                                            day: '2-digit',
+                                            month: 'short',
+                                            hour: '2-digit',
+                                            minute: '2-digit',
+                                          })
+                                        : 'Sem hora'}
+                                      {c.venue ? ` · ${c.venue}` : ''}
+                                    </p>
+                                  </div>
+                                  <div className="flex items-center gap-2 shrink-0">
+                                    <span
+                                      className={`px-2 py-1 rounded-lg text-xs font-bold ${
+                                        c.status === 'completed'
+                                          ? 'bg-green-100 text-green-700'
+                                          : 'bg-gray-100 text-gray-600'
+                                      }`}
+                                    >
+                                      {confrontationScore(c)}
+                                    </span>
+                                    {expanded ? (
+                                      <ChevronDown className="w-4 h-4 text-gray-400" />
+                                    ) : (
+                                      <ChevronRight className="w-4 h-4 text-gray-400" />
+                                    )}
+                                  </div>
+                                </button>
+                                {expanded && renderConfrontationGames(c)}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
                     </div>
-                  )
-                })
+                  ) : (
+                    (bundle?.matchdays || []).map((md) => {
+                      const list = confrontationsByMatchday.get(md.id) || []
+                      return (
+                        <div key={md.id} className="card p-4 space-y-3">
+                          <div>
+                            <h3 className="font-semibold text-gray-900">
+                              {md.label || `Jornada ${md.matchday_number}`}
+                            </h3>
+                            <p className="text-xs text-gray-500 mt-0.5">
+                              {md.matchday_date
+                                ? new Date(md.matchday_date + 'T12:00:00').toLocaleDateString(
+                                    'pt-PT',
+                                    {
+                                      weekday: 'short',
+                                      day: '2-digit',
+                                      month: 'short',
+                                    }
+                                  )
+                                : 'Data a definir'}
+                              {' · '}
+                              {md.leg === 'away' ? 'Volta' : 'Ida'}
+                            </p>
+                          </div>
+                          <div className="space-y-2">
+                            {list.length === 0 ? (
+                              <p className="text-xs text-gray-500">Sem confrontos nesta jornada.</p>
+                            ) : (
+                              list.map((c) => renderConfrontationDetail(c))
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })
+                  )}
+                </>
               )}
             </div>
           )}
