@@ -9,6 +9,7 @@ import {
   preferResolvedMatchNames,
 } from './resolveTeamPlayerNames'
 import { resolvePlayerAccountForUser } from './resolvePlayerAccount'
+import { normalizePhoneKey } from './phoneUtils'
 
 /** Evita 2 cargas cargas simultâneas do mesmo dashboard (ex.: React Strict Mode). */
 const dashboardInflight = new Map<string, Promise<PlayerDashboardData>>()
@@ -19,7 +20,71 @@ export interface TournamentSummary {
   start_date: string
   end_date: string
   status: string
+  format?: string
   enrolled_count?: number
+}
+
+/** Liga de Clubes: plantel em club_league_players (nao em players/teams). */
+async function fetchClubLeagueTournamentsForPlayer(
+  playerAccountId: string | null | undefined,
+  phone: string | null | undefined
+): Promise<TournamentSummary[]> {
+  const queries: Promise<{ data: { team_id: string }[] | null }>[] = []
+  if (playerAccountId) {
+    queries.push(
+      supabase.from('club_league_players').select('team_id').eq('player_account_id', playerAccountId) as any
+    )
+  }
+  const phoneKey = normalizePhoneKey(phone)
+  if (phoneKey && phoneKey.length >= 6) {
+    queries.push(
+      supabase.from('club_league_players').select('team_id').ilike('phone_number', `%${phoneKey}`) as any
+    )
+  }
+  if (queries.length === 0) return []
+
+  const results = await Promise.all(queries)
+  const teamIds = [
+    ...new Set(results.flatMap((r) => (r.data || []).map((p) => p.team_id).filter(Boolean))),
+  ]
+  if (teamIds.length === 0) return []
+
+  const { data: teams } = await supabase
+    .from('club_league_teams')
+    .select('tournament_id')
+    .in('id', teamIds)
+  const tournamentIds = [...new Set((teams || []).map((t: any) => t.tournament_id).filter(Boolean))]
+  if (tournamentIds.length === 0) return []
+
+  const { data: tournaments } = await supabase
+    .from('tournaments')
+    .select('id, name, start_date, end_date, status, format')
+    .in('id', tournamentIds)
+  return (tournaments || []) as TournamentSummary[]
+}
+
+function splitUpcomingPast(tournaments: TournamentSummary[]): {
+  upcoming: TournamentSummary[]
+  past: TournamentSummary[]
+} {
+  const now = new Date()
+  const upcoming: TournamentSummary[] = []
+  const past: TournamentSummary[] = []
+  tournaments.forEach((t) => {
+    const isOngoing = t.status === 'in_progress' || t.status === 'active'
+    const isCompleted = t.status === 'completed' || t.status === 'finished'
+    const isCanceled = t.status === 'canceled' || t.status === 'cancelled'
+    if (isCompleted && !isCanceled) past.push(t)
+    else if (isOngoing && !isCanceled) upcoming.push(t)
+    else if (!isCanceled) {
+      const endDate = new Date(t.end_date + 'T23:59:59')
+      if (endDate >= now) upcoming.push(t)
+      else past.push(t)
+    }
+  })
+  upcoming.sort((a, b) => new Date(a.start_date).getTime() - new Date(b.start_date).getTime())
+  past.sort((a, b) => new Date(b.start_date).getTime() - new Date(a.start_date).getTime())
+  return { upcoming, past }
 }
 
 export interface PlayerMatch {
@@ -448,7 +513,14 @@ async function fetchPlayerDashboardDataUncached(
   const tournamentIds = allPlayers.filter((p) => p.tournament_id).map((p) => p.tournament_id!)
 
 
+  const clubLeagueEarly = await fetchClubLeagueTournamentsForPlayer(playerAccount.id, phone)
   if (allPlayers.length === 0) {
+    if (clubLeagueEarly.length > 0) {
+      const split = splitUpcomingPast(clubLeagueEarly)
+      result.upcomingTournaments = split.upcoming
+      result.pastTournaments = split.past
+      result.stats.tournamentsPlayed = split.past.length
+    }
     await fetchLeagueStandingsOnly(playerAccount.id, name || '', result)
     logLoadTime()
     return result
@@ -474,33 +546,17 @@ async function fetchPlayerDashboardDataUncached(
   const individualTournaments = individualTournamentsRes.data || []
   const teamsData = teamsRes.data || []
   const teamTournaments = (teamsData as any[]).map((t: any) => t.tournaments)
-  const allTournamentData = [...individualTournaments, ...teamTournaments]
+  const clubLeagueTournaments = clubLeagueEarly.length > 0
+    ? clubLeagueEarly
+    : await fetchClubLeagueTournamentsForPlayer(playerAccount.id, phone)
+  const allTournamentData = [...individualTournaments, ...teamTournaments, ...clubLeagueTournaments]
   const uniqueTournaments = allTournamentData.reduce((acc: any[], tournament: any) => {
-    if (!acc.find((t) => t.id === tournament.id)) acc.push(tournament)
+    if (tournament?.id && !acc.find((t) => t.id === tournament.id)) acc.push(tournament)
     return acc
   }, [])
 
-  // enrolled_count: omitido no path crítico (era 2 full-table scans). UI só mostra se !== undefined.
-  const now = new Date()
-  const upcoming: TournamentSummary[] = []
-  const past: TournamentSummary[] = []
-
-  uniqueTournaments.forEach((t: any) => {
-    const row = { ...t }
-    const isOngoing = t.status === 'in_progress' || t.status === 'active'
-    const isCompleted = t.status === 'completed' || t.status === 'finished'
-    const isCanceled = t.status === 'canceled' || t.status === 'cancelled'
-    if (isCompleted && !isCanceled) past.push(row)
-    else if (isOngoing && !isCanceled) upcoming.push(row)
-    else if (!isCanceled) {
-      const endDate = new Date(t.end_date + 'T23:59:59')
-      if (endDate >= now) upcoming.push(row)
-      else past.push(row)
-    }
-  })
-
-  upcoming.sort((a, b) => new Date(a.start_date).getTime() - new Date(b.start_date).getTime())
-  past.sort((a, b) => new Date(b.start_date).getTime() - new Date(a.start_date).getTime())
+  // enrolled_count: omitido no path critico. UI so mostra se !== undefined.
+  const { upcoming, past } = splitUpcomingPast(uniqueTournaments)
 
   result.upcomingTournaments = upcoming
   result.pastTournaments = past
