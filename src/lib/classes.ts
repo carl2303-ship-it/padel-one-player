@@ -33,7 +33,7 @@ export async function findPlayerAccountByName(
     ...(trimmed.includes('/') ? [trimmed.split(/\s*\/\s*/)[0].trim()] : []),
   ].filter((c, i, arr) => c && arr.indexOf(c) === i)
 
-  const pick = (rows: { id: string; user_id: string; name: string }[] | null) => {
+  const pick = (rows: { id: string; user_id: string | null; name: string }[] | null) => {
     if (!rows?.length) return null
     // Never return wild-card placeholder accounts for a real name click
     const real = rows.filter((r) => r.user_id && !/^wild\s*card/i.test(r.name || ''))
@@ -44,6 +44,10 @@ export async function findPlayerAccountByName(
     return exact || pool[0]
   }
 
+  /** Exact name exists in DB (even without auth) → never fuzzy to another "Oscar …". */
+  const hasExactNameRow = (rows: { name: string }[] | null | undefined, candidate: string) =>
+    (rows || []).some((r) => (r.name || '').trim().toLowerCase() === candidate.toLowerCase())
+
   for (const candidate of candidates) {
     const { data: exact } = await supabase
       .from('player_accounts')
@@ -52,6 +56,8 @@ export async function findPlayerAccountByName(
       .limit(5)
     const hit = pick(exact)
     if (hit) return hit
+    // Oscar Hall (no user_id) must not fall through to Oscar P. Costa
+    if (hasExactNameRow(exact, candidate)) return null
 
     const { data: ilike } = await supabase
       .from('player_accounts')
@@ -60,6 +66,7 @@ export async function findPlayerAccountByName(
       .limit(5)
     const hit2 = pick(ilike)
     if (hit2) return hit2
+    if (hasExactNameRow(ilike, candidate)) return null
 
     if (candidate.length >= 3) {
       const { data: starts } = await supabase
@@ -75,9 +82,15 @@ export async function findPlayerAccountByName(
         const chosen = pick([primaryHit])
         if (chosen) return chosen
       }
+      // Exact full-name row without auth already handled above — do not pick
+      // a unique "starts with" match of a different person.
       if (starts && starts.length === 1) {
-        const chosen = pick(starts)
-        if (chosen) return chosen
+        const only = starts[0]
+        if ((only.name || '').trim().toLowerCase() === candidate.toLowerCase()) {
+          const chosen = pick(starts)
+          if (chosen) return chosen
+          return null
+        }
       }
     }
   }
@@ -97,26 +110,31 @@ export async function findPlayerAccountByName(
       .filter((r) => r.user_id && !/^wild\s*card/i.test(r.name || ''))
       .map((r) => {
         const n = (r.name || '').trim().toLowerCase()
+        const tokens = n.split(/[^a-z0-9àáâãäåèéêëìíîïòóôõöùúûüñç]+/i).filter(Boolean)
+        const firstOk = tokens.some((t) => t === firstName.toLowerCase())
+        const lastOk = tokens.some((t) => t === lastName.toLowerCase())
         const score =
           (n === primary.toLowerCase() ? 100 : 0) +
-          (n.startsWith(firstName.toLowerCase()) ? 10 : 0) +
-          (n.includes(lastName.toLowerCase()) ? 10 : 0)
+          (firstOk ? 10 : 0) +
+          (lastOk ? 10 : 0)
         return { r, score }
       })
+      .filter((s) => s.score >= 20)
       .sort((a, b) => b.score - a.score)
-    if (scored[0] && scored[0].score >= 20) return scored[0].r
+    // Only accept if first+last tokens both match (score >= 20) and name is not a different person
+    if (scored[0]?.score >= 20) {
+      const n = (scored[0].r.name || '').trim().toLowerCase()
+      if (n === primary.toLowerCase() || scored[0].score >= 100) return scored[0].r
+      // first+last token match is OK only when last name token equals (Hall ≠ Costa)
+      const tokens = n.split(/[^a-z0-9àáâãäåèéêëìíîïòóôõöùúûüñç]+/i).filter(Boolean)
+      if (tokens.includes(firstName.toLowerCase()) && tokens.includes(lastName.toLowerCase())) {
+        return scored[0].r
+      }
+    }
   }
 
-  // Last resort: unique first-name match (never wild cards)
-  if (parts.length >= 1 && parts[0].length >= 3) {
-    const { data: byFirst } = await supabase
-      .from('player_accounts')
-      .select('id, user_id, name')
-      .ilike('name', `${parts[0]}%`)
-      .limit(10)
-    const real = (byFirst || []).filter((r) => r.user_id && !/^wild\s*card/i.test(r.name || ''))
-    if (real.length === 1) return real[0]
-  }
+  // Do NOT fall back to unique first-name match ("Oscar" → wrong Oscar).
+  // That caused Oscar Hall (no auth) to open Oscar P. Costa.
 
   return null
 }
