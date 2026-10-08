@@ -149,7 +149,7 @@ export async function findPlayerUserIdByName(name: string | null): Promise<strin
 export async function findPlayerDataByName(name: string | null): Promise<{ user_id: string; level: number | null; player_category: string | null; avatar_url: string | null } | null> {
   if (!name || name.trim().length === 0) return null
   const trimmed = name.trim()
-  const fields = 'user_id, level, player_category, avatar_url'
+  const fields = 'user_id, level, player_category, avatar_url, name'
   
   // 1. Busca exata
   const { data: exact } = await supabase
@@ -159,6 +159,8 @@ export async function findPlayerDataByName(name: string | null): Promise<{ user_
     .limit(1)
     .maybeSingle()
   if (exact?.user_id) return exact
+  // Nome exacto sem auth → não adivinhar outro "Oscar …"
+  if (exact) return null
   
   // 2. Case-insensitive
   const { data: ilike } = await supabase
@@ -168,8 +170,9 @@ export async function findPlayerDataByName(name: string | null): Promise<{ user_
     .limit(1)
     .maybeSingle()
   if (ilike?.user_id) return ilike
+  if (ilike && (ilike.name || '').trim().toLowerCase() === trimmed.toLowerCase()) return null
 
-  // 3. Primeiro + último nome
+  // 3. Primeiro + último nome (tokens completos)
   const parts = trimmed.split(/\s+/)
   if (parts.length >= 2) {
     const firstName = parts[0]
@@ -178,23 +181,19 @@ export async function findPlayerDataByName(name: string | null): Promise<{ user_
       .from('player_accounts')
       .select(fields)
       .ilike('name', `${firstName}%${lastName}%`)
-      .limit(1)
-      .maybeSingle()
-    if (partial?.user_id) return partial
+      .limit(10)
+    const match = (partial || []).find((r) => {
+      if (!r.user_id) return false
+      const tokens = String(r.name || '')
+        .toLowerCase()
+        .split(/[^a-z0-9àáâãäåèéêëìíîïòóôõöùúûüñç]+/i)
+        .filter(Boolean)
+      return tokens.includes(firstName.toLowerCase()) && tokens.includes(lastName.toLowerCase())
+    })
+    if (match) return match
   }
 
-  // 4. Só primeiro nome (se resultado único)
-  if (parts.length >= 1) {
-    const firstName = parts[0]
-    const { data: byFirst } = await supabase
-      .from('player_accounts')
-      .select(fields)
-      .ilike('name', `${firstName}%`)
-      .limit(5)
-    if (byFirst && byFirst.length === 1 && byFirst[0].user_id) {
-      return byFirst[0]
-    }
-  }
+  // Sem fallback só por primeiro nome
 
   return null
 }
