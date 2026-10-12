@@ -20,6 +20,11 @@
 
 import { supabase } from './supabase'
 import { reverseRatingForSource } from './levelHistory'
+import {
+  awardTournamentPlacementPoints,
+  resolveTournamentTier,
+  type TournamentTier,
+} from './rankingEngine'
 
 // ============================================
 // Constants
@@ -31,13 +36,6 @@ export const K_TOURNAMENT_FLOOR = 0.12
 /** Bónus ELO directo no encerramento do torneio. */
 export const PODIUM_BONUS_CHAMPION = 0.10
 export const PODIUM_BONUS_FINALIST = 0.05
-
-/** Pontos do ranking deslizante 12 meses (expiram via vista SQL). */
-export const RANKING_POINTS = {
-  tournament_winner: 100,
-  tournament_finalist: 60,
-  friendly_win: 10,
-} as const
 
 // ============================================
 // Types
@@ -615,12 +613,13 @@ export async function applyTournamentPodiumBonuses(
 
   const { data: tournament } = await supabase
     .from('tournaments')
-    .select('id, club_id')
+    .select('id, club_id, name, format, round_robin_type')
     .eq('id', tournamentId)
     .maybeSingle()
 
   // No ecossistema Padel ONE, organization_id do ranking 12m = club_id do torneio
   const organizationId = (tournament?.club_id as string | null) || null
+  const tier: TournamentTier = resolveTournamentTier(tournament || {})
 
   // Resolver campeões (final_position=1) e finalistas (final_position=2)
   let championPlayerIds: string[] = []
@@ -762,19 +761,12 @@ export async function applyTournamentPodiumBonuses(
 
   const champions: PodiumBonusResult['champions'] = []
   const finalists: PodiumBonusResult['finalists'] = []
-  const pointRows: Array<{
-    user_id: string
-    organization_id: string
-    points_awarded: number
-    reason: string
-    reference_id: string
-  }> = []
 
   const applyBonus = async (
     playerId: string,
     bonus: number,
     reason: 'tournament_winner' | 'tournament_finalist',
-    rankingPoints: number,
+    position: number,
   ) => {
     const acct = accountByPlayer.get(playerId)
     if (!acct?.user_id) return null
@@ -817,13 +809,14 @@ export async function applyTournamentPodiumBonuses(
       source_id: tournamentId,
     })
 
+    // Pontos ranking 12m conforme tier do torneio
     if (organizationId) {
-      pointRows.push({
-        user_id: acct.user_id,
-        organization_id: organizationId,
-        points_awarded: rankingPoints,
-        reason,
-        reference_id: tournamentId,
+      await awardTournamentPlacementPoints({
+        userId: acct.user_id,
+        organizationId,
+        tournamentId,
+        position,
+        tier,
       })
     }
 
@@ -845,19 +838,12 @@ export async function applyTournamentPodiumBonuses(
   }
 
   for (const pid of championPlayerIds) {
-    const row = await applyBonus(pid, PODIUM_BONUS_CHAMPION, 'tournament_winner', RANKING_POINTS.tournament_winner)
+    const row = await applyBonus(pid, PODIUM_BONUS_CHAMPION, 'tournament_winner', 1)
     if (row) champions.push(row)
   }
   for (const pid of finalistPlayerIds) {
-    const row = await applyBonus(pid, PODIUM_BONUS_FINALIST, 'tournament_finalist', RANKING_POINTS.tournament_finalist)
+    const row = await applyBonus(pid, PODIUM_BONUS_FINALIST, 'tournament_finalist', 2)
     if (row) finalists.push(row)
-  }
-
-  if (pointRows.length > 0) {
-    const { error: ptsErr } = await supabase.from('ranking_point_transactions').insert(pointRows)
-    if (ptsErr) {
-      console.error('[RatingEngine] ranking_point_transactions insert failed:', ptsErr)
-    }
   }
 
   return {

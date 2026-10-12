@@ -2486,6 +2486,14 @@ async function processOpenGameRating(gameId: string): Promise<void> {
     console.error('[OpenGames] processOpenGameRating: Error marking as processed:', markError)
   }
 
+  // 7. Pontos ranking deslizante 12m (casual: +15 win / +5 loss)
+  try {
+    const { awardCasualMatchPoints } = await import('./rankingEngine')
+    await awardCasualMatchPoints(gameId)
+  } catch (rankErr) {
+    console.error('[OpenGames] awardCasualMatchPoints failed:', rankErr)
+  }
+
 }
 
 // ============================
