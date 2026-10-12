@@ -10,7 +10,7 @@ import { useI18n } from '../lib/i18nContext'
 
 type Scope = 'club' | 'global'
 
-const HELP_LEVELS_URL = 'https://padel1.app/help/#niveis'
+const HELP_LEVELS_URL = '/help/#niveis'
 
 export default function ClubRankingTab({
   organizationId: organizationIdProp,

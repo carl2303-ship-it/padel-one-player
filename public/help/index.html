@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Ajuda — Padel One</title>
-  <meta name="description" content="Guia completo de todas as funcionalidades da aplicação Padel One Player." />
+  <title>Ajuda — Padel One Player</title>
+  <meta name="description" content="Centro de Ajuda da app Padel One Player: rankings, torneios, resultados e registar resultado." />
   <link rel="icon" href="/icon.png" />
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
@@ -24,598 +24,236 @@
 </head>
 <body class="bg-white text-gray-800 antialiased">
 
-  <!-- Header -->
   <header class="sticky top-0 z-50 bg-white/95 backdrop-blur border-b border-gray-200">
-    <div class="max-w-7xl mx-auto flex items-center justify-between px-4 py-3">
+    <div class="max-w-5xl mx-auto flex items-center justify-between px-4 py-3">
       <div class="flex items-center gap-3">
         <a href="/" class="flex items-center gap-2 hover:opacity-80 transition">
-          <svg class="w-8 h-8 text-brand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+          <img src="/icon.png" alt="" class="w-8 h-8 rounded-lg" onerror="this.style.display='none'" />
           <span class="text-xl font-bold text-gray-900">PADEL ONE</span>
         </a>
         <span class="text-gray-300">|</span>
-        <span class="text-sm font-medium text-gray-500">Centro de Ajuda</span>
+        <span class="text-sm font-medium text-gray-500">Ajuda do Jogador</span>
       </div>
       <div class="flex items-center gap-3">
         <div class="flex items-center gap-1 text-xs">
           <span class="font-bold text-brand">PT</span>
           <a href="/help/en.html" class="text-gray-400 hover:text-gray-700 transition">EN</a>
-          <a href="/help/es.html" class="text-gray-400 hover:text-gray-700 transition">ES</a>
-          <a href="/help/fr.html" class="text-gray-400 hover:text-gray-700 transition">FR</a>
         </div>
-        <a href="/" class="hidden sm:inline-flex items-center gap-1.5 text-sm font-medium text-brand hover:text-brandDark transition">
-          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
-          Voltar à app
-        </a>
-        <button id="mobileMenuBtn" class="lg:hidden p-2 rounded-lg hover:bg-gray-100 transition">
-          <svg class="w-5 h-5 text-gray-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        <a href="/" class="hidden sm:inline-flex text-sm font-medium text-brand hover:text-brandDark">Voltar à app</a>
+        <button id="mobileMenuBtn" class="lg:hidden p-2 rounded-lg hover:bg-gray-100" type="button" aria-label="Menu">
+          <svg class="w-5 h-5 text-gray-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
         </button>
       </div>
     </div>
   </header>
 
-  <div class="max-w-7xl mx-auto flex">
-
-    <!-- Sidebar -->
-    <aside id="sidebar" class="hidden lg:block w-64 shrink-0 sticky top-14 h-[calc(100vh-3.5rem)] overflow-y-auto border-r border-gray-100 py-6 px-4">
+  <div class="max-w-5xl mx-auto flex">
+    <aside id="sidebar" class="hidden lg:block w-56 shrink-0 sticky top-14 h-[calc(100vh-3.5rem)] overflow-y-auto border-r border-gray-100 py-6 px-3">
       <nav class="space-y-1" id="sidebarNav">
-        <a href="#inicio" class="sidebar-link block py-2 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r transition">Início</a>
-        <a href="#conta" class="sidebar-link block py-2 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r transition">Criar Conta</a>
-        <a href="#niveis" class="sidebar-link block py-2 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r transition">Níveis ELO</a>
-        <a href="#rankings" class="sidebar-link block py-2 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r transition">Rankings 12 Meses</a>
-        <a href="#reservar" class="sidebar-link block py-2 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r transition">Reservar Campo</a>
-        <a href="#encontrar-jogo" class="sidebar-link block py-2 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r transition">Encontrar Jogo</a>
-        <a href="#jogos" class="sidebar-link block py-2 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r transition">Jogos</a>
-        <a href="#competir" class="sidebar-link block py-2 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r transition">Competir</a>
-        <a href="#aprender" class="sidebar-link block py-2 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r transition">Aprender</a>
-        <a href="#comunidade" class="sidebar-link block py-2 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r transition">Comunidade</a>
-        <a href="#perfil" class="sidebar-link block py-2 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r transition">Perfil</a>
-        <a href="#recompensas" class="sidebar-link block py-2 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r transition">Recompensas</a>
-        <a href="#pagamentos" class="sidebar-link block py-2 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r transition">Pagamentos</a>
-        <a href="#definicoes" class="sidebar-link block py-2 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r transition">Definições</a>
+        <a href="#inicio" class="sidebar-link block py-2 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r">Início</a>
+        <a href="#bolinhas" class="sidebar-link block py-2 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r">As 4 bolinhas</a>
+        <a href="#rankings" class="sidebar-link block py-2 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r">Rankings</a>
+        <a href="#torneios" class="sidebar-link block py-2 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r">Torneios</a>
+        <a href="#resultados" class="sidebar-link block py-2 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r">Resultados</a>
+        <a href="#registar" class="sidebar-link block py-2 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r">Registar resultado</a>
+        <a href="#niveis" class="sidebar-link block py-2 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r">Nível ELO</a>
+        <a href="#conta" class="sidebar-link block py-2 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r">Conta e perfil</a>
+        <a href="#menu" class="sidebar-link block py-2 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r">Menu</a>
       </nav>
     </aside>
 
-    <!-- Mobile sidebar overlay -->
     <div id="mobileOverlay" class="fixed inset-0 z-40 bg-black/40 hidden lg:hidden" onclick="closeMobileMenu()"></div>
-    <div id="mobileSidebar" class="fixed top-14 left-0 z-50 w-72 h-[calc(100vh-3.5rem)] bg-white border-r border-gray-200 overflow-y-auto py-6 px-4 transform -translate-x-full transition-transform duration-200 lg:hidden">
+    <div id="mobileSidebar" class="fixed top-14 left-0 z-50 w-72 h-[calc(100vh-3.5rem)] bg-white border-r overflow-y-auto py-6 px-4 -translate-x-full transition-transform lg:hidden">
       <nav class="space-y-1" id="mobileSidebarNav">
-        <a href="#inicio" onclick="closeMobileMenu()" class="sidebar-link block py-2.5 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r transition">Início</a>
-        <a href="#conta" onclick="closeMobileMenu()" class="sidebar-link block py-2.5 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r transition">Criar Conta</a>
-        <a href="#niveis" onclick="closeMobileMenu()" class="sidebar-link block py-2.5 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r transition">Níveis ELO</a>
-        <a href="#rankings" onclick="closeMobileMenu()" class="sidebar-link block py-2.5 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r transition">Rankings 12 Meses</a>
-        <a href="#reservar" onclick="closeMobileMenu()" class="sidebar-link block py-2.5 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r transition">Reservar Campo</a>
-        <a href="#encontrar-jogo" onclick="closeMobileMenu()" class="sidebar-link block py-2.5 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r transition">Encontrar Jogo</a>
-        <a href="#jogos" onclick="closeMobileMenu()" class="sidebar-link block py-2.5 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r transition">Jogos</a>
-        <a href="#competir" onclick="closeMobileMenu()" class="sidebar-link block py-2.5 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r transition">Competir</a>
-        <a href="#aprender" onclick="closeMobileMenu()" class="sidebar-link block py-2.5 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r transition">Aprender</a>
-        <a href="#comunidade" onclick="closeMobileMenu()" class="sidebar-link block py-2.5 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r transition">Comunidade</a>
-        <a href="#perfil" onclick="closeMobileMenu()" class="sidebar-link block py-2.5 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r transition">Perfil</a>
-        <a href="#recompensas" onclick="closeMobileMenu()" class="sidebar-link block py-2.5 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r transition">Recompensas</a>
-        <a href="#pagamentos" onclick="closeMobileMenu()" class="sidebar-link block py-2.5 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r transition">Pagamentos</a>
-        <a href="#definicoes" onclick="closeMobileMenu()" class="sidebar-link block py-2.5 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r transition">Definições</a>
+        <a href="#inicio" onclick="closeMobileMenu()" class="sidebar-link block py-2.5 px-3 text-sm text-gray-600">Início</a>
+        <a href="#bolinhas" onclick="closeMobileMenu()" class="sidebar-link block py-2.5 px-3 text-sm text-gray-600">As 4 bolinhas</a>
+        <a href="#rankings" onclick="closeMobileMenu()" class="sidebar-link block py-2.5 px-3 text-sm text-gray-600">Rankings</a>
+        <a href="#torneios" onclick="closeMobileMenu()" class="sidebar-link block py-2.5 px-3 text-sm text-gray-600">Torneios</a>
+        <a href="#resultados" onclick="closeMobileMenu()" class="sidebar-link block py-2.5 px-3 text-sm text-gray-600">Resultados</a>
+        <a href="#registar" onclick="closeMobileMenu()" class="sidebar-link block py-2.5 px-3 text-sm text-gray-600">Registar resultado</a>
+        <a href="#niveis" onclick="closeMobileMenu()" class="sidebar-link block py-2.5 px-3 text-sm text-gray-600">Nível ELO</a>
+        <a href="#conta" onclick="closeMobileMenu()" class="sidebar-link block py-2.5 px-3 text-sm text-gray-600">Conta e perfil</a>
+        <a href="#menu" onclick="closeMobileMenu()" class="sidebar-link block py-2.5 px-3 text-sm text-gray-600">Menu</a>
       </nav>
     </div>
 
-    <!-- Main content -->
     <main class="flex-1 min-w-0 px-4 sm:px-8 py-8 lg:py-10">
-
-      <!-- Hero -->
-      <div class="mb-12">
+      <div class="mb-10">
+        <p class="text-xs font-semibold uppercase tracking-wide text-brand mb-2">Padel One Player</p>
         <h1 class="text-3xl sm:text-4xl font-bold text-gray-900 mb-3">Centro de Ajuda</h1>
-        <p class="text-lg text-gray-500 max-w-2xl">Guia actualizado da Padel One: conta, níveis ELO, ranking 12 meses por clube, jogos, torneios, comunidade e mais.</p>
+        <p class="text-lg text-gray-500 max-w-2xl">
+          Guia da <strong>versão do jogador</strong> que usas em padel1.app — a mesma que vês no ecrã inicial com as quatro bolinhas.
+        </p>
+        <div class="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          Esta página explica só o que aparece na app do jogador.
+          Funções de clube completo (reservas de campo, academia, encontrar jogo) só existem se o teu clube tiver essa versão activada — <strong>não é o caso da maioria dos jogadores APC</strong>.
+        </div>
       </div>
 
-      <!-- Sections -->
-      <div class="space-y-16">
+      <div class="space-y-14">
 
-        <!-- 1. Início -->
         <section id="inicio" class="scroll-mt-20">
-          <div class="flex items-center gap-3 mb-4">
-            <div class="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center">
-              <svg class="w-5 h-5 text-brand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
-            </div>
-            <h2 class="text-2xl font-bold text-gray-900">Início</h2>
-          </div>
-          <div class="prose prose-gray max-w-none">
-            <p>O ecrã Início é o teu painel principal. Aqui encontras um resumo de tudo o que se passa na tua vida de jogador de padel.</p>
-
-            <h3 class="text-lg font-semibold text-gray-800 mt-6">Cartão de perfil</h3>
-            <p>No topo, vês a tua foto, nome, bio e as métricas mais importantes: <strong>nível</strong> (calculado automaticamente pelo sistema ELO), <strong>fiabilidade</strong> (percentagem que sobe com mais jogos), e a tua <strong>categoria</strong> (ex: M3 = Masculino nível 3).</p>
-
-            <h3 class="text-lg font-semibold text-gray-800 mt-6">Estatísticas</h3>
-            <p>Vês o total de jogos, vitórias e taxa de vitórias. Também podes ver quantas pessoas segues e quantos seguidores tens — toca em qualquer um para ver a lista completa.</p>
-
-            <h3 class="text-lg font-semibold text-gray-800 mt-6">Atalhos rápidos</h3>
-            <p>Uma grelha com 5 ações rápidas:</p>
-            <ul>
-              <li><strong>Reservar</strong> — Abrir o wizard de reserva de campo</li>
-              <li><strong>Clube favorito</strong> — Ver a ficha do teu clube</li>
-              <li><strong>Competir</strong> — Torneios e ligas disponíveis</li>
-              <li><strong>Encontrar jogo</strong> — Procurar jogos abertos</li>
-              <li><strong>Aprender</strong> — Catálogo de aulas</li>
-            </ul>
-
-            <h3 class="text-lg font-semibold text-gray-800 mt-6">Próximos jogos</h3>
-            <p>Scroll horizontal com os teus próximos jogos (torneios e jogos abertos). Toca em "Ver todos" para ir ao ecrã de Jogos completo.</p>
-
-            <h3 class="text-lg font-semibold text-gray-800 mt-6">Pontos de recompensa</h3>
-            <p>Mostra os teus pontos e o teu tier actual (Silver, Gold, Platinum ou Diamond). O botão "Gastar os meus pontos" leva-te ao catálogo de recompensas.</p>
-
-            <h3 class="text-lg font-semibold text-gray-800 mt-6">Resultados pendentes</h3>
-            <p>Se jogaste recentemente e o resultado ainda não foi submetido ou confirmado, aparece aqui. Podes introduzir os sets ou confirmar/disputar o resultado submetido pela outra equipa.</p>
+          <h2 class="text-2xl font-bold text-gray-900 mb-3">Início</h2>
+          <div class="prose prose-gray max-w-none text-[15px] leading-relaxed">
+            <p>O ecrã Início mostra o teu perfil, o <strong>nível ELO</strong>, a fiabilidade e as estatísticas (jogos, vitórias, %, a seguir, seguidores).</p>
+            <p>No topo tens as <strong>quatro bolinhas</strong> — atalhos para tudo o que precisas no dia-a-dia.</p>
           </div>
         </section>
 
-        <!-- 2. Criar Conta e Nível -->
-        <section id="conta" class="scroll-mt-20">
-          <div class="flex items-center gap-3 mb-4">
-            <div class="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center">
-              <svg class="w-5 h-5 text-brand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
-            </div>
-            <h2 class="text-2xl font-bold text-gray-900">Criar Conta e Nível</h2>
-          </div>
-          <div class="prose prose-gray max-w-none">
-            <h3 class="text-lg font-semibold text-gray-800 mt-6">Registo e login</h3>
-            <p>Para criar conta precisas de: <strong>nome</strong>, <strong>telemóvel</strong> (identidade da conta), <strong>email</strong> (só contacto), <strong>género</strong> e <strong>password</strong>.</p>
-            <p class="mt-2"><strong>O login é sempre com o número de telemóvel + password</strong> — não com o email. O telefone é a identidade na Padel One.</p>
-
-            <h3 class="text-lg font-semibold text-gray-800 mt-6">Questionário de avaliação</h3>
-            <p>Durante o registo respondes a um questionário que estima o teu <strong>nível inicial</strong> (escala 0.5 a 7.0+).</p>
-          </div>
-        </section>
-
-        <!-- Níveis ELO -->
-        <section id="niveis" class="scroll-mt-20">
-          <div class="flex items-center gap-3 mb-4">
-            <div class="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center">
-              <svg class="w-5 h-5 text-brand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
-            </div>
-            <h2 class="text-2xl font-bold text-gray-900">Níveis ELO</h2>
-          </div>
-          <div class="prose prose-gray max-w-none">
-            <p>O <strong>nível</strong> (0.5 a 7.0+, sem teto rígido para M1/F1) actualiza-se após cada jogo rated — torneios e jogos abertos validados.</p>
-            <ul>
-              <li><strong>Jogadores novos</strong> — K-factor alto: o nível muda mais depressa para calibrar.</li>
-              <li><strong>Veteranos em jogos casuais</strong> — K pode descer até 0.06.</li>
-              <li><strong>Torneios</strong> — piso mínimo de K = 0.12, para o nível não estagnar.</li>
-              <li><strong>Pódio</strong> — no encerramento da final: campeão <strong>+0.10</strong>, finalista <strong>+0.05</strong> (sem contar como jogo extra).</li>
-              <li><strong>Fiabilidade</strong> — sobe com mais jogos; nunca cai mais de 2% por jogo (protege a avaliação do clube).</li>
-              <li><strong>Categoria M3/F4…</strong> — é etiqueta de inscrição, <em>não</em> substitui o rating ELO.</li>
-            </ul>
-            <p>Empates em sets usam games totais. Se a diferença média entre equipas for &gt; 2.0, o jogo pode ser ignorado para o ELO.</p>
+        <section id="bolinhas" class="scroll-mt-20">
+          <h2 class="text-2xl font-bold text-gray-900 mb-4">As 4 bolinhas</h2>
+          <div class="grid sm:grid-cols-2 gap-3">
+            <a href="#rankings" class="rounded-2xl border border-rose-100 bg-rose-50/60 p-4 hover:border-rose-300 transition">
+              <p class="text-2xl mb-1">📈</p>
+              <p class="font-bold text-gray-900">Rankings</p>
+              <p class="text-sm text-gray-600 mt-1">Classificação do clube e global (12 meses), ou por nível ELO.</p>
+            </a>
+            <a href="#torneios" class="rounded-2xl border border-amber-100 bg-amber-50/60 p-4 hover:border-amber-300 transition">
+              <p class="text-2xl mb-1">🏆</p>
+              <p class="font-bold text-gray-900">Torneios</p>
+              <p class="text-sm text-gray-600 mt-1">Inscrições, torneios activos, ligas e classificações.</p>
+            </a>
+            <a href="#resultados" class="rounded-2xl border border-rose-100 bg-rose-50/60 p-4 hover:border-rose-300 transition">
+              <p class="text-2xl mb-1">📊</p>
+              <p class="font-bold text-gray-900">Resultados</p>
+              <p class="text-sm text-gray-600 mt-1">O teu histórico de jogos e resultados recentes.</p>
+            </a>
+            <a href="#registar" class="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4 hover:border-emerald-300 transition">
+              <p class="text-2xl mb-1">✍️</p>
+              <p class="font-bold text-gray-900">Registar resultado</p>
+              <p class="text-sm text-gray-600 mt-1">Regista um jogo já jogado (4 jogadores + sets).</p>
+            </a>
           </div>
         </section>
 
-        <!-- Rankings 12 meses -->
         <section id="rankings" class="scroll-mt-20">
-          <div class="flex items-center gap-3 mb-4">
-            <div class="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center">
-              <svg class="w-5 h-5 text-brand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 21h8"/><path d="M12 17v4"/><path d="M7 4h10v4a5 5 0 0 1-10 0V4Z"/><path d="M17 8h1a4 4 0 0 0 0-8h-1"/><path d="M7 8H6a4 4 0 0 1 0-8h1"/></svg>
-            </div>
-            <h2 class="text-2xl font-bold text-gray-900">Rankings 12 Meses</h2>
-          </div>
-          <div class="prose prose-gray max-w-none">
-            <p>No ecrã <strong>Rankings</strong> encontras:</p>
+          <h2 class="text-2xl font-bold text-gray-900 mb-3">Rankings</h2>
+          <div class="prose prose-gray max-w-none text-[15px] leading-relaxed">
+            <p>Abre a bolinha <strong>Rankings</strong>. Tens dois modos:</p>
             <ul>
-              <li><strong>Ranking Albufeira Padel Clube</strong> (ou o nome do teu clube) — pontos só desse clube</li>
+              <li><strong>Ranking 12 Meses</strong> — pontos de torneios e jogos validados nos últimos 365 dias.</li>
+              <li><strong>Por Nível ELO</strong> — ordenação pelo teu nível actual.</li>
+            </ul>
+            <p>No ranking 12 meses podes escolher:</p>
+            <ul>
+              <li><strong>Ranking Albufeira Padel Clube</strong> (ou o nome do teu clube) — só pontos desse clube</li>
               <li><strong>Ranking Global Padel ONE</strong> — soma de todos os clubes</li>
-              <li>Filtro <strong>Masculino / Feminino</strong></li>
-              <li>Separador <strong>Por Nível ELO</strong> — ordenação pelo rating actual</li>
+              <li><strong>Masculino / Feminino</strong></li>
             </ul>
-            <p>Contam <strong>todos os torneios e jogos validados dos últimos 12 meses</strong>. Os pontos antigos deixam de contar automaticamente após 365 dias (não é preciso apagar dados).</p>
-            <h3 class="text-lg font-semibold text-gray-800 mt-6">Pontos por tier de torneio</h3>
+            <p>Contam <strong>todos os eventos</strong> dos últimos 12 meses. Os pontos mais antigos deixam de contar automaticamente.</p>
+            <p class="text-sm text-gray-500">Ver também: <a href="#niveis" class="text-brand font-medium">Nível ELO</a>.</p>
+          </div>
+        </section>
+
+        <section id="torneios" class="scroll-mt-20">
+          <h2 class="text-2xl font-bold text-gray-900 mb-3">Torneios</h2>
+          <div class="prose prose-gray max-w-none text-[15px] leading-relaxed">
+            <p>A bolinha <strong>Torneios</strong> abre o ecrã Competir. Aqui vês:</p>
             <ul>
-              <li><strong>Master / Oficial APC</strong> — 1º 1000 · 2º 600 · 3º/4º 360 · quartos 180 · grupos 50</li>
-              <li><strong>Regular / Open</strong> — 1º 500 · 2º 300 · 3º/4º 180 · quartos 90 · grupos 25</li>
-              <li><strong>Americano / Social</strong> — 1º 250 · 2º 150 · 3º/4º 90 · quartos 45 · grupos 15</li>
-              <li><strong>Jogos casuais validados</strong> — vitória +15 · derrota +5 (assiduidade)</li>
+              <li>Torneios abertos para inscrição</li>
+              <li>Torneios em que já estás inscrito</li>
+              <li>Jogos, grupos e classificações</li>
+              <li>Ligas de clube (quando existirem)</li>
             </ul>
-            <p>Cada clube terá o seu próprio ranking (ex.: Ranking Padel Blu) quando estiver activo na app.</p>
+            <p>Os resultados registados pelo organizador actualizam o teu <strong>nível ELO</strong> e o <strong>ranking 12 meses</strong>.</p>
           </div>
         </section>
 
-        <!-- 3. Reservar Campo -->
-        <section id="reservar" class="scroll-mt-20">
-          <div class="flex items-center gap-3 mb-4">
-            <div class="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center">
-              <svg class="w-5 h-5 text-brand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-            </div>
-            <h2 class="text-2xl font-bold text-gray-900">Reservar Campo</h2>
-          </div>
-          <div class="prose prose-gray max-w-none">
-            <p>O wizard de reserva guia-te em <strong>5 passos</strong> para criar um jogo:</p>
-
-            <div class="grid sm:grid-cols-2 gap-4 mt-4 not-prose">
-              <div class="bg-gray-50 rounded-xl p-4">
-                <div class="text-sm font-bold text-brand mb-1">Passo 1 — Clube</div>
-                <p class="text-sm text-gray-600">Escolhe o clube onde queres jogar. Só aparecem clubes com disponibilidade.</p>
-              </div>
-              <div class="bg-gray-50 rounded-xl p-4">
-                <div class="text-sm font-bold text-brand mb-1">Passo 2 — Data e Hora</div>
-                <p class="text-sm text-gray-600">Seleciona a data, o horário e o campo disponível.</p>
-              </div>
-              <div class="bg-gray-50 rounded-xl p-4">
-                <div class="text-sm font-bold text-brand mb-1">Passo 3 — Configuração</div>
-                <p class="text-sm text-gray-600">Define se o jogo é <strong>público</strong> (visível para outros) ou <strong>privado</strong>. Escolhe tipo (competitivo/amigável), género e duração.</p>
-              </div>
-              <div class="bg-gray-50 rounded-xl p-4">
-                <div class="text-sm font-bold text-brand mb-1">Passo 4 — Jogadores</div>
-                <p class="text-sm text-gray-600">Pesquisa e adiciona jogadores aos 4 slots. Podes trocar posições arrastando os jogadores.</p>
-              </div>
-            </div>
-            <div class="bg-gray-50 rounded-xl p-4 mt-4 not-prose">
-              <div class="text-sm font-bold text-brand mb-1">Passo 5 — Confirmação e Pagamento</div>
-              <p class="text-sm text-gray-600">Revê os detalhes e confirma. Conforme o clube, podes pagar no local, online por jogador, ou o campo inteiro de uma vez.</p>
-            </div>
-
-            <p class="mt-4">Jogos <strong>públicos</strong> ficam visíveis no ecrã "Encontrar Jogo" para que outros jogadores possam juntar-se. Jogos <strong>privados</strong> funcionam como uma reserva de campo tradicional.</p>
+        <section id="resultados" class="scroll-mt-20">
+          <h2 class="text-2xl font-bold text-gray-900 mb-3">Resultados</h2>
+          <div class="prose prose-gray max-w-none text-[15px] leading-relaxed">
+            <p>A bolinha <strong>Resultados</strong> mostra o teu histórico: vitórias, derrotas, empates e últimos jogos (torneios e jogos registados).</p>
+            <p>Podes abrir o perfil de outros jogadores a partir dos resultados.</p>
           </div>
         </section>
 
-        <!-- 4. Encontrar Jogo -->
-        <section id="encontrar-jogo" class="scroll-mt-20">
-          <div class="flex items-center gap-3 mb-4">
-            <div class="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center">
-              <svg class="w-5 h-5 text-brand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            </div>
-            <h2 class="text-2xl font-bold text-gray-900">Encontrar Jogo</h2>
+        <section id="registar" class="scroll-mt-20">
+          <h2 class="text-2xl font-bold text-gray-900 mb-3">Registar resultado</h2>
+          <div class="prose prose-gray max-w-none text-[15px] leading-relaxed">
+            <p>Jogaste e queres que conte para o nível e o ranking? Usa a bolinha <strong>Registar resultado</strong> (ou o botão verde no Início).</p>
+            <ol>
+              <li>Escolhe o clube e a data</li>
+              <li>Adiciona os 4 jogadores (pesquisa por nome)</li>
+              <li>Define as duplas e introduz os sets</li>
+              <li>Confirma</li>
+            </ol>
+            <p>O <strong>ELO</strong> de todos é actualizado. A equipa adversária pode <strong>disputar</strong> o resultado se discordar.</p>
+            <p>Jogos validados também dão pontos ao ranking 12 meses (+15 vitória / +5 derrota).</p>
           </div>
-          <div class="prose prose-gray max-w-none">
-            <p>Este ecrã permite-te encontrar jogos abertos criados por outros jogadores ou criar o teu próprio.</p>
+        </section>
 
-            <h3 class="text-lg font-semibold text-gray-800 mt-6">Filtros</h3>
-            <p>No topo, podes filtrar por <strong>clube</strong>, <strong>data</strong> (próximos 14 dias) e <strong>período do dia</strong> (manhã, tarde, noite ou dia todo).</p>
-
-            <h3 class="text-lg font-semibold text-gray-800 mt-6">4 Separadores</h3>
+        <section id="niveis" class="scroll-mt-20">
+          <h2 class="text-2xl font-bold text-gray-900 mb-3">Nível ELO</h2>
+          <div class="prose prose-gray max-w-none text-[15px] leading-relaxed">
+            <p>O nível (cerca de <strong>0.5 a 7.0+</strong>) muda após cada jogo rated — torneios e resultados registados.</p>
             <ul>
-              <li><strong>Jogos</strong> — Jogos abertos que correspondem ao teu nível. Podes entrar directamente num lugar livre.</li>
-              <li><strong>Pedido</strong> — Jogos fora do teu nível ou já cheios. Podes pedir para entrar; os jogadores existentes votam para aceitar ou rejeitar.</li>
-              <li><strong>Criar</strong> — Cria um novo jogo aberto, escolhendo clube, horário, campo, tipo e configuração.</li>
-              <li><strong>Resultados</strong> — Jogos passados que precisam que submetas ou confirmes o resultado.</li>
+              <li><strong>Jogadores novos</strong> — o nível muda mais depressa (calibração).</li>
+              <li><strong>Veteranos em jogos casuais</strong> — variação mais pequena.</li>
+              <li><strong>Torneios</strong> — piso mínimo de variação, para o nível não “congelar”.</li>
+              <li><strong>Final de torneio</strong> — campeão +0.10 · finalista +0.05 no ELO.</li>
+              <li><strong>Fiabilidade %</strong> — sobe com mais jogos; não cai mais de 2% por jogo.</li>
             </ul>
-
-            <h3 class="text-lg font-semibold text-gray-800 mt-6">Pagamento online</h3>
-            <p>Se o clube suportar pagamento online, podes pagar a tua parte directamente pela app (via Stripe). O estado de pagamento de cada jogador é visível no cartão do jogo.</p>
+            <p>A categoria tipo M3 / F4 é só para inscrição em torneios — <strong>não é o mesmo</strong> que o rating ELO.</p>
           </div>
         </section>
 
-        <!-- 5. Jogos -->
-        <section id="jogos" class="scroll-mt-20">
-          <div class="flex items-center gap-3 mb-4">
-            <div class="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center">
-              <svg class="w-5 h-5 text-brand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>
-            </div>
-            <h2 class="text-2xl font-bold text-gray-900">Jogos</h2>
-          </div>
-          <div class="prose prose-gray max-w-none">
-            <p>O ecrã Jogos reúne toda a tua actividade de jogos num só lugar.</p>
-
-            <h3 class="text-lg font-semibold text-gray-800 mt-6">Próximos</h3>
-            <p>Lista de todos os jogos agendados — tanto torneios como jogos abertos. Cada cartão mostra data, hora, campo, jogadores e estado. Podes gerir os jogadores, sair do jogo ou cancelá-lo (se fores o criador).</p>
-
-            <h3 class="text-lg font-semibold text-gray-800 mt-6">Histórico</h3>
-            <p>Todos os jogos passados com resultados. Podes ver os sets, quem ganhou e os detalhes de cada partida.</p>
-
-            <h3 class="text-lg font-semibold text-gray-800 mt-6">Resultados</h3>
-            <p>Quando um jogo termina, qualquer jogador pode submeter o resultado (sets). A outra equipa precisa de <strong>confirmar</strong> o resultado. Se não concordares, podes <strong>disputar</strong> e submeter a tua versão. Os resultados confirmados actualizam o nível ELO de todos os jogadores.</p>
+        <section id="conta" class="scroll-mt-20">
+          <h2 class="text-2xl font-bold text-gray-900 mb-3">Conta e perfil</h2>
+          <div class="prose prose-gray max-w-none text-[15px] leading-relaxed">
+            <p><strong>Login:</strong> número de telemóvel + password. O telemóvel é a tua identidade; o email é só contacto.</p>
+            <p>No perfil podes editar nome, foto, bio, género e preferências. Nas estatísticas do Início vês quem segues e os teus seguidores.</p>
+            <p>No registo indicas o género e um questionário ajuda a estimar o nível inicial.</p>
           </div>
         </section>
 
-        <!-- 6. Competir -->
-        <section id="competir" class="scroll-mt-20">
-          <div class="flex items-center gap-3 mb-4">
-            <div class="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center">
-              <svg class="w-5 h-5 text-brand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5C7 4 6 9 6 9"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5C17 4 18 9 18 9"/><path d="M4 22h16"/><path d="M10 22V2h4v20"/></svg>
-            </div>
-            <h2 class="text-2xl font-bold text-gray-900">Competir — Torneios e Ligas</h2>
-          </div>
-          <div class="prose prose-gray max-w-none">
-
-            <h3 class="text-lg font-semibold text-gray-800 mt-6">Torneios</h3>
-            <p>Vê todos os torneios disponíveis, filtrados pelo teu clube favorito e nível. Cada torneio mostra formato, categorias, datas e número de inscritos.</p>
-            <p>Podes <strong>inscrever-te em múltiplas categorias</strong> do mesmo torneio (ex: Masculinos e Mistos). A inscrição é feita através de um link que abre o formulário de registo.</p>
-
-            <h3 class="text-lg font-semibold text-gray-800 mt-6">Encontrar parceiro</h3>
-            <p>Se precisas de parceiro para um torneio de pares, usa a função "Encontrar Parceiro". Podes escolher:</p>
+        <section id="menu" class="scroll-mt-20">
+          <h2 class="text-2xl font-bold text-gray-900 mb-3">Menu</h2>
+          <div class="prose prose-gray max-w-none text-[15px] leading-relaxed">
+            <p>No menu (canto superior) encontras:</p>
             <ul>
-              <li><strong>Posição do parceiro</strong> — Direita, Esquerda, ou Ambos</li>
-              <li><strong>Quem convidar</strong> — Qualquer jogador ou apenas jogadores que segues</li>
-              <li><strong>Categoria</strong> — Em que categoria do torneio queres jogar</li>
+              <li>Notificações push (activar / desactivar)</li>
+              <li>Este Centro de Ajuda</li>
+              <li>Ajuda rápida (popup na app)</li>
+              <li>Privacidade</li>
+              <li>Pagamentos (histórico, se houver)</li>
+              <li>Terminar sessão</li>
             </ul>
-            <p>Os jogadores compatíveis recebem um convite push. Se aceitarem, a inscrição da dupla é processada automaticamente.</p>
-
-            <h3 class="text-lg font-semibold text-gray-800 mt-6">Convites de parceiro</h3>
-            <p>Quando alguém te convida, o convite aparece no ecrã Competir e no ecrã Início. Podes aceitar ou recusar directamente.</p>
-
-            <h3 class="text-lg font-semibold text-gray-800 mt-6">Ligas</h3>
-            <p>As ligas acumulam pontos ao longo de vários torneios. Vês a tua posição, pontos totais e a classificação geral. Podes filtrar por categoria.</p>
-
-            <h3 class="text-lg font-semibold text-gray-800 mt-6">Histórico</h3>
-            <p>Torneios concluídos com a tua classificação final, resultados e estatísticas.</p>
-          </div>
-        </section>
-
-        <!-- 7. Aprender -->
-        <section id="aprender" class="scroll-mt-20">
-          <div class="flex items-center gap-3 mb-4">
-            <div class="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center">
-              <svg class="w-5 h-5 text-brand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
-            </div>
-            <h2 class="text-2xl font-bold text-gray-900">Aprender</h2>
-          </div>
-          <div class="prose prose-gray max-w-none">
-            <p>A secção Aprender permite-te encontrar e inscrever-te em aulas de padel oferecidas pelos clubes.</p>
-
-            <h3 class="text-lg font-semibold text-gray-800 mt-6">Inscrever-me</h3>
-            <p>Catálogo de aulas disponíveis. Cada aula mostra: nome, clube, professor, nível recomendado, género, horário, número de participantes, preço e vagas disponíveis.</p>
-
-            <h3 class="text-lg font-semibold text-gray-800 mt-6">As minhas aulas</h3>
-            <p>Lista das aulas em que estás inscrito. Podes ver os detalhes ou contactar o professor/clube directamente (telefone, email, site).</p>
-          </div>
-        </section>
-
-        <!-- 8. Comunidade -->
-        <section id="comunidade" class="scroll-mt-20">
-          <div class="flex items-center gap-3 mb-4">
-            <div class="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center">
-              <svg class="w-5 h-5 text-brand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-            </div>
-            <h2 class="text-2xl font-bold text-gray-900">Comunidade</h2>
-          </div>
-          <div class="prose prose-gray max-w-none">
-            <p>A Comunidade é a rede social dentro da Padel One.</p>
-
-            <h3 class="text-lg font-semibold text-gray-800 mt-6">Pesquisa de jogadores</h3>
-            <p>Pesquisa por nome (mínimo 2 caracteres). A pesquisa é <strong>insensível a acentos</strong> — podes escrever "Joao" e encontrar "João". Os resultados mostram nome, foto, nível e categoria.</p>
-
-            <h3 class="text-lg font-semibold text-gray-800 mt-6">Sugestões</h3>
-            <p>A app sugere jogadores relevantes com base em:</p>
-            <ul>
-              <li>Jogadores com quem já jogaste</li>
-              <li>Mesmo género</li>
-              <li>Nível semelhante (±1.5 níveis)</li>
-            </ul>
-
-            <h3 class="text-lg font-semibold text-gray-800 mt-6">Seguir / Deixar de seguir</h3>
-            <p>Segue jogadores para veres as publicações e jogos deles no feed.</p>
-
-            <h3 class="text-lg font-semibold text-gray-800 mt-6">Feed</h3>
-            <p>Feed unificado com publicações (texto, fotos, vídeos) e jogos das pessoas que segues. Podes criar publicações tocando no botão <strong>+</strong> e apagar as tuas próprias publicações.</p>
-          </div>
-        </section>
-
-        <!-- 9. Perfil -->
-        <section id="perfil" class="scroll-mt-20">
-          <div class="flex items-center gap-3 mb-4">
-            <div class="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center">
-              <svg class="w-5 h-5 text-brand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-            </div>
-            <h2 class="text-2xl font-bold text-gray-900">Perfil</h2>
-          </div>
-          <div class="prose prose-gray max-w-none">
-            <h3 class="text-lg font-semibold text-gray-800 mt-6">Ver perfil</h3>
-            <p>O teu perfil público mostra: foto, nome, nível, fiabilidade, categoria, estatísticas, preferências de jogador, próximos jogos, resultados recentes, jogadores com quem mais jogas e clubes onde jogas.</p>
-
-            <h3 class="text-lg font-semibold text-gray-800 mt-6">Editar perfil</h3>
-            <p>Nas definições podes editar:</p>
-            <ul>
-              <li><strong>Foto</strong> — Upload de foto de perfil (máximo 1 MB)</li>
-              <li><strong>Dados pessoais</strong> — Nome, email, género, data de nascimento, localização</li>
-              <li><strong>Preferências de jogo</strong> — Mão preferida (direita/esquerda/ambidextro), posição no campo (direita/esquerda/ambos), tipo de jogo (competitivo/amigável/ambos), horário preferido (manhã/tarde/noite/todo o dia)</li>
-              <li><strong>Sobre mim</strong> — Bio/descrição livre</li>
-              <li><strong>Clube favorito</strong> — Seleciona o teu clube principal da lista de clubes Padel One</li>
-            </ul>
-
-            <h3 class="text-lg font-semibold text-gray-800 mt-6">Perfil de outro jogador</h3>
-            <p>Ao tocar no perfil de outro jogador (na comunidade, num jogo, etc.), vês informações semelhantes: nível, estatísticas, parceiros frequentes, clubes e jogos. Podes seguir ou deixar de seguir directamente.</p>
-          </div>
-        </section>
-
-        <!-- 10. Recompensas -->
-        <section id="recompensas" class="scroll-mt-20">
-          <div class="flex items-center gap-3 mb-4">
-            <div class="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center">
-              <svg class="w-5 h-5 text-brand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2z"/></svg>
-            </div>
-            <h2 class="text-2xl font-bold text-gray-900">Recompensas</h2>
-          </div>
-          <div class="prose prose-gray max-w-none">
-            <p>O sistema de recompensas premeia a tua actividade na plataforma com pontos que podes trocar por prémios reais nos clubes.</p>
-
-            <h3 class="text-lg font-semibold text-gray-800 mt-6">Como ganhar pontos</h3>
-            <div class="not-prose mt-3">
-              <div class="bg-gray-50 rounded-xl divide-y divide-gray-200">
-                <div class="flex items-center justify-between px-4 py-3"><span class="text-sm text-gray-700">Criar um jogo aberto</span><span class="text-sm font-semibold text-brand">+15 pts</span></div>
-                <div class="flex items-center justify-between px-4 py-3"><span class="text-sm text-gray-700">Entrar num jogo</span><span class="text-sm font-semibold text-brand">+10 pts</span></div>
-                <div class="flex items-center justify-between px-4 py-3"><span class="text-sm text-gray-700">Submeter resultado</span><span class="text-sm font-semibold text-brand">+5 pts</span></div>
-                <div class="flex items-center justify-between px-4 py-3"><span class="text-sm text-gray-700">Confirmar resultado</span><span class="text-sm font-semibold text-brand">+5 pts</span></div>
-                <div class="flex items-center justify-between px-4 py-3"><span class="text-sm text-gray-700">Participar num torneio</span><span class="text-sm font-semibold text-brand">+20 pts</span></div>
-                <div class="flex items-center justify-between px-4 py-3"><span class="text-sm text-gray-700">Consumo no bar (por cada 10€)</span><span class="text-sm font-semibold text-brand">+5 pts</span></div>
-                <div class="flex items-center justify-between px-4 py-3"><span class="text-sm text-gray-700">Primeiro jogo (bónus)</span><span class="text-sm font-semibold text-brand">+25 pts</span></div>
-                <div class="flex items-center justify-between px-4 py-3"><span class="text-sm text-gray-700">3 jogos consecutivos numa semana</span><span class="text-sm font-semibold text-brand">+15 pts</span></div>
-                <div class="flex items-center justify-between px-4 py-3"><span class="text-sm text-gray-700">7 jogos consecutivos</span><span class="text-sm font-semibold text-brand">+30 pts</span></div>
-              </div>
-            </div>
-
-            <h3 class="text-lg font-semibold text-gray-800 mt-6">Tiers</h3>
-            <p>O teu tier depende do total de pontos acumulados: <strong>Silver</strong>, <strong>Gold</strong>, <strong>Platinum</strong> e <strong>Diamond</strong>. Tiers mais altos podem desbloquear prémios exclusivos.</p>
-
-            <h3 class="text-lg font-semibold text-gray-800 mt-6">Catálogo e resgate</h3>
-            <p>No separador Catálogo, vês prémios disponíveis por clube, filtráveis por categoria (bebidas, comida, campo, etc.). No separador Histórico, vês os resgates anteriores.</p>
-          </div>
-        </section>
-
-        <!-- 11. Pagamentos -->
-        <section id="pagamentos" class="scroll-mt-20">
-          <div class="flex items-center gap-3 mb-4">
-            <div class="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center">
-              <svg class="w-5 h-5 text-brand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
-            </div>
-            <h2 class="text-2xl font-bold text-gray-900">Pagamentos</h2>
-          </div>
-          <div class="prose prose-gray max-w-none">
-            <p>O ecrã de Pagamentos mostra o histórico de todas as transacções de jogos abertos processadas via Stripe.</p>
-
-            <h3 class="text-lg font-semibold text-gray-800 mt-6">Informação disponível</h3>
-            <ul>
-              <li><strong>Total pago</strong> e <strong>total pendente</strong> no topo</li>
-              <li>Lista de transacções com: data do jogo, data do pagamento, valor, estado</li>
-              <li><strong>Estados:</strong> Pago, Pendente, Falhado, Reembolsado</li>
-              <li><strong>Tipos:</strong> Pagamento por jogador ou campo inteiro</li>
-            </ul>
-            <p>Acedes a este ecrã pelo menu lateral → "Os seus Pagamentos".</p>
-          </div>
-        </section>
-
-        <!-- 12. Definições -->
-        <section id="definicoes" class="scroll-mt-20">
-          <div class="flex items-center gap-3 mb-4">
-            <div class="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center">
-              <svg class="w-5 h-5 text-brand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-            </div>
-            <h2 class="text-2xl font-bold text-gray-900">Definições</h2>
-          </div>
-          <div class="prose prose-gray max-w-none">
-            <p>Acede às definições pelo ícone de menu (hambúrguer) no canto superior esquerdo.</p>
-
-            <h3 class="text-lg font-semibold text-gray-800 mt-6">Opções disponíveis</h3>
-            <ul>
-              <li><strong>Idioma</strong> — Português, English, Español, Français</li>
-              <li><strong>Mudar password</strong> — Alterar a tua password de acesso</li>
-              <li><strong>Notificações push</strong> — Activar ou desactivar notificações no browser/telemóvel. Recebe alertas quando: um jogador entra/sai do teu jogo, alguém pede para entrar, resultados são submetidos, convites de parceiro, novo seguidor, etc.</li>
-              <li><strong>Privacidade</strong> — Informação sobre visibilidade do teu perfil, dados recolhidos e opção de eliminação de conta</li>
-              <li><strong>Os seus Pagamentos</strong> — Atalho para o ecrã de pagamentos</li>
-              <li><strong>Terminar sessão</strong> — Sair da conta</li>
-            </ul>
+            <p>Contacto: <a href="mailto:info@boostpadel.store" class="text-brand">info@boostpadel.store</a> · WhatsApp +351 969 365 059</p>
           </div>
         </section>
 
       </div>
 
-      <!-- FAQ -->
-      <div class="mt-20 pt-10 border-t border-gray-200">
-        <h2 class="text-2xl font-bold text-gray-900 mb-6">Perguntas Frequentes</h2>
-        <div class="space-y-4">
-          <details class="group bg-gray-50 rounded-xl">
-            <summary class="flex items-center justify-between cursor-pointer px-5 py-4 text-sm font-medium text-gray-800">
-              Como é calculado o meu nível?
-              <svg class="w-4 h-4 text-gray-400 group-open:rotate-180 transition-transform" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
-            </summary>
-            <div class="px-5 pb-4 text-sm text-gray-600">O nível é calculado pelo sistema ELO. Começa com a avaliação do questionário inicial (12 perguntas) e depois é ajustado automaticamente com os resultados dos teus jogos. Vitórias contra jogadores mais fortes sobem mais o teu nível.</div>
-          </details>
-          <details class="group bg-gray-50 rounded-xl">
-            <summary class="flex items-center justify-between cursor-pointer px-5 py-4 text-sm font-medium text-gray-800">
-              Posso inscrever-me em várias categorias do mesmo torneio?
-              <svg class="w-4 h-4 text-gray-400 group-open:rotate-180 transition-transform" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
-            </summary>
-            <div class="px-5 pb-4 text-sm text-gray-600">Sim! Podes inscrever-te em categorias diferentes do mesmo torneio (por exemplo, Masculinos e Mistos). A única restrição é que não podes inscrever-te duas vezes na mesma categoria.</div>
-          </details>
-          <details class="group bg-gray-50 rounded-xl">
-            <summary class="flex items-center justify-between cursor-pointer px-5 py-4 text-sm font-medium text-gray-800">
-              Como funciona o pagamento online?
-              <svg class="w-4 h-4 text-gray-400 group-open:rotate-180 transition-transform" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
-            </summary>
-            <div class="px-5 pb-4 text-sm text-gray-600">Quando o clube suporta pagamento online, podes pagar a tua parte do jogo via Stripe directamente na app. Os pagamentos são seguros e processados pela Stripe. Podes ver o histórico completo em "Os seus Pagamentos".</div>
-          </details>
-          <details class="group bg-gray-50 rounded-xl">
-            <summary class="flex items-center justify-between cursor-pointer px-5 py-4 text-sm font-medium text-gray-800">
-              Como encontro parceiro para um torneio?
-              <svg class="w-4 h-4 text-gray-400 group-open:rotate-180 transition-transform" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
-            </summary>
-            <div class="px-5 pb-4 text-sm text-gray-600">Abre o detalhe do torneio e toca em "Encontrar Parceiro". Escolhe a posição que procuras (Direita, Esquerda ou Ambos), se queres convidar qualquer jogador ou apenas quem segues, e a categoria. Os jogadores compatíveis recebem uma notificação push.</div>
-          </details>
-          <details class="group bg-gray-50 rounded-xl">
-            <summary class="flex items-center justify-between cursor-pointer px-5 py-4 text-sm font-medium text-gray-800">
-              Posso usar a app em vários idiomas?
-              <svg class="w-4 h-4 text-gray-400 group-open:rotate-180 transition-transform" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
-            </summary>
-            <div class="px-5 pb-4 text-sm text-gray-600">Sim, a Padel One está disponível em Português, English, Español e Français. Podes mudar o idioma no menu lateral a qualquer momento.</div>
-          </details>
-        </div>
-      </div>
-
-      <!-- Contact -->
-      <div class="mt-16 bg-gray-50 rounded-2xl p-6 sm:p-8 text-center">
-        <h3 class="text-lg font-bold text-gray-900 mb-2">Ainda tens dúvidas?</h3>
-        <p class="text-sm text-gray-500 mb-4">Entra em contacto connosco e teremos todo o gosto em ajudar.</p>
-        <div class="flex flex-col sm:flex-row items-center justify-center gap-3">
-          <a href="https://wa.me/351969365059" target="_blank" class="inline-flex items-center gap-2 px-5 py-2.5 bg-[#25D366] hover:bg-[#1DA851] text-white text-sm font-semibold rounded-xl transition">
-            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
-            WhatsApp
-          </a>
-          <a href="mailto:info@boostpadel.store" class="inline-flex items-center gap-2 px-5 py-2.5 bg-brand hover:bg-brandDark text-white text-sm font-semibold rounded-xl transition">
-            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
-            info@boostpadel.store
-          </a>
-        </div>
-      </div>
-
+      <footer class="mt-16 pt-8 border-t border-gray-100 text-sm text-gray-400 pb-10">
+        Padel One Player · Ajuda actualizada para a versão do jogador (bolinhas Rankings · Torneios · Resultados · Registar resultado)
+      </footer>
     </main>
   </div>
 
-  <!-- Back to top -->
-  <button id="backToTop" onclick="window.scrollTo({top:0})" class="fixed bottom-6 right-6 z-40 w-10 h-10 bg-brand text-white rounded-full shadow-lg flex items-center justify-center opacity-0 pointer-events-none transition-opacity hover:bg-brandDark">
-    <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"/></svg>
-  </button>
-
-  <!-- Footer -->
-  <footer class="border-t border-gray-200 mt-16">
-    <div class="max-w-7xl mx-auto px-4 py-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-gray-400">
-      <span>&copy; 2026 Padel One. Todos os direitos reservados.</span>
-      <div class="flex gap-6">
-        <a href="/" class="hover:text-gray-600 transition">App</a>
-        <a href="https://wa.me/351969365059" target="_blank" class="hover:text-gray-600 transition">WhatsApp</a>
-        <a href="mailto:info@boostpadel.store" class="hover:text-gray-600 transition">Email</a>
-      </div>
-    </div>
-  </footer>
+  <button id="backToTop" type="button" onclick="window.scrollTo({top:0,behavior:'smooth'})" class="fixed bottom-6 right-6 z-40 w-10 h-10 bg-brand text-white rounded-full shadow-lg flex items-center justify-center opacity-0 pointer-events-none transition-opacity hover:bg-brandDark" aria-label="Topo">↑</button>
 
   <script>
-    // Mobile menu
-    const mobileMenuBtn = document.getElementById('mobileMenuBtn');
-    const mobileSidebar = document.getElementById('mobileSidebar');
-    const mobileOverlay = document.getElementById('mobileOverlay');
-
-    mobileMenuBtn.addEventListener('click', () => {
-      mobileSidebar.classList.toggle('-translate-x-full');
-      mobileOverlay.classList.toggle('hidden');
-    });
-
     function closeMobileMenu() {
-      mobileSidebar.classList.add('-translate-x-full');
-      mobileOverlay.classList.add('hidden');
+      document.getElementById('mobileSidebar').classList.add('-translate-x-full')
+      document.getElementById('mobileOverlay').classList.add('hidden')
     }
-
-    // Active sidebar link on scroll
-    const sections = document.querySelectorAll('section[id]');
-    const sidebarLinks = document.querySelectorAll('.sidebar-link');
-
-    function updateActiveLink() {
-      const scrollY = window.scrollY + 100;
-      let current = '';
-      sections.forEach(section => {
-        if (section.offsetTop <= scrollY) current = section.id;
-      });
-      sidebarLinks.forEach(link => {
-        link.classList.toggle('active', link.getAttribute('href') === '#' + current);
-      });
+    document.getElementById('mobileMenuBtn')?.addEventListener('click', () => {
+      document.getElementById('mobileSidebar').classList.remove('-translate-x-full')
+      document.getElementById('mobileOverlay').classList.remove('hidden')
+    })
+    const links = document.querySelectorAll('.sidebar-link')
+    const sections = [...document.querySelectorAll('main section[id]')]
+    const onScroll = () => {
+      const y = window.scrollY + 100
+      let current = sections[0]?.id
+      for (const s of sections) if (s.offsetTop <= y) current = s.id
+      links.forEach(a => a.classList.toggle('active', a.getAttribute('href') === '#' + current))
+      const btn = document.getElementById('backToTop')
+      if (window.scrollY > 400) { btn.classList.remove('opacity-0','pointer-events-none'); btn.classList.add('opacity-100') }
+      else { btn.classList.add('opacity-0','pointer-events-none'); btn.classList.remove('opacity-100') }
     }
-
-    window.addEventListener('scroll', updateActiveLink);
-    updateActiveLink();
-
-    // Back to top
-    const backToTop = document.getElementById('backToTop');
-    window.addEventListener('scroll', () => {
-      if (window.scrollY > 400) {
-        backToTop.classList.remove('opacity-0', 'pointer-events-none');
-        backToTop.classList.add('opacity-100');
-      } else {
-        backToTop.classList.add('opacity-0', 'pointer-events-none');
-        backToTop.classList.remove('opacity-100');
-      }
-    });
+    window.addEventListener('scroll', onScroll, { passive: true })
+    onScroll()
   </script>
-
 </body>
 </html>
