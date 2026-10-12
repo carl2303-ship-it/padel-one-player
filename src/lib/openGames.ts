@@ -2428,7 +2428,8 @@ async function processOpenGameRating(gameId: string): Promise<void> {
   const ratingResult = calculateNewRatings(
     { p1, p2 },
     { p3, p4 },
-    { sets1, sets2, gamesTotal1, gamesTotal2 }
+    { sets1, sets2, gamesTotal1, gamesTotal2 },
+    { isTournament: false },
   )
 
   if (ratingResult.skipped) {

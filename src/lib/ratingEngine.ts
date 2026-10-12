@@ -1,22 +1,43 @@
 /**
- * Padel One Rating Engine v3
+ * Padel One Rating Engine v4
  * Sistema ELO adaptado para Padel em Duplas
- * 
+ *
  * Escala: 0.5 (iniciante), sem limite superior (M1/F1 aberto)
  * Fiabilidade: 0% (0 jogos) a 100% (75+ jogos rated)
- * 
+ *
+ * v4:
+ * - Piso K em torneios (K_TOURNAMENT_FLOOR = 0.12) — evita estagnação de veteranos
+ * - Bónus fixo de pódio no encerramento (+0.10 campeão / +0.05 finalista)
+ * - Transparência UI: delta_base, k_factor_used, is_tournament_boost, bonus_applied
+ *
  * v3 Fixes:
  * - K-Factor SIGNIFICATIVAMENTE aumentado para jogadores novos (0.5 vs 0.12)
- *   para que o nível mude visivelmente após cada jogo
  * - Fórmula ELO com divisor ajustado (1.2 vs 2.0) para maior sensibilidade
  * - Intensidade do resultado melhorada (3 sets, vitória dominante, etc.)
  * - Fiabilidade protegida: nunca cai mais de 2% por jogo (preserva avaliação do clube)
  * - Empate (1-1 sets) tratado com base em games totais
- * - Logs detalhados para diagnóstico
  */
 
 import { supabase } from './supabase'
 import { reverseRatingForSource } from './levelHistory'
+
+// ============================================
+// Constants
+// ============================================
+
+/** Piso mínimo de K-factor em partidas de torneio (veteranos casuais descem a 0.06). */
+export const K_TOURNAMENT_FLOOR = 0.12
+
+/** Bónus ELO directo no encerramento do torneio. */
+export const PODIUM_BONUS_CHAMPION = 0.10
+export const PODIUM_BONUS_FINALIST = 0.05
+
+/** Pontos do ranking deslizante 12 meses (expiram via vista SQL). */
+export const RANKING_POINTS = {
+  tournament_winner: 100,
+  tournament_finalist: 60,
+  friendly_win: 10,
+} as const
 
 // ============================================
 // Types
@@ -37,17 +58,35 @@ export interface MatchScore {
   gamesTotal2: number  // total games won by team 2
 }
 
+/** Campos de transparência do cálculo ELO (UI / histórico). */
+export interface RatingTransparency {
+  delta_base: number
+  k_factor_used: number
+  is_tournament_boost: boolean
+  bonus_applied: number
+}
+
+export type RatedPlayerResult = PlayerRating & {
+  delta: number
+  won: boolean | null
+} & RatingTransparency
+
 export interface RatingResult {
   skipped?: boolean
   message?: string
   team1?: {
-    p1: PlayerRating & { delta: number; won: boolean | null }
-    p2: PlayerRating & { delta: number; won: boolean | null }
+    p1: RatedPlayerResult
+    p2: RatedPlayerResult
   }
   team2?: {
-    p3: PlayerRating & { delta: number; won: boolean | null }
-    p4: PlayerRating & { delta: number; won: boolean | null }
+    p3: RatedPlayerResult
+    p4: RatedPlayerResult
   }
+}
+
+export interface CalculateRatingsOptions {
+  /** true = torneio (aplica K_TOURNAMENT_FLOOR). false/omitido = casual/amigável. */
+  isTournament?: boolean
 }
 
 // ============================================
@@ -55,20 +94,51 @@ export interface RatingResult {
 // ============================================
 
 /**
+ * K-factor base por jogos rated (casual pode descer até 0.06).
+ */
+export function getBaseKFactor(matches: number): number {
+  if (matches < 5) return 0.50
+  if (matches < 10) return 0.35
+  if (matches < 20) return 0.25
+  if (matches < 40) return 0.15
+  if (matches < 60) return 0.10
+  return 0.06
+}
+
+/**
+ * K-factor efectivo: em torneio impõe piso K_TOURNAMENT_FLOOR.
+ */
+export function getKFactor(matches: number, isTournament = false): {
+  k: number
+  base: number
+  is_tournament_boost: boolean
+} {
+  const base = getBaseKFactor(matches)
+  if (!isTournament) {
+    return { k: base, base, is_tournament_boost: false }
+  }
+  const k = Math.max(base, K_TOURNAMENT_FLOOR)
+  return { k, base, is_tournament_boost: k > base }
+}
+
+/**
  * Calcula os novos ratings de 4 jogadores após um jogo de duplas.
  * Baseado no sistema ELO com adaptações para padel.
- * 
+ *
  * Escala 0.5-7.0 (range = 6.5). ELO clássico usa range ~2000.
  * K-Factor proporcional: K_classic=40 → K_padel = 40*(6.5/2000) ≈ 0.13 para veteranos.
  * Para novos jogadores: K muito mais alto para convergência rápida.
+ * Em torneio: K mínimo = K_TOURNAMENT_FLOOR (0.12).
  */
 export function calculateNewRatings(
   team1: { p1: PlayerRating; p2: PlayerRating },
   team2: { p3: PlayerRating; p4: PlayerRating },
-  score: MatchScore
+  score: MatchScore,
+  options?: CalculateRatingsOptions,
 ): RatingResult {
   const { p1, p2 } = team1
   const { p3, p4 } = team2
+  const isTournament = !!options?.isTournament
 
   // 1. Médias de Nível das Equipas
   const avg1 = (p1.rating + p2.rating) / 2
@@ -124,45 +194,42 @@ export function calculateNewRatings(
     intensity = 1.15  // Vitória clara (ex: 6-3, 6-3)
   }
 
-
-  // 6. K-Factor baseado em jogos RATED
-  // Muito mais alto para jogadores novos — convergência rápida do nível
-  const getKFactor = (matches: number): number => {
-    if (matches < 5) return 0.50    // Muito novo — convergência rápida
-    if (matches < 10) return 0.35   // Ainda novo
-    if (matches < 20) return 0.25   // A construir histórico
-    if (matches < 40) return 0.15   // Estabelecido
-    if (matches < 60) return 0.10   // Experiente
-    return 0.06                      // Veterano
+  // 6–7. K-Factor + Delta (com piso de torneio)
+  const calcPlayer = (
+    player: PlayerRating,
+    actual: number,
+    expected: number,
+    won: boolean | null,
+  ): RatedPlayerResult => {
+    const { k, is_tournament_boost } = getKFactor(player.matches, isTournament)
+    const delta_base = parseFloat((k * (actual - expected) * intensity).toFixed(4))
+    const bonus_applied = 0
+    const delta = delta_base + bonus_applied
+    const clamp = (val: number) => Math.max(0.5, Math.min(7.0, parseFloat(val.toFixed(2))))
+    return {
+      ...player,
+      rating: clamp(player.rating + delta),
+      delta,
+      matches: player.matches + 1,
+      won,
+      delta_base,
+      k_factor_used: k,
+      is_tournament_boost,
+      bonus_applied,
+    }
   }
 
-  // 7. Cálculo do Delta
-  const calculateDelta = (player: PlayerRating, actual: number, expected: number, intens: number): number => {
-    const K = getKFactor(player.matches)
-    const change = K * (actual - expected) * intens
-    return parseFloat(change.toFixed(4))
-  }
-
-  const delta1 = calculateDelta(p1, actual1, expected1, intensity)
-  const delta2 = calculateDelta(p2, actual1, expected1, intensity)
-  const delta3 = calculateDelta(p3, 1 - actual1, 1 - expected1, intensity)
-  const delta4 = calculateDelta(p4, 1 - actual1, 1 - expected1, intensity)
-
-  // 8. Clamp para manter dentro da escala 0.5 - 7.0
-  const clamp = (val: number) => Math.max(0.5, Math.min(7.0, parseFloat(val.toFixed(2))))
-
-  // 9. Determinar quem ganhou/perdeu
+  // 8. Determinar quem ganhou/perdeu
   const team1Won = actual1 >= 0.6 ? true : actual1 <= 0.4 ? false : null
-
 
   return {
     team1: {
-      p1: { ...p1, rating: clamp(p1.rating + delta1), delta: delta1, matches: p1.matches + 1, won: team1Won },
-      p2: { ...p2, rating: clamp(p2.rating + delta2), delta: delta2, matches: p2.matches + 1, won: team1Won },
+      p1: calcPlayer(p1, actual1, expected1, team1Won),
+      p2: calcPlayer(p2, actual1, expected1, team1Won),
     },
     team2: {
-      p3: { ...p3, rating: clamp(p3.rating + delta3), delta: delta3, matches: p3.matches + 1, won: team1Won === null ? null : !team1Won },
-      p4: { ...p4, rating: clamp(p4.rating + delta4), delta: delta4, matches: p4.matches + 1, won: team1Won === null ? null : !team1Won },
+      p3: calcPlayer(p3, 1 - actual1, 1 - expected1, team1Won === null ? null : !team1Won),
+      p4: calcPlayer(p4, 1 - actual1, 1 - expected1, team1Won === null ? null : !team1Won),
     },
   }
 }
@@ -232,6 +299,7 @@ export async function processMatchRating(
     .from('matches')
     .select(`
       id, team1_id, team2_id, status, rating_processed,
+      tournament_id, round, category_id,
       team1_score_set1, team2_score_set1,
       team1_score_set2, team2_score_set2,
       team1_score_set3, team2_score_set3,
@@ -422,17 +490,23 @@ export async function processMatchRating(
     return null
   }
 
-  const result = calculateNewRatings({ p1, p2 }, { p3, p4 }, score)
+  const isTournament = !!match.tournament_id
+  const result = calculateNewRatings({ p1, p2 }, { p3, p4 }, score, { isTournament })
 
   if (result.skipped) {
     // Mark so we don't retry forever on disparity skips
-    await supabase.rpc('mark_match_rating_processed', { p_match_id: matchId }).catch(() => {})
+    try {
+      await supabase.rpc('mark_match_rating_processed', { p_match_id: matchId })
+    } catch {
+      /* ignore */
+    }
     await supabase.from('matches').update({ rating_processed: true }).eq('id', matchId)
     return result
   }
 
   if (result.team1 && result.team2) {
     const allUpdatedPlayers = [result.team1.p1, result.team1.p2, result.team2.p3, result.team2.p4]
+    const matchType = isTournament ? 'tournament' : 'open_game'
 
     for (const rp of allUpdatedPlayers) {
       const formulaReliability = calculateReliability(rp.matches)
@@ -447,7 +521,7 @@ export async function processMatchRating(
         p_new_reliability: protectedReliability,
         p_match_won: rp.won,
         p_source_id: matchId,
-        p_match_type: 'tournament',
+        p_match_type: matchType,
       })
 
       if (error) {
@@ -471,13 +545,15 @@ export async function processMatchRating(
       console.error('[RatingEngine] Error marking match as processed:', matchId, markError)
     }
 
-    const logPlayer = (before: PlayerRating, after: PlayerRating & { delta: number }) => {
-      const K = getKFactorForLog(after.matches)
+    // Encerramento: final de torneio → bónus de pódio + pontos ranking 12m
+    const round = String(match.round || '').toLowerCase()
+    if (isTournament && (round === 'final' || round === 'mixed_final')) {
+      try {
+        await applyTournamentPodiumBonuses(match.tournament_id as string, match.category_id as string | null)
+      } catch (err) {
+        console.error('[RatingEngine] Podium bonus failed for tournament:', match.tournament_id, err)
+      }
     }
-    logPlayer(p1, result.team1.p1)
-    logPlayer(p2, result.team1.p2)
-    logPlayer(p3, result.team2.p3)
-    logPlayer(p4, result.team2.p4)
   }
 
   return result
@@ -514,14 +590,284 @@ export async function reprocessMatchRating(matchId: string): Promise<RatingResul
   return processMatchRating(matchId, undefined, { force: true })
 }
 
-// Helper for logging
-function getKFactorForLog(matches: number): number {
-  if (matches < 5) return 0.50
-  if (matches < 10) return 0.35
-  if (matches < 20) return 0.25
-  if (matches < 40) return 0.15
-  if (matches < 60) return 0.10
-  return 0.06
+// ============================================
+// Pódio (encerramento de torneio)
+// ============================================
+
+export interface PodiumBonusResult {
+  applied: boolean
+  message?: string
+  champions: Array<RatedPlayerResult & { player_account_id: string }>
+  finalists: Array<RatedPlayerResult & { player_account_id: string }>
+}
+
+/**
+ * Aplica bónus fixo de pódio no encerramento do torneio:
+ * Campeão +0.10 / Finalista +0.05 no Rating ELO (sem incrementar rated_matches).
+ * Regista também pontos no ranking deslizante de 12 meses.
+ * Idempotente: se já houver transações de pódio para o torneio, não reaplica.
+ */
+export async function applyTournamentPodiumBonuses(
+  tournamentId: string,
+  categoryId?: string | null,
+): Promise<PodiumBonusResult> {
+  const empty: PodiumBonusResult = { applied: false, champions: [], finalists: [] }
+
+  const { data: tournament } = await supabase
+    .from('tournaments')
+    .select('id, club_id')
+    .eq('id', tournamentId)
+    .maybeSingle()
+
+  // No ecossistema Padel ONE, organization_id do ranking 12m = club_id do torneio
+  const organizationId = (tournament?.club_id as string | null) || null
+
+  // Resolver campeões (final_position=1) e finalistas (final_position=2)
+  let championPlayerIds: string[] = []
+  let finalistPlayerIds: string[] = []
+
+  let teamsQuery = supabase
+    .from('teams')
+    .select('id, player1_id, player2_id, final_position, category_id')
+    .eq('tournament_id', tournamentId)
+    .in('final_position', [1, 2])
+
+  if (categoryId) {
+    teamsQuery = teamsQuery.eq('category_id', categoryId)
+  }
+
+  const { data: podiumTeams } = await teamsQuery
+
+  if (podiumTeams && podiumTeams.length > 0) {
+    for (const t of podiumTeams) {
+      const ids = [t.player1_id, t.player2_id].filter(Boolean) as string[]
+      if (t.final_position === 1) championPlayerIds.push(...ids)
+      else if (t.final_position === 2) finalistPlayerIds.push(...ids)
+    }
+  }
+
+  // Fallback: jogadores individuais com final_position
+  if (championPlayerIds.length === 0 && finalistPlayerIds.length === 0) {
+    let playersQuery = supabase
+      .from('players')
+      .select('id, final_position, category_id, player_account_id, user_id')
+      .eq('tournament_id', tournamentId)
+      .in('final_position', [1, 2])
+
+    if (categoryId) {
+      playersQuery = playersQuery.eq('category_id', categoryId)
+    }
+
+    const { data: podiumPlayers } = await playersQuery
+    if (podiumPlayers) {
+      for (const p of podiumPlayers) {
+        if (p.final_position === 1) championPlayerIds.push(p.id)
+        else if (p.final_position === 2) finalistPlayerIds.push(p.id)
+      }
+    }
+  }
+
+  // Fallback: resultado da final
+  if (championPlayerIds.length === 0) {
+    let finalQuery = supabase
+      .from('matches')
+      .select(`
+        id, team1_id, team2_id, round, status,
+        team1_score_set1, team2_score_set1,
+        team1_score_set2, team2_score_set2,
+        team1_score_set3, team2_score_set3,
+        player1_individual_id, player2_individual_id,
+        player3_individual_id, player4_individual_id
+      `)
+      .eq('tournament_id', tournamentId)
+      .eq('status', 'completed')
+      .in('round', ['final', 'mixed_final'])
+      .limit(1)
+
+    if (categoryId) {
+      finalQuery = finalQuery.eq('category_id', categoryId)
+    }
+
+    const { data: finals } = await finalQuery
+    const finalMatch = finals?.[0]
+    if (finalMatch) {
+      const s1 = (finalMatch.team1_score_set1 ?? 0) > (finalMatch.team2_score_set1 ?? 0) ? 1 : 0
+      const s2 = (finalMatch.team1_score_set2 ?? 0) > (finalMatch.team2_score_set2 ?? 0) ? 1 : 0
+      const s3 = (finalMatch.team1_score_set3 ?? 0) > (finalMatch.team2_score_set3 ?? 0) ? 1 : 0
+      const s1b = (finalMatch.team2_score_set1 ?? 0) > (finalMatch.team1_score_set1 ?? 0) ? 1 : 0
+      const s2b = (finalMatch.team2_score_set2 ?? 0) > (finalMatch.team1_score_set2 ?? 0) ? 1 : 0
+      const s3b = (finalMatch.team2_score_set3 ?? 0) > (finalMatch.team1_score_set3 ?? 0) ? 1 : 0
+      const sets1 = s1 + s2 + s3
+      const sets2 = s1b + s2b + s3b
+      const team1WonFinal = sets1 > sets2
+
+      if (finalMatch.player1_individual_id || finalMatch.player3_individual_id) {
+        const t1 = [finalMatch.player1_individual_id, finalMatch.player2_individual_id].filter(Boolean) as string[]
+        const t2 = [finalMatch.player3_individual_id, finalMatch.player4_individual_id].filter(Boolean) as string[]
+        championPlayerIds = team1WonFinal ? t1 : t2
+        finalistPlayerIds = team1WonFinal ? t2 : t1
+      } else if (finalMatch.team1_id && finalMatch.team2_id) {
+        const { data: teams } = await supabase
+          .from('teams')
+          .select('id, player1_id, player2_id')
+          .in('id', [finalMatch.team1_id, finalMatch.team2_id])
+        const t1 = teams?.find((t: any) => t.id === finalMatch.team1_id)
+        const t2 = teams?.find((t: any) => t.id === finalMatch.team2_id)
+        const ids1 = [t1?.player1_id, t1?.player2_id].filter(Boolean) as string[]
+        const ids2 = [t2?.player1_id, t2?.player2_id].filter(Boolean) as string[]
+        championPlayerIds = team1WonFinal ? ids1 : ids2
+        finalistPlayerIds = team1WonFinal ? ids2 : ids1
+      }
+    }
+  }
+
+  championPlayerIds = [...new Set(championPlayerIds)]
+  finalistPlayerIds = [...new Set(finalistPlayerIds)].filter((id) => !championPlayerIds.includes(id))
+
+  if (championPlayerIds.length === 0 && finalistPlayerIds.length === 0) {
+    return { ...empty, message: 'Não foi possível determinar campeões/finalistas' }
+  }
+
+  const allPlayerIds = [...championPlayerIds, ...finalistPlayerIds]
+  const { data: playersData } = await supabase
+    .from('players')
+    .select('id, name, user_id, player_account_id, phone_number')
+    .in('id', allPlayerIds)
+
+  if (!playersData || playersData.length === 0) {
+    return { ...empty, message: 'Jogadores do pódio não encontrados' }
+  }
+
+  const accountByPlayer = new Map<string, any>()
+  for (const p of playersData) {
+    let account: any = null
+    if ((p as any).player_account_id) {
+      const { data } = await supabase
+        .from('player_accounts')
+        .select('id, user_id, name, level, rated_matches')
+        .eq('id', (p as any).player_account_id)
+        .maybeSingle()
+      account = data
+    }
+    if (!account && p.user_id) {
+      const { data } = await supabase
+        .from('player_accounts')
+        .select('id, user_id, name, level, rated_matches')
+        .eq('user_id', p.user_id)
+        .maybeSingle()
+      account = data
+    }
+    if (account) accountByPlayer.set(p.id, account)
+  }
+
+  const champions: PodiumBonusResult['champions'] = []
+  const finalists: PodiumBonusResult['finalists'] = []
+  const pointRows: Array<{
+    user_id: string
+    organization_id: string
+    points_awarded: number
+    reason: string
+    reference_id: string
+  }> = []
+
+  const applyBonus = async (
+    playerId: string,
+    bonus: number,
+    reason: 'tournament_winner' | 'tournament_finalist',
+    rankingPoints: number,
+  ) => {
+    const acct = accountByPlayer.get(playerId)
+    if (!acct?.user_id) return null
+
+    // Idempotência por jogador+torneio+delta de pódio
+    const { data: already } = await supabase
+      .from('player_level_history')
+      .select('id')
+      .eq('player_account_id', acct.id)
+      .eq('source_id', tournamentId)
+      .eq('delta', bonus)
+      .limit(1)
+
+    if (already && already.length > 0) {
+      return null
+    }
+
+    const levelBefore = Number(acct.level ?? 3.0)
+    const levelAfter = Math.max(0.5, Math.min(7.0, parseFloat((levelBefore + bonus).toFixed(2))))
+    const matches = acct.rated_matches ?? 0
+
+    // Bónus directo — NÃO incrementa rated_matches / wins / losses
+    const { error: updErr } = await supabase
+      .from('player_accounts')
+      .update({ level: levelAfter, updated_at: new Date().toISOString() })
+      .eq('id', acct.id)
+
+    if (updErr) {
+      console.error('[RatingEngine] Podium level update failed:', acct.id, updErr)
+      return null
+    }
+
+    await supabase.from('player_level_history').insert({
+      player_account_id: acct.id,
+      level_before: parseFloat(levelBefore.toFixed(2)),
+      level_after: parseFloat(levelAfter.toFixed(2)),
+      delta: parseFloat(bonus.toFixed(4)),
+      match_type: 'tournament',
+      match_won: reason === 'tournament_winner' ? true : false,
+      source_id: tournamentId,
+    })
+
+    if (organizationId) {
+      pointRows.push({
+        user_id: acct.user_id,
+        organization_id: organizationId,
+        points_awarded: rankingPoints,
+        reason,
+        reference_id: tournamentId,
+      })
+    }
+
+    const { k, is_tournament_boost } = getKFactor(matches, true)
+    return {
+      id: acct.id,
+      user_id: acct.user_id,
+      name: acct.name || '',
+      rating: levelAfter,
+      matches,
+      delta: bonus,
+      won: reason === 'tournament_winner' ? true : false,
+      delta_base: 0,
+      k_factor_used: k,
+      is_tournament_boost,
+      bonus_applied: bonus,
+      player_account_id: acct.id,
+    }
+  }
+
+  for (const pid of championPlayerIds) {
+    const row = await applyBonus(pid, PODIUM_BONUS_CHAMPION, 'tournament_winner', RANKING_POINTS.tournament_winner)
+    if (row) champions.push(row)
+  }
+  for (const pid of finalistPlayerIds) {
+    const row = await applyBonus(pid, PODIUM_BONUS_FINALIST, 'tournament_finalist', RANKING_POINTS.tournament_finalist)
+    if (row) finalists.push(row)
+  }
+
+  if (pointRows.length > 0) {
+    const { error: ptsErr } = await supabase.from('ranking_point_transactions').insert(pointRows)
+    if (ptsErr) {
+      console.error('[RatingEngine] ranking_point_transactions insert failed:', ptsErr)
+    }
+  }
+
+  return {
+    applied: champions.length + finalists.length > 0,
+    champions,
+    finalists,
+    message: champions.length + finalists.length > 0
+      ? `Pódio aplicado: ${champions.length} campeão(ões), ${finalists.length} finalista(s)`
+      : 'Nenhum bónus aplicado',
+  }
 }
 
 export async function processAllUnratedMatches(
