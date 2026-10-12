@@ -2,7 +2,8 @@
  * Padel ONE / APC — Motor de Pontos do Ranking Deslizante (12 meses)
  *
  * Pontos são gravados em `ranking_point_transactions` e agregados pela vista
- * `rolling_12m_rankings` (expiram automaticamente após 12 meses).
+ * `rolling_12m_rankings` — soma de TODOS os pontos dos últimos 12 meses
+ * (por jogador × organização / clube).
  */
 
 import { supabase } from './supabase'
@@ -66,12 +67,15 @@ export interface Rolling12mEntry {
   user_id: string
   organization_id: string | null
   total_points: number
+  /** Nº de eventos/torneios/jogos com pontos nos últimos 12 meses. */
   total_events: number
+  counted_events: number
   last_activity: string | null
   position: number
   name: string
   avatar_url: string | null
   level: number
+  gender: 'male' | 'female' | null
 }
 
 // ============================================
@@ -491,15 +495,16 @@ export async function fetchRolling12mRankings(options?: {
   /** Se true e sem organizationId, agrega todos os clubes (Ranking Global). */
   global?: boolean
   search?: string
+  gender?: 'male' | 'female' | null
   limit?: number
 }): Promise<Rolling12mEntry[]> {
   const limit = options?.limit ?? 200
 
   let query = supabase
     .from('rolling_12m_rankings')
-    .select('user_id, organization_id, total_points, total_events, last_activity')
+    .select('user_id, organization_id, total_points, counted_events, total_events, last_activity')
     .order('total_points', { ascending: false })
-    .limit(Math.min(limit * 3, 1000))
+    .limit(Math.min(limit * 5, 2000))
 
   if (options?.organizationId && !options.global) {
     query = query.eq('organization_id', options.organizationId)
@@ -512,6 +517,9 @@ export async function fetchRolling12mRankings(options?: {
   }
 
   if (!rows || rows.length === 0) return []
+
+  const eventsOf = (r: { counted_events?: number | null; total_events?: number | null }) =>
+    Number(r.total_events ?? r.counted_events) || 0
 
   // Agregar globalmente se pedido
   type Agg = {
@@ -532,12 +540,12 @@ export async function fetchRolling12mRankings(options?: {
           user_id: r.user_id,
           organization_id: options?.organizationId || null,
           total_points: Number(r.total_points) || 0,
-          total_events: Number(r.total_events) || 0,
+          total_events: eventsOf(r),
           last_activity: r.last_activity,
         })
       } else {
         prev.total_points += Number(r.total_points) || 0
-        prev.total_events += Number(r.total_events) || 0
+        prev.total_events += eventsOf(r)
         if (r.last_activity && (!prev.last_activity || r.last_activity > prev.last_activity)) {
           prev.last_activity = r.last_activity
         }
@@ -549,47 +557,72 @@ export async function fetchRolling12mRankings(options?: {
       user_id: r.user_id,
       organization_id: r.organization_id,
       total_points: Number(r.total_points) || 0,
-      total_events: Number(r.total_events) || 0,
+      total_events: eventsOf(r),
       last_activity: r.last_activity,
     }))
   }
 
-  const userIds = aggregated.slice(0, limit).map((r) => r.user_id)
-  const { data: accounts } = await supabase
-    .from('player_accounts')
-    .select('id, user_id, name, avatar_url, level')
-    .in('user_id', userIds)
+  const userIds = aggregated.map((r) => r.user_id)
+  const accounts: Array<{
+    id: string
+    user_id: string
+    name: string
+    avatar_url: string | null
+    level: number | null
+    gender: string | null
+    player_category: string | null
+  }> = []
 
-  const byUser = new Map((accounts || []).map((a) => [a.user_id, a]))
+  for (let i = 0; i < userIds.length; i += 200) {
+    const chunk = userIds.slice(i, i + 200)
+    const { data } = await supabase
+      .from('player_accounts')
+      .select('id, user_id, name, avatar_url, level, gender, player_category')
+      .in('user_id', chunk)
+    if (data) accounts.push(...(data as any))
+  }
+
+  const byUser = new Map(accounts.map((a) => [a.user_id, a]))
   const search = (options?.search || '').trim().toLowerCase()
+  const genderFilter = options?.gender || null
+
+  const resolveGender = (acct?: {
+    gender?: string | null
+    player_category?: string | null
+  }): 'male' | 'female' | null => {
+    if (!acct) return null
+    if (acct.gender === 'male' || acct.gender === 'female') return acct.gender
+    const cat = (acct.player_category || '').toUpperCase()
+    if (cat.startsWith('M')) return 'male'
+    if (cat.startsWith('F')) return 'female'
+    return null
+  }
 
   const entries: Rolling12mEntry[] = []
-  let position = 0
   for (const row of aggregated) {
     const acct = byUser.get(row.user_id)
     const name = acct?.name || 'Jogador'
     if (search && !name.toLowerCase().includes(search)) continue
-    position += 1
+    const gender = resolveGender(acct)
+    if (genderFilter && gender !== genderFilter) continue
     entries.push({
       user_id: row.user_id,
       organization_id: row.organization_id,
       total_points: row.total_points,
       total_events: row.total_events,
+      counted_events: row.total_events,
       last_activity: row.last_activity,
-      position,
+      position: 0,
       name,
       avatar_url: acct?.avatar_url || null,
       level: Number(acct?.level ?? 0),
-    })
-    if (entries.length >= limit) break
-  }
-
-  // Re-numerar após filtro de pesquisa
-  if (search) {
-    entries.forEach((e, i) => {
-      e.position = i + 1
+      gender,
     })
   }
 
-  return entries
+  entries.forEach((e, i) => {
+    e.position = i + 1
+  })
+
+  return entries.slice(0, limit)
 }

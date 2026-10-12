@@ -101,6 +101,7 @@ export default function RankingsScreen({
       {mode === 'rolling12m' ? (
         <ClubRankingTab
           organizationId={club?.id}
+          organizationName={club?.name}
           userId={userId}
           onOpenPlayerProfile={(uid, opts) => onOpenPlayerProfile(uid, opts)}
         />
@@ -120,7 +121,7 @@ export default function RankingsScreen({
               disabled={!club}
               className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors ${scope === 'club' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'} disabled:opacity-40`}
             >
-              {club ? club.name : t.rankings.byClub}
+              {club ? `Ranking ${club.name}` : t.rankings.byClub}
             </button>
           </div>
 

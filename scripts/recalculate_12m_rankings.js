@@ -294,10 +294,10 @@ async function processCasual(sinceIso) {
 }
 
 async function printTop5() {
-  console.log('\n== Top 5 rolling_12m_rankings (global agregado) ==')
+  console.log('\n== Top 5 rolling_12m_rankings (Top 10 best / global agregado) ==')
   const { data, error } = await supabase
     .from('rolling_12m_rankings')
-    .select('user_id, organization_id, total_points, total_events, last_activity')
+    .select('user_id, organization_id, total_points, counted_events, total_events, last_activity')
     .order('total_points', { ascending: false })
     .limit(200)
 
@@ -310,7 +310,7 @@ async function printTop5() {
   for (const r of data || []) {
     const prev = agg.get(r.user_id) || { points: 0, events: 0 }
     prev.points += Number(r.total_points) || 0
-    prev.events += Number(r.total_events) || 0
+    prev.events += Number(r.counted_events ?? r.total_events) || 0
     agg.set(r.user_id, prev)
   }
 

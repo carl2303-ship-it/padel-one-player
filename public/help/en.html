@@ -59,7 +59,9 @@
     <aside id="sidebar" class="hidden lg:block w-64 shrink-0 sticky top-14 h-[calc(100vh-3.5rem)] overflow-y-auto border-r border-gray-100 py-6 px-4">
       <nav class="space-y-1" id="sidebarNav">
         <a href="#home" class="sidebar-link block py-2 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r transition">Home</a>
-        <a href="#account" class="sidebar-link block py-2 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r transition">Account &amp; Level</a>
+        <a href="#account" class="sidebar-link block py-2 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r transition">Account</a>
+        <a href="#niveis" class="sidebar-link block py-2 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r transition">ELO Levels</a>
+        <a href="#rankings" class="sidebar-link block py-2 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r transition">12‑Month Rankings</a>
         <a href="#booking" class="sidebar-link block py-2 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r transition">Book a Court</a>
         <a href="#find-game" class="sidebar-link block py-2 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r transition">Find a Game</a>
         <a href="#games" class="sidebar-link block py-2 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r transition">Games</a>
@@ -142,13 +144,13 @@
           </div>
         </section>
 
-        <!-- 2. Account & Level -->
+        <!-- 2. Account -->
         <section id="account" class="scroll-mt-20">
           <div class="flex items-center gap-3 mb-4">
             <div class="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center">
               <svg class="w-5 h-5 text-brand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>
             </div>
-            <h2 class="text-2xl font-bold text-gray-900">Account &amp; Level</h2>
+            <h2 class="text-2xl font-bold text-gray-900">Account</h2>
           </div>
           <div class="prose prose-gray max-w-none">
             <h3 class="text-lg font-semibold text-gray-800 mt-6">Registration</h3>
@@ -164,11 +166,31 @@
             </ul>
             <p>Based on your answers, the system calculates an <strong>initial level</strong> from 0.5 to 7.0.</p>
 
-            <h3 class="text-lg font-semibold text-gray-800 mt-6">ELO system</h3>
-            <p>After registration, your level is automatically adjusted based on game results. New players have larger variations for faster calibration. After roughly 30 games, the level stabilises. Clubs can also manually adjust your level.</p>
+            <p class="mt-4"><strong>Login uses your phone number + password</strong> (not email). Phone is your identity in Padel One.</p>
+          </div>
+        </section>
 
-            <h3 class="text-lg font-semibold text-gray-800 mt-6">Reliability</h3>
-            <p>The reliability percentage indicates how accurate your level is. The more games you play, the more reliable it becomes. It appears next to your level on your profile.</p>
+        <section id="niveis" class="scroll-mt-20">
+          <div class="flex items-center gap-3 mb-4">
+            <div class="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center">
+              <svg class="w-5 h-5 text-brand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
+            </div>
+            <h2 class="text-2xl font-bold text-gray-900">ELO Levels</h2>
+          </div>
+          <div class="prose prose-gray max-w-none">
+            <p>Level (0.5–7.0+) updates after each rated match. New players move faster; casual veterans can go down to K=0.06; <strong>tournaments use a K floor of 0.12</strong>. At finals: champion <strong>+0.10</strong>, finalist <strong>+0.05</strong>. Reliability never drops more than 2% per match. Category labels (M3/F4) are not the ELO rating.</p>
+          </div>
+        </section>
+
+        <section id="rankings" class="scroll-mt-20">
+          <div class="flex items-center gap-3 mb-4">
+            <div class="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center">
+              <svg class="w-5 h-5 text-brand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 21h8"/><path d="M12 17v4"/><path d="M7 4h10v4a5 5 0 0 1-10 0V4Z"/></svg>
+            </div>
+            <h2 class="text-2xl font-bold text-gray-900">12‑Month Rankings</h2>
+          </div>
+          <div class="prose prose-gray max-w-none">
+            <p><strong>Ranking Albufeira Padel Clube</strong> (per club) and <strong>Global Padel ONE</strong>, with men/women filters. All tournaments and validated games in the last 12 months count. Points by finish and tier (Master / Regular / Social); casual wins +15 / losses +5.</p>
           </div>
         </section>
 

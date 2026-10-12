@@ -78,17 +78,19 @@ CREATE POLICY "Allow authenticated insert ranking_point_transactions" ON ranking
   FOR INSERT TO authenticated
   WITH CHECK (true);
 
--- 2. ÚNICA VISTA SQL: Ranking Deslizante dos Últimos 12 Meses (Rolling 365 Days)
--- Calcula a soma dos pontos dos ultimos 12 meses em tempo real.
-CREATE OR REPLACE VIEW rolling_12m_rankings
+-- 2. Vista SQL: Ranking Deslizante dos Últimos 12 Meses (TODOS os eventos)
+DROP VIEW IF EXISTS rolling_12m_rankings;
+
+CREATE VIEW rolling_12m_rankings
 WITH (security_invoker = true)
 AS
 SELECT
   user_id,
   organization_id,
   SUM(points_awarded) AS total_points,
-  COUNT(DISTINCT reference_id) AS total_events,
-  MAX(created_at) AS last_activity
+  COUNT(DISTINCT reference_id)::bigint AS total_events,
+  MAX(created_at) AS last_activity,
+  COUNT(*)::bigint AS counted_events
 FROM ranking_point_transactions
 WHERE created_at >= (NOW() - INTERVAL '12 months')
 GROUP BY user_id, organization_id

@@ -59,7 +59,9 @@
     <aside id="sidebar" class="hidden lg:block w-64 shrink-0 sticky top-14 h-[calc(100vh-3.5rem)] overflow-y-auto border-r border-gray-100 py-6 px-4">
       <nav class="space-y-1" id="sidebarNav">
         <a href="#inicio" class="sidebar-link block py-2 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r transition">Início</a>
-        <a href="#conta" class="sidebar-link block py-2 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r transition">Criar Conta e Nível</a>
+        <a href="#conta" class="sidebar-link block py-2 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r transition">Criar Conta</a>
+        <a href="#niveis" class="sidebar-link block py-2 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r transition">Níveis ELO</a>
+        <a href="#rankings" class="sidebar-link block py-2 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r transition">Rankings 12 Meses</a>
         <a href="#reservar" class="sidebar-link block py-2 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r transition">Reservar Campo</a>
         <a href="#encontrar-jogo" class="sidebar-link block py-2 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r transition">Encontrar Jogo</a>
         <a href="#jogos" class="sidebar-link block py-2 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r transition">Jogos</a>
@@ -78,7 +80,9 @@
     <div id="mobileSidebar" class="fixed top-14 left-0 z-50 w-72 h-[calc(100vh-3.5rem)] bg-white border-r border-gray-200 overflow-y-auto py-6 px-4 transform -translate-x-full transition-transform duration-200 lg:hidden">
       <nav class="space-y-1" id="mobileSidebarNav">
         <a href="#inicio" onclick="closeMobileMenu()" class="sidebar-link block py-2.5 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r transition">Início</a>
-        <a href="#conta" onclick="closeMobileMenu()" class="sidebar-link block py-2.5 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r transition">Criar Conta e Nível</a>
+        <a href="#conta" onclick="closeMobileMenu()" class="sidebar-link block py-2.5 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r transition">Criar Conta</a>
+        <a href="#niveis" onclick="closeMobileMenu()" class="sidebar-link block py-2.5 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r transition">Níveis ELO</a>
+        <a href="#rankings" onclick="closeMobileMenu()" class="sidebar-link block py-2.5 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r transition">Rankings 12 Meses</a>
         <a href="#reservar" onclick="closeMobileMenu()" class="sidebar-link block py-2.5 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r transition">Reservar Campo</a>
         <a href="#encontrar-jogo" onclick="closeMobileMenu()" class="sidebar-link block py-2.5 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r transition">Encontrar Jogo</a>
         <a href="#jogos" onclick="closeMobileMenu()" class="sidebar-link block py-2.5 px-3 text-sm text-gray-600 hover:text-brand border-l-2 border-transparent rounded-r transition">Jogos</a>
@@ -98,7 +102,7 @@
       <!-- Hero -->
       <div class="mb-12">
         <h1 class="text-3xl sm:text-4xl font-bold text-gray-900 mb-3">Centro de Ajuda</h1>
-        <p class="text-lg text-gray-500 max-w-2xl">Tudo o que precisas de saber sobre a aplicação Padel One — desde criar conta até gerir os teus torneios e recompensas.</p>
+        <p class="text-lg text-gray-500 max-w-2xl">Guia actualizado da Padel One: conta, níveis ELO, ranking 12 meses por clube, jogos, torneios, comunidade e mais.</p>
       </div>
 
       <!-- Sections -->
@@ -151,24 +155,62 @@
             <h2 class="text-2xl font-bold text-gray-900">Criar Conta e Nível</h2>
           </div>
           <div class="prose prose-gray max-w-none">
-            <h3 class="text-lg font-semibold text-gray-800 mt-6">Registo</h3>
-            <p>Para criar conta precisas de: <strong>nome</strong>, <strong>email</strong>, <strong>telemóvel</strong> (com indicativo, ex: +351) e <strong>password</strong>. Após a criação, fazes login com email e password.</p>
+            <h3 class="text-lg font-semibold text-gray-800 mt-6">Registo e login</h3>
+            <p>Para criar conta precisas de: <strong>nome</strong>, <strong>telemóvel</strong> (identidade da conta), <strong>email</strong> (só contacto), <strong>género</strong> e <strong>password</strong>.</p>
+            <p class="mt-2"><strong>O login é sempre com o número de telemóvel + password</strong> — não com o email. O telefone é a identidade na Padel One.</p>
 
             <h3 class="text-lg font-semibold text-gray-800 mt-6">Questionário de avaliação</h3>
-            <p>Durante o registo, respondes a um questionário de <strong>12 perguntas</strong> divididas em 4 secções:</p>
+            <p>Durante o registo respondes a um questionário que estima o teu <strong>nível inicial</strong> (escala 0.5 a 7.0+).</p>
+          </div>
+        </section>
+
+        <!-- Níveis ELO -->
+        <section id="niveis" class="scroll-mt-20">
+          <div class="flex items-center gap-3 mb-4">
+            <div class="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center">
+              <svg class="w-5 h-5 text-brand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg>
+            </div>
+            <h2 class="text-2xl font-bold text-gray-900">Níveis ELO</h2>
+          </div>
+          <div class="prose prose-gray max-w-none">
+            <p>O <strong>nível</strong> (0.5 a 7.0+, sem teto rígido para M1/F1) actualiza-se após cada jogo rated — torneios e jogos abertos validados.</p>
             <ul>
-              <li><strong>Experiência</strong> — Há quanto tempo jogas padel e com que frequência</li>
-              <li><strong>Técnica</strong> — Como avalias a tua técnica geral</li>
-              <li><strong>Pancadas</strong> — Nível de conforto com voleia, bandeja, víbora, smash, lob, etc.</li>
-              <li><strong>Estratégia</strong> — Capacidade de posicionamento, leitura de jogo e comunicação com parceiro</li>
+              <li><strong>Jogadores novos</strong> — K-factor alto: o nível muda mais depressa para calibrar.</li>
+              <li><strong>Veteranos em jogos casuais</strong> — K pode descer até 0.06.</li>
+              <li><strong>Torneios</strong> — piso mínimo de K = 0.12, para o nível não estagnar.</li>
+              <li><strong>Pódio</strong> — no encerramento da final: campeão <strong>+0.10</strong>, finalista <strong>+0.05</strong> (sem contar como jogo extra).</li>
+              <li><strong>Fiabilidade</strong> — sobe com mais jogos; nunca cai mais de 2% por jogo (protege a avaliação do clube).</li>
+              <li><strong>Categoria M3/F4…</strong> — é etiqueta de inscrição, <em>não</em> substitui o rating ELO.</li>
             </ul>
-            <p>Com base nas respostas, o sistema calcula um <strong>nível inicial</strong> de 0.5 a 7.0.</p>
+            <p>Empates em sets usam games totais. Se a diferença média entre equipas for &gt; 2.0, o jogo pode ser ignorado para o ELO.</p>
+          </div>
+        </section>
 
-            <h3 class="text-lg font-semibold text-gray-800 mt-6">Sistema ELO</h3>
-            <p>Após o registo, o teu nível é ajustado automaticamente com base nos resultados dos teus jogos. Jogadores novos têm variações maiores para calibrar rapidamente. Após aproximadamente 30 jogos, o nível estabiliza. Os clubes também podem ajustar o teu nível manualmente.</p>
-
-            <h3 class="text-lg font-semibold text-gray-800 mt-6">Fiabilidade</h3>
-            <p>A percentagem de fiabilidade indica quão preciso é o teu nível. Quanto mais jogos jogares, mais fiável se torna. Aparece ao lado do teu nível no perfil.</p>
+        <!-- Rankings 12 meses -->
+        <section id="rankings" class="scroll-mt-20">
+          <div class="flex items-center gap-3 mb-4">
+            <div class="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center">
+              <svg class="w-5 h-5 text-brand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 21h8"/><path d="M12 17v4"/><path d="M7 4h10v4a5 5 0 0 1-10 0V4Z"/><path d="M17 8h1a4 4 0 0 0 0-8h-1"/><path d="M7 8H6a4 4 0 0 1 0-8h1"/></svg>
+            </div>
+            <h2 class="text-2xl font-bold text-gray-900">Rankings 12 Meses</h2>
+          </div>
+          <div class="prose prose-gray max-w-none">
+            <p>No ecrã <strong>Rankings</strong> encontras:</p>
+            <ul>
+              <li><strong>Ranking Albufeira Padel Clube</strong> (ou o nome do teu clube) — pontos só desse clube</li>
+              <li><strong>Ranking Global Padel ONE</strong> — soma de todos os clubes</li>
+              <li>Filtro <strong>Masculino / Feminino</strong></li>
+              <li>Separador <strong>Por Nível ELO</strong> — ordenação pelo rating actual</li>
+            </ul>
+            <p>Contam <strong>todos os torneios e jogos validados dos últimos 12 meses</strong>. Os pontos antigos deixam de contar automaticamente após 365 dias (não é preciso apagar dados).</p>
+            <h3 class="text-lg font-semibold text-gray-800 mt-6">Pontos por tier de torneio</h3>
+            <ul>
+              <li><strong>Master / Oficial APC</strong> — 1º 1000 · 2º 600 · 3º/4º 360 · quartos 180 · grupos 50</li>
+              <li><strong>Regular / Open</strong> — 1º 500 · 2º 300 · 3º/4º 180 · quartos 90 · grupos 25</li>
+              <li><strong>Americano / Social</strong> — 1º 250 · 2º 150 · 3º/4º 90 · quartos 45 · grupos 15</li>
+              <li><strong>Jogos casuais validados</strong> — vitória +15 · derrota +5 (assiduidade)</li>
+            </ul>
+            <p>Cada clube terá o seu próprio ranking (ex.: Ranking Padel Blu) quando estiver activo na app.</p>
           </div>
         </section>
 

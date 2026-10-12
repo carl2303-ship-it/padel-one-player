@@ -1,27 +1,36 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Search, Trophy } from 'lucide-react'
+import { ExternalLink, Search, Trophy } from 'lucide-react'
 import { levelColors } from '../lib/communityData'
 import {
   fetchRolling12mRankings,
   type Rolling12mEntry,
 } from '../lib/rankingEngine'
 import { findDefaultRankingClub } from '../lib/playerRankings'
+import { useI18n } from '../lib/i18nContext'
 
 type Scope = 'club' | 'global'
 
+const HELP_LEVELS_URL = 'https://padel1.app/help/#niveis'
+
 export default function ClubRankingTab({
   organizationId: organizationIdProp,
+  organizationName: organizationNameProp,
   userId,
   onOpenPlayerProfile,
 }: {
-  /** Club / organization scope. Se omitido, usa o clube APC por defeito. */
+  /** Club / organization scope. Se omitido, usa Albufeira Padel Clube. */
   organizationId?: string | null
+  organizationName?: string | null
   userId?: string | null
   onOpenPlayerProfile?: (userId: string, opts?: { nameHint?: string | null }) => void
 }) {
+  const { t } = useI18n()
   const [scope, setScope] = useState<Scope>('club')
+  const [gender, setGender] = useState<'male' | 'female'>('male')
   const [club, setClub] = useState<{ id: string; name: string } | null>(
-    organizationIdProp ? { id: organizationIdProp, name: 'Clube' } : null,
+    organizationIdProp
+      ? { id: organizationIdProp, name: organizationNameProp || 'Albufeira Padel Clube' }
+      : null,
   )
   const [search, setSearch] = useState('')
   const [deferredSearch, setDeferredSearch] = useState('')
@@ -30,17 +39,20 @@ export default function ClubRankingTab({
 
   useEffect(() => {
     if (organizationIdProp) {
-      setClub({ id: organizationIdProp, name: 'Clube' })
+      setClub({
+        id: organizationIdProp,
+        name: organizationNameProp || 'Albufeira Padel Clube',
+      })
       return
     }
     findDefaultRankingClub().then((c) => {
       if (c) setClub(c)
     })
-  }, [organizationIdProp])
+  }, [organizationIdProp, organizationNameProp])
 
   useEffect(() => {
-    const t = window.setTimeout(() => setDeferredSearch(search), 200)
-    return () => window.clearTimeout(t)
+    const tmr = window.setTimeout(() => setDeferredSearch(search), 200)
+    return () => window.clearTimeout(tmr)
   }, [search])
 
   useEffect(() => {
@@ -52,6 +64,7 @@ export default function ClubRankingTab({
           organizationId: scope === 'club' ? club?.id : null,
           global: scope === 'global',
           search: deferredSearch,
+          gender,
           limit: 150,
         })
         if (active) setEntries(data)
@@ -73,12 +86,17 @@ export default function ClubRankingTab({
     return () => {
       active = false
     }
-  }, [scope, club?.id, deferredSearch])
+  }, [scope, club?.id, deferredSearch, gender])
+
+  const clubRankingLabel = useMemo(() => {
+    const name = club?.name || 'Albufeira Padel Clube'
+    return `Ranking ${name}`
+  }, [club?.name])
 
   const subtitle = useMemo(() => {
-    if (scope === 'global') return 'Ranking Global Padel ONE — últimos 12 meses'
-    return club ? `${club.name} — últimos 12 meses` : 'Ranking do Clube — últimos 12 meses'
-  }, [scope, club])
+    if (scope === 'global') return 'Ranking Global Padel ONE — todos os torneios e jogos (12 meses)'
+    return `${clubRankingLabel} — todos os torneios e jogos (12 meses)`
+  }, [scope, clubRankingLabel])
 
   return (
     <div className="space-y-4">
@@ -87,16 +105,16 @@ export default function ClubRankingTab({
           type="button"
           onClick={() => setScope('club')}
           disabled={!club}
-          className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-40 ${
+          className={`flex-1 py-2 px-2 rounded-lg text-xs sm:text-sm font-semibold transition-colors disabled:opacity-40 leading-snug ${
             scope === 'club' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'
           }`}
         >
-          Ranking do Clube
+          {clubRankingLabel}
         </button>
         <button
           type="button"
           onClick={() => setScope('global')}
-          className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors ${
+          className={`flex-1 py-2 px-2 rounded-lg text-xs sm:text-sm font-semibold transition-colors leading-snug ${
             scope === 'global' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'
           }`}
         >
@@ -104,10 +122,45 @@ export default function ClubRankingTab({
         </button>
       </div>
 
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={() => setGender('male')}
+          className={`flex-1 py-2.5 rounded-xl text-sm font-semibold border transition-colors ${
+            gender === 'male'
+              ? 'bg-blue-600 text-white border-blue-600'
+              : 'bg-white text-gray-600 border-gray-200'
+          }`}
+        >
+          👨 {t.rankings.male}
+        </button>
+        <button
+          type="button"
+          onClick={() => setGender('female')}
+          className={`flex-1 py-2.5 rounded-xl text-sm font-semibold border transition-colors ${
+            gender === 'female'
+              ? 'bg-pink-600 text-white border-pink-600'
+              : 'bg-white text-gray-600 border-gray-200'
+          }`}
+        >
+          👩 {t.rankings.female}
+        </button>
+      </div>
+
       <p className="text-xs text-gray-500 flex items-center gap-1.5">
         <Trophy className="w-3.5 h-3.5 text-amber-500" />
         {subtitle}
       </p>
+
+      <a
+        href={HELP_LEVELS_URL}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex items-center gap-1.5 text-sm font-medium text-rose-600 hover:text-rose-700"
+      >
+        Saber mais sobre os níveis
+        <ExternalLink className="w-3.5 h-3.5" />
+      </a>
 
       <div className="relative">
         <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -129,7 +182,9 @@ export default function ClubRankingTab({
         <div className="card p-8 text-center">
           <span className="text-4xl block mb-2">📊</span>
           <p className="text-gray-600 font-medium">Sem pontos nos últimos 12 meses</p>
-          <p className="text-xs text-gray-400 mt-1">Torneios e jogos validados geram pontos automaticamente.</p>
+          <p className="text-xs text-gray-400 mt-1">
+            Torneios e jogos validados geram pontos automaticamente.
+          </p>
         </div>
       ) : (
         <div className="card overflow-hidden">
@@ -143,7 +198,7 @@ export default function ClubRankingTab({
           <div className="divide-y divide-gray-100">
             {entries.map((entry) => (
               <RollingRow
-                key={`${entry.user_id}-${entry.organization_id || 'g'}`}
+                key={`${entry.user_id}-${entry.organization_id || 'g'}-${gender}`}
                 entry={entry}
                 isMe={!!userId && entry.user_id === userId}
                 onOpenPlayerProfile={onOpenPlayerProfile}

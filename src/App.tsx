@@ -2997,14 +2997,18 @@ function InfoModal({ type, onClose }: { type: 'help' | 'howItWorks' | 'privacy';
       title: t.help.title,
       icon: HelpCircle,
       sections: [
+        { title: t.help.levelReliability, text: t.help.levelReliabilityText },
+        { title: (t.help as any).rankings || 'Rankings 12 Meses', text: (t.help as any).rankingsText || '' },
         { title: t.help.quickResult, text: t.help.quickResultText },
         { title: t.help.swapTeams, text: t.help.swapTeamsText },
+        { title: (t.help as any).compete || 'Competir', text: (t.help as any).competeText || '' },
+        { title: (t.help as any).communityHelp || t.howItWorks.community, text: (t.help as any).communityHelpText || t.howItWorks.communityText },
         { title: t.help.installApp, text: t.help.installAppText },
-        { title: t.help.contact, text: t.help.contactText },
         { title: t.help.accountProblems, text: t.help.accountProblemsText },
         { title: t.common.incorrectResults, text: t.common.incorrectResultsText },
-        { title: t.help.levelReliability, text: t.help.levelReliabilityText },
-      ]
+        { title: t.help.contact, text: t.help.contactText },
+      ].filter((s) => s.text),
+      footerLink: { label: (t.help as any).moreInHelpCenter || t.help.helpCenter, href: 'https://padel1.app/help/' },
     },
     howItWorks: {
       title: t.howItWorks.title,
@@ -3017,7 +3021,8 @@ function InfoModal({ type, onClose }: { type: 'help' | 'howItWorks' | 'privacy';
         { title: t.howItWorks.openGames, text: t.howItWorks.openGamesText },
         { title: t.howItWorks.quickResult, text: t.howItWorks.quickResultText },
         { title: t.howItWorks.swapTeams, text: t.howItWorks.swapTeamsText },
-      ]
+      ],
+      footerLink: { label: (t.help as any).moreInHelpCenter || t.help.helpCenter, href: 'https://padel1.app/help/' },
     },
     privacy: {
       title: t.privacy.title,
@@ -3027,11 +3032,17 @@ function InfoModal({ type, onClose }: { type: 'help' | 'howItWorks' | 'privacy';
         { title: t.privacy.visibility, text: t.privacy.visibilityText },
         { title: t.privacy.dataSharing, text: t.privacy.dataSharingText },
         { title: t.privacy.accountDeletion, text: t.privacy.accountDeletionText },
-      ]
+      ],
+      footerLink: undefined as { label: string; href: string } | undefined,
     }
   }
 
-  const { title, icon: Icon, sections } = content[type]
+  const { title, icon: Icon, sections, footerLink } = content[type] as {
+    title: string
+    icon: typeof HelpCircle
+    sections: Array<{ title: string; text: string }>
+    footerLink?: { label: string; href: string }
+  }
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center" onClick={onClose}>
@@ -3053,6 +3064,16 @@ function InfoModal({ type, onClose }: { type: 'help' | 'howItWorks' | 'privacy';
               <p className="text-sm text-gray-600 leading-relaxed whitespace-pre-line">{s.text}</p>
             </div>
           ))}
+          {footerLink && (
+            <a
+              href={footerLink.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block text-center text-sm font-semibold text-rose-600 hover:text-rose-700 pt-2 border-t border-gray-100"
+            >
+              {footerLink.label} →
+            </a>
+          )}
         </div>
       </div>
     </div>
