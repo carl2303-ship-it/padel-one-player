@@ -78,35 +78,21 @@ CREATE POLICY "Allow authenticated insert ranking_point_transactions" ON ranking
   FOR INSERT TO authenticated
   WITH CHECK (true);
 
--- 2. Vista SQL: Top 10 melhores resultados dos últimos 12 meses
--- (definição canónica actualizada em supabase_top10_12m_ranking.sql)
+-- 2. Vista SQL: Ranking Deslizante dos Últimos 12 Meses (TODOS os eventos)
 DROP VIEW IF EXISTS rolling_12m_rankings;
 
 CREATE VIEW rolling_12m_rankings
 WITH (security_invoker = true)
 AS
-WITH ranked_scores AS (
-  SELECT
-    user_id,
-    organization_id,
-    points_awarded,
-    created_at,
-    ROW_NUMBER() OVER (
-      PARTITION BY user_id, organization_id
-      ORDER BY points_awarded DESC, created_at DESC
-    ) AS score_rank
-  FROM ranking_point_transactions
-  WHERE created_at >= (NOW() - INTERVAL '12 months')
-)
 SELECT
   user_id,
   organization_id,
   SUM(points_awarded) AS total_points,
-  COUNT(score_rank)::bigint AS total_events,
+  COUNT(DISTINCT reference_id)::bigint AS total_events,
   MAX(created_at) AS last_activity,
-  COUNT(score_rank)::bigint AS counted_events
-FROM ranked_scores
-WHERE score_rank <= 10
+  COUNT(*)::bigint AS counted_events
+FROM ranking_point_transactions
+WHERE created_at >= (NOW() - INTERVAL '12 months')
 GROUP BY user_id, organization_id
 ORDER BY total_points DESC;
 

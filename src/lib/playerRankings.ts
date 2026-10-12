@@ -99,9 +99,11 @@ export async function fetchClubRankings(clubId: string): Promise<RankingsByGende
   return buildRankings((data || []) as RawRankingRow[])
 }
 
-/** Devolve o clube APC (ou o primeiro clube gerido) para rankings por clube. */
+/** Devolve o clube de ranking por defeito (Albufeira Padel Clube / APC). */
 export async function findDefaultRankingClub(): Promise<{ id: string; name: string } | null> {
   const clubs = await fetchAllClubs()
+  const albufeira = clubs.find(c => /albufeira\s*padel\s*clube/i.test(c.name))
+  if (albufeira) return { id: albufeira.id, name: albufeira.name }
   const apc = clubs.find(c => /\bAPC\b/i.test(c.name) || c.name.toUpperCase().includes('APC'))
   if (apc) return { id: apc.id, name: apc.name }
   if (clubs.length > 0) return { id: clubs[0].id, name: clubs[0].name }
