@@ -2,7 +2,8 @@
  * Padel ONE / APC — Motor de Pontos do Ranking Deslizante (12 meses)
  *
  * Pontos são gravados em `ranking_point_transactions` e agregados pela vista
- * `rolling_12m_rankings` (expiram automaticamente após 12 meses).
+ * `rolling_12m_rankings` — Top 10 melhores resultados dos últimos 12 meses
+ * (por jogador × organização; pontos mais antigos fora do top 10 não contam).
  */
 
 import { supabase } from './supabase'
@@ -66,7 +67,9 @@ export interface Rolling12mEntry {
   user_id: string
   organization_id: string | null
   total_points: number
+  /** Eventos contados no ranking (máx. 10 — regra Top 10 Best Results). */
   total_events: number
+  counted_events: number
   last_activity: string | null
   position: number
   name: string
@@ -497,7 +500,7 @@ export async function fetchRolling12mRankings(options?: {
 
   let query = supabase
     .from('rolling_12m_rankings')
-    .select('user_id, organization_id, total_points, total_events, last_activity')
+    .select('user_id, organization_id, total_points, counted_events, total_events, last_activity')
     .order('total_points', { ascending: false })
     .limit(Math.min(limit * 3, 1000))
 
@@ -512,6 +515,9 @@ export async function fetchRolling12mRankings(options?: {
   }
 
   if (!rows || rows.length === 0) return []
+
+  const eventsOf = (r: { counted_events?: number | null; total_events?: number | null }) =>
+    Number(r.counted_events ?? r.total_events) || 0
 
   // Agregar globalmente se pedido
   type Agg = {
@@ -532,12 +538,12 @@ export async function fetchRolling12mRankings(options?: {
           user_id: r.user_id,
           organization_id: options?.organizationId || null,
           total_points: Number(r.total_points) || 0,
-          total_events: Number(r.total_events) || 0,
+          total_events: eventsOf(r),
           last_activity: r.last_activity,
         })
       } else {
         prev.total_points += Number(r.total_points) || 0
-        prev.total_events += Number(r.total_events) || 0
+        prev.total_events += eventsOf(r)
         if (r.last_activity && (!prev.last_activity || r.last_activity > prev.last_activity)) {
           prev.last_activity = r.last_activity
         }
@@ -549,7 +555,7 @@ export async function fetchRolling12mRankings(options?: {
       user_id: r.user_id,
       organization_id: r.organization_id,
       total_points: Number(r.total_points) || 0,
-      total_events: Number(r.total_events) || 0,
+      total_events: eventsOf(r),
       last_activity: r.last_activity,
     }))
   }
@@ -575,6 +581,7 @@ export async function fetchRolling12mRankings(options?: {
       organization_id: row.organization_id,
       total_points: row.total_points,
       total_events: row.total_events,
+      counted_events: row.total_events,
       last_activity: row.last_activity,
       position,
       name,

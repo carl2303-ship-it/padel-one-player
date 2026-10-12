@@ -104,9 +104,12 @@ export default function ClubRankingTab({
         </button>
       </div>
 
-      <p className="text-xs text-gray-500 flex items-center gap-1.5">
+        <p className="text-xs text-gray-500 flex items-center gap-1.5">
         <Trophy className="w-3.5 h-3.5 text-amber-500" />
         {subtitle}
+      </p>
+      <p className="text-[11px] text-gray-400">
+        Contam apenas os 10 melhores resultados de cada jogador.
       </p>
 
       <div className="relative">
@@ -138,7 +141,7 @@ export default function ClubRankingTab({
             <span>Jogador</span>
             <span className="text-right">ELO</span>
             <span className="text-right">Pts</span>
-            <span className="text-right">Evt</span>
+            <span className="text-right">Top10</span>
           </div>
           <div className="divide-y divide-gray-100">
             {entries.map((entry) => (
