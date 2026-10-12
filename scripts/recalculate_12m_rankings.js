@@ -39,6 +39,11 @@ const CASUAL_WIN = 15
 const CASUAL_LOSS = 5
 
 function resolveTier(t) {
+  const explicit = String(t.ranking_tier || '').toLowerCase().trim()
+  if (explicit === 'master' || explicit === 'oficial' || explicit === 'oficial_apc') return 'master'
+  if (explicit === 'regular' || explicit === 'open') return 'regular'
+  if (explicit === 'social' || explicit === 'americano' || explicit === 'american') return 'social'
+
   const name = String(t.name || '').toUpperCase()
   const format = String(t.format || '').toLowerCase()
   const rr = String(t.round_robin_type || '').toLowerCase()
@@ -133,7 +138,7 @@ async function processTournaments(sinceIso) {
   console.log('\n== Torneios completed (12m) ==')
   const { data: tournaments, error } = await supabase
     .from('tournaments')
-    .select('id, name, format, round_robin_type, club_id, created_at, end_date, status')
+    .select('id, name, format, round_robin_type, ranking_tier, club_id, created_at, end_date, status')
     .eq('status', 'completed')
     .gte('created_at', sinceIso)
     .not('club_id', 'is', null)
