@@ -2,6 +2,9 @@ import { useState, useEffect } from 'react'
 import { ArrowLeft, TrendingUp } from 'lucide-react'
 import { useI18n } from '../../lib/i18nContext'
 import { levelColors } from '../../lib/communityData'
+import ClubRankingTab from '../ClubRankingTab'
+
+type Mode = 'level' | 'rolling12m'
 
 export default function RankingsScreen({
   userId,
@@ -15,6 +18,7 @@ export default function RankingsScreen({
   onOpenPlayerProfile: (userId: string, opts?: { accountId?: string | null; nameHint?: string | null }) => void
 }) {
   const { t } = useI18n()
+  const [mode, setMode] = useState<Mode>('rolling12m')
   const [scope, setScope] = useState<'general' | 'club'>('general')
   const [gender, setGender] = useState<'male' | 'female'>('male')
   const [loading, setLoading] = useState(true)
@@ -28,6 +32,7 @@ export default function RankingsScreen({
   }, [])
 
   useEffect(() => {
+    if (mode !== 'level') return
     let active = true
     setLoading(true)
     const load = async () => {
@@ -47,7 +52,7 @@ export default function RankingsScreen({
     }
     load()
     return () => { active = false }
-  }, [scope, club?.id])
+  }, [mode, scope, club?.id])
 
   const list = gender === 'male' ? rankings.male : rankings.female
 
@@ -69,76 +74,107 @@ export default function RankingsScreen({
           <TrendingUp className="w-6 h-6 text-rose-500" />
           {t.rankings.title}
         </h1>
-        <p className="text-xs text-gray-500 mt-1">{t.rankings.basedOnLevel}</p>
+        <p className="text-xs text-gray-500 mt-1">
+          {mode === 'rolling12m'
+            ? 'Pontos dos últimos 12 meses (torneios + jogos validados)'
+            : t.rankings.basedOnLevel}
+        </p>
       </div>
 
       <div className="flex gap-2 p-1 bg-gray-100 rounded-xl">
         <button
           type="button"
-          onClick={() => setScope('general')}
-          className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors ${scope === 'general' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}
+          onClick={() => setMode('rolling12m')}
+          className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors ${mode === 'rolling12m' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}
         >
-          {t.rankings.general}
+          Ranking 12 Meses
         </button>
         <button
           type="button"
-          onClick={() => setScope('club')}
-          disabled={!club}
-          className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors ${scope === 'club' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'} disabled:opacity-40`}
+          onClick={() => setMode('level')}
+          className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors ${mode === 'level' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}
         >
-          {club ? club.name : t.rankings.byClub}
+          Por Nível ELO
         </button>
       </div>
 
-      <div className="flex gap-2">
-        <button
-          type="button"
-          onClick={() => setGender('male')}
-          className={`flex-1 py-2.5 rounded-xl text-sm font-semibold border transition-colors ${gender === 'male' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200'}`}
-        >
-          👨 {t.rankings.male}
-        </button>
-        <button
-          type="button"
-          onClick={() => setGender('female')}
-          className={`flex-1 py-2.5 rounded-xl text-sm font-semibold border transition-colors ${gender === 'female' ? 'bg-pink-600 text-white border-pink-600' : 'bg-white text-gray-600 border-gray-200'}`}
-        >
-          👩 {t.rankings.female}
-        </button>
-      </div>
-
-      {loading ? (
-        <div className="card p-10 text-center">
-          <div className="animate-spin w-8 h-8 border-2 border-rose-500 border-t-transparent rounded-full mx-auto mb-3" />
-          <p className="text-sm text-gray-500">{t.rankings.loading}</p>
-        </div>
-      ) : list.length === 0 ? (
-        <div className="card p-8 text-center">
-          <span className="text-4xl block mb-2">📊</span>
-          <p className="text-gray-600 font-medium">{t.rankings.noPlayers}</p>
-        </div>
+      {mode === 'rolling12m' ? (
+        <ClubRankingTab
+          organizationId={club?.id}
+          userId={userId}
+          onOpenPlayerProfile={(uid, opts) => onOpenPlayerProfile(uid, opts)}
+        />
       ) : (
-        <div className="card overflow-hidden">
-          <div className="grid grid-cols-[3rem_1fr_4rem] gap-2 px-4 py-2 bg-gray-50 border-b border-gray-100 text-[11px] font-semibold text-gray-500 uppercase">
-            <span>{t.rankings.position}</span>
-            <span>{t.rankings.player}</span>
-            <span className="text-right">{t.rankings.level}</span>
+        <>
+          <div className="flex gap-2 p-1 bg-gray-100 rounded-xl">
+            <button
+              type="button"
+              onClick={() => setScope('general')}
+              className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors ${scope === 'general' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}
+            >
+              {t.rankings.general}
+            </button>
+            <button
+              type="button"
+              onClick={() => setScope('club')}
+              disabled={!club}
+              className={`flex-1 py-2 rounded-lg text-sm font-semibold transition-colors ${scope === 'club' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'} disabled:opacity-40`}
+            >
+              {club ? club.name : t.rankings.byClub}
+            </button>
           </div>
-          <div className="divide-y divide-gray-100">
-            {list.map((entry) => {
-              const isMe = entry.id === playerAccountId || (entry.user_id && entry.user_id === userId)
-              return (
-                <RankingRow
-                  key={entry.id}
-                  entry={entry}
-                  isMe={!!isMe}
-                  positionBadge={positionBadge(entry.position)}
-                  onOpenPlayerProfile={onOpenPlayerProfile}
-                />
-              )
-            })}
+
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setGender('male')}
+              className={`flex-1 py-2.5 rounded-xl text-sm font-semibold border transition-colors ${gender === 'male' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200'}`}
+            >
+              👨 {t.rankings.male}
+            </button>
+            <button
+              type="button"
+              onClick={() => setGender('female')}
+              className={`flex-1 py-2.5 rounded-xl text-sm font-semibold border transition-colors ${gender === 'female' ? 'bg-pink-600 text-white border-pink-600' : 'bg-white text-gray-600 border-gray-200'}`}
+            >
+              👩 {t.rankings.female}
+            </button>
           </div>
-        </div>
+
+          {loading ? (
+            <div className="card p-10 text-center">
+              <div className="animate-spin w-8 h-8 border-2 border-rose-500 border-t-transparent rounded-full mx-auto mb-3" />
+              <p className="text-sm text-gray-500">{t.rankings.loading}</p>
+            </div>
+          ) : list.length === 0 ? (
+            <div className="card p-8 text-center">
+              <span className="text-4xl block mb-2">📊</span>
+              <p className="text-gray-600 font-medium">{t.rankings.noPlayers}</p>
+            </div>
+          ) : (
+            <div className="card overflow-hidden">
+              <div className="grid grid-cols-[3rem_1fr_4rem] gap-2 px-4 py-2 bg-gray-50 border-b border-gray-100 text-[11px] font-semibold text-gray-500 uppercase">
+                <span>{t.rankings.position}</span>
+                <span>{t.rankings.player}</span>
+                <span className="text-right">{t.rankings.level}</span>
+              </div>
+              <div className="divide-y divide-gray-100">
+                {list.map((entry) => {
+                  const isMe = entry.id === playerAccountId || (entry.user_id && entry.user_id === userId)
+                  return (
+                    <RankingRow
+                      key={entry.id}
+                      entry={entry}
+                      isMe={!!isMe}
+                      positionBadge={positionBadge(entry.position)}
+                      onOpenPlayerProfile={onOpenPlayerProfile}
+                    />
+                  )
+                })}
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   )
@@ -190,4 +226,3 @@ function RankingRow({
     </button>
   )
 }
-
