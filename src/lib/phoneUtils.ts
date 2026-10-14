@@ -58,6 +58,22 @@ export function dialCodeForIso(iso: string): string {
   return COUNTRY_DIAL_CODES.find(c => c.iso === iso)?.dial || '351';
 }
 
+/** True se o utilizador escreveu/colou o indicativo (+…, 00… ou dígitos com prefixo conhecido). */
+export function hasExplicitCountryCode(phone: string | null | undefined): boolean {
+  const raw = (phone || '').trim().replace(/[\s\-\(\)\.]/g, '')
+  if (!raw) return false
+  if (raw.startsWith('+') || raw.startsWith('00')) return true
+
+  const digits = raw.replace(/\D/g, '')
+  if (!digits) return false
+
+  const dials = [...COUNTRY_DIAL_CODES.map(c => c.dial)].sort((a, b) => b.length - a.length)
+  for (const d of dials) {
+    if (digits.startsWith(d) && digits.length - d.length >= 6) return true
+  }
+  return false
+}
+
 function isPtMobile(digits: string): boolean {
   return /^9[1236]\d{7}$/.test(digits);
 }
@@ -153,6 +169,14 @@ export function normalizePhoneKey(phone: string | null | undefined): string {
 export function formatPhoneDisplay(phone: string | null | undefined): string {
   const digits = normalizePhone(phone);
   return digits ? '+' + digits : '';
+}
+
+/**
+ * Normaliza um único campo "número com indicativo" (sem dropdown de país).
+ * Aceita +351…, 00351…, 351…; no login ainda aceita móvel PT/UK sem +.
+ */
+export function parsePhoneWithDialCode(phone: string | null | undefined): string {
+  return formatPhoneDisplay(phone) || normalizePhone(phone)
 }
 
 /** Compare phones regardless of + prefix, spacing, or FR/ES dial mix-ups. */

@@ -113,10 +113,8 @@ import { isPushSupported,
 import {
   normalizePhone,
   isValidPhone,
-  composeInternationalPhone,
-  COUNTRY_DIAL_CODES,
-  defaultCountryIso,
-  dialCodeForIso,
+  hasExplicitCountryCode,
+  parsePhoneWithDialCode,
   formatPhoneDisplay,
   phoneLookupCandidates,
   } from './lib/phoneUtils'
@@ -167,7 +165,6 @@ function App() {
   
   // Auth states
   const [phone, setPhone] = useState('')
-  const [loginCountryIso, setLoginCountryIso] = useState(() => defaultCountryIso(language))
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [authError, setAuthError] = useState('')
@@ -546,7 +543,8 @@ function App() {
       let playerAccount: any = null
 
       // Login via telefone - usa Edge Function como o Tour
-      const composedPhone = composeInternationalPhone(dialCodeForIso(loginCountryIso), phone)
+      // Campo único: número com indicativo (+351…). Aceita ainda móvel PT/UK sem + (legado).
+      const composedPhone = parsePhoneWithDialCode(phone)
       const normalizedPhone = normalizePhone(composedPhone) || normalizePhone(phone)
       const loginCandidates = phoneLookupCandidates(composedPhone || phone)
 
@@ -743,8 +741,6 @@ function App() {
       return <LoginScreen 
         phone={phone}
         setPhone={setPhone}
-        loginCountryIso={loginCountryIso}
-        setLoginCountryIso={setLoginCountryIso}
         password={password}
         setPassword={setPassword}
         showPassword={showPassword}
@@ -1274,11 +1270,9 @@ function NavItem({ icon: Icon, label, active, onClick }: {
   )
 }
 
-function LoginScreen({ phone, setPhone, loginCountryIso, setLoginCountryIso, password, setPassword, showPassword, setShowPassword, error, isLoading, onLogin, onRegister }: {
+function LoginScreen({ phone, setPhone, password, setPassword, showPassword, setShowPassword, error, isLoading, onLogin, onRegister }: {
   phone: string
   setPhone: (v: string) => void
-  loginCountryIso: string
-  setLoginCountryIso: (v: string) => void
   password: string
   setPassword: (v: string) => void
   showPassword: boolean
@@ -1312,7 +1306,6 @@ function LoginScreen({ phone, setPhone, loginCountryIso, setLoginCountryIso, pas
                   key={lang}
                   onClick={() => {
                     setLanguage(lang as any)
-                    setLoginCountryIso(defaultCountryIso(lang))
                     setLangOpen(false)
                   }}
                   className={`w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-left hover:bg-gray-50 transition-colors ${language === lang ? 'bg-red-50 text-red-700 font-semibold' : 'text-gray-700'}`}
@@ -1353,30 +1346,20 @@ function LoginScreen({ phone, setPhone, loginCountryIso, setLoginCountryIso, pas
             </div>
           )}
 
-          <div className="flex gap-2">
-            <select
-              value={loginCountryIso}
-              onChange={(e) => setLoginCountryIso(e.target.value)}
-              aria-label={t.register?.addCountryCode || 'Indicativo'}
-              className="w-[9.5rem] shrink-0 py-4 pl-2 pr-1 bg-gray-50 border border-gray-200 rounded-xl text-sm font-medium text-gray-800 focus:outline-none focus:border-red-500 focus:ring-2 focus:ring-red-500/20"
-            >
-              {COUNTRY_DIAL_CODES.map((c) => (
-                <option key={c.iso} value={c.iso}>
-                  {c.flag} +{c.dial} {c.name}
-                </option>
-              ))}
-            </select>
-            <div className="relative flex-1 min-w-0">
+          <div>
+            <div className="relative">
               <Smartphone className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
               <input
                 type="tel"
                 inputMode="tel"
+                autoComplete="tel"
                 placeholder={t.login.phonePlaceholder}
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
                 className="w-full pl-12 pr-4 py-4 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 placeholder-gray-400 focus:outline-none focus:border-red-500 focus:ring-2 focus:ring-red-500/20 transition-all"
               />
             </div>
+            <p className="mt-1.5 text-xs text-gray-500">{t.register?.phoneHint || 'Número com indicativo (ex.: +351…)'}</p>
           </div>
 
           <div className="relative">
@@ -2343,7 +2326,6 @@ function RegisterScreen({ onBack, onSuccess, returnTo }: {
   // Step 1: Dados pessoais
   const [name, setName] = useState('')
   const [regPhone, setRegPhone] = useState('')
-  const [regCountryIso, setRegCountryIso] = useState(() => defaultCountryIso(language))
   const [gender, setGender] = useState<'M' | 'F'>('M')
   const [email, setEmail] = useState('')
   const [regPassword, setRegPassword] = useState('')
@@ -2384,7 +2366,12 @@ function RegisterScreen({ onBack, onSuccess, returnTo }: {
     setSaving(true)
 
     try {
-      const fullPhone = composeInternationalPhone(dialCodeForIso(regCountryIso), regPhone)
+      if (!hasExplicitCountryCode(regPhone)) {
+        setError(t.register.addCountryCode)
+        setSaving(false)
+        return
+      }
+      const fullPhone = parsePhoneWithDialCode(regPhone)
       const normalizedPhone = formatPhoneDisplay(fullPhone) || normalizePhone(fullPhone)
 
       // Validações
@@ -2596,23 +2583,17 @@ function RegisterScreen({ onBack, onSuccess, returnTo }: {
             </div>
             <div>
               <label className="text-sm font-medium text-gray-700 mb-1 block">{t.register.phone}</label>
-              <div className="flex gap-2">
-                <select
-                  value={regCountryIso}
-                  onChange={e => setRegCountryIso(e.target.value)}
-                  aria-label={t.register.addCountryCode}
-                  className="w-[9.5rem] shrink-0 py-3 pl-2 pr-1 bg-gray-50 border border-gray-200 rounded-xl text-sm font-medium text-gray-800 focus:ring-2 focus:ring-red-500/20 focus:border-red-500"
-                >
-                  {COUNTRY_DIAL_CODES.map(c => (
-                    <option key={c.iso} value={c.iso}>
-                      {c.flag} +{c.dial} {c.name}
-                    </option>
-                  ))}
-                </select>
-                <div className="relative flex-1 min-w-0">
-                  <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                  <input value={regPhone} onChange={e => setRegPhone(e.target.value)} placeholder={t.register.phonePlaceholder} type="tel" inputMode="tel" className="w-full pl-11 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-red-500/20 focus:border-red-500" />
-                </div>
+              <div className="relative">
+                <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                <input
+                  value={regPhone}
+                  onChange={e => setRegPhone(e.target.value)}
+                  placeholder={t.register.phonePlaceholder}
+                  type="tel"
+                  inputMode="tel"
+                  autoComplete="tel"
+                  className="w-full pl-11 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-red-500/20 focus:border-red-500"
+                />
               </div>
               <p className="mt-1 text-xs text-gray-500">
                 {t.register.phoneHint}
@@ -2672,7 +2653,8 @@ function RegisterScreen({ onBack, onSuccess, returnTo }: {
                 setError('')
                 if (!name.trim()) { setError(t.register.nameRequired); return }
                 if (!regPhone.trim()) { setError(t.register.phoneRequired); return }
-                const fullPhone = composeInternationalPhone(dialCodeForIso(regCountryIso), regPhone)
+                if (!hasExplicitCountryCode(regPhone)) { setError(t.register.addCountryCode); return }
+                const fullPhone = parsePhoneWithDialCode(regPhone)
                 if (!isValidPhone(fullPhone)) { setError(t.register.addCountryCode); return }
                 if (!email.trim()) { setError(t.register.emailRequired); return }
                 if (regPassword.length < 6) { setError(t.register.passwordMin); return }
@@ -2821,7 +2803,7 @@ function RegisterScreen({ onBack, onSuccess, returnTo }: {
               <div className="border-t pt-3 grid grid-cols-2 gap-3 text-sm">
                 <div>
                   <p className="text-gray-500">{t.register.phoneLabel}</p>
-                  <p className="font-medium">{formatPhoneDisplay(composeInternationalPhone(dialCodeForIso(regCountryIso), regPhone)) || regPhone}</p>
+                  <p className="font-medium">{formatPhoneDisplay(parsePhoneWithDialCode(regPhone)) || regPhone}</p>
                 </div>
                 <div>
                   <p className="text-gray-500">{t.register?.gender || 'Género'}</p>
