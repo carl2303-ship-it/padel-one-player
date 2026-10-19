@@ -45,6 +45,7 @@ function ScreenLoadingFallback() {
 import {
   fetchPlayerDashboardData,
   enrichDashboardWithEdgeFunction,
+  emptyStats,
   type PlayerDashboardData,
   } from './lib/playerDashboardData'
 import { fetchPlayerAccountByPhone,
@@ -207,6 +208,29 @@ function App() {
   }, [clientModules, player?.favorite_club_id])
   const { isLiteMode, canBook, canFindGame, canLearn, canRewards } = playerFeatures
 
+  const clearDashboardSession = () => {
+    setDashboardData(null)
+    setEdgeEnrichedData(null)
+  }
+
+  const applyEdgeEnrichment = (enriched: Partial<PlayerDashboardData>) => {
+    // Nunca fazer merge com stats/recentMatches do utilizador anterior
+    setEdgeEnrichedData({
+      ...enriched,
+      stats: enriched.stats ?? { ...emptyStats },
+      recentMatches: enriched.recentMatches ?? [],
+    })
+    setDashboardData(prev => prev ? {
+      ...prev,
+      ...enriched,
+      stats: enriched.stats ?? { ...emptyStats },
+      recentMatches: enriched.recentMatches ?? prev.recentMatches ?? [],
+    } : prev)
+    if (enriched.stats) {
+      setPlayer(p => p ? { ...p, wins: enriched.stats!.wins, losses: enriched.stats!.losses } as any : p)
+    }
+  }
+
   useEffect(() => {
     if (!player?.favorite_club_id) {
       setClientModules(EMPTY_MODULES)
@@ -281,22 +305,7 @@ function App() {
           })
           setDashboardData(data)
           enrichDashboardWithEdgeFunction(data).then(enriched => {
-            if (enriched) {
-              setEdgeEnrichedData(prev => ({
-                ...prev,
-                ...enriched,
-                stats: enriched.stats ?? prev?.stats,
-                recentMatches: enriched.recentMatches ?? prev?.recentMatches,
-              }))
-              setDashboardData(prev => prev ? {
-                ...prev,
-                ...enriched,
-                stats: enriched.stats ?? prev.stats,
-              } : prev)
-              if (enriched.stats) {
-                setPlayer(p => p ? { ...p, wins: enriched.stats!.wins, losses: enriched.stats!.losses } as any : p)
-              }
-            }
+            if (enriched) applyEdgeEnrichment(enriched)
           })
         }
       }
@@ -372,10 +381,10 @@ function App() {
 
     // If no valid Supabase session, clear local state and force re-login
     if (!session) {
-      const savedPhone = localStorage.getItem('padel_one_player_phone')
-      if (savedPhone) {
-        // Session expired but phone is saved - user needs to re-login
-      }
+      clearDashboardSession()
+      setPlayer(null)
+      setAuthUserId(null)
+      setIsAuthenticated(false)
       setIsLoading(false)
       return
     }
@@ -401,22 +410,7 @@ function App() {
           })
           setDashboardData(dash)
           enrichDashboardWithEdgeFunction(dash).then(enriched => {
-            if (enriched) {
-              setEdgeEnrichedData(prev => ({
-                ...prev,
-                ...enriched,
-                stats: enriched.stats ?? prev?.stats,
-                recentMatches: enriched.recentMatches ?? prev?.recentMatches,
-              }))
-              setDashboardData(prev => prev ? {
-                ...prev,
-                ...enriched,
-                stats: enriched.stats ?? prev.stats,
-              } : prev)
-              if (enriched.stats) {
-                setPlayer(p => p ? { ...p, wins: enriched.stats!.wins, losses: enriched.stats!.losses } as any : p)
-              }
-            }
+            if (enriched) applyEdgeEnrichment(enriched)
           })
         }
         setIsLoading(false)
@@ -444,22 +438,7 @@ function App() {
         })
         setDashboardData(data)
         enrichDashboardWithEdgeFunction(data).then(enriched => {
-          if (enriched) {
-            setEdgeEnrichedData(prev => ({
-              ...prev,
-              ...enriched,
-              stats: enriched.stats ?? prev?.stats,
-              recentMatches: enriched.recentMatches ?? prev?.recentMatches,
-            }))
-            setDashboardData(prev => prev ? {
-              ...prev,
-              ...enriched,
-              stats: enriched.stats ?? prev.stats,
-            } : prev)
-            if (enriched.stats) {
-              setPlayer(p => p ? { ...p, wins: enriched.stats!.wins, losses: enriched.stats!.losses } as any : p)
-            }
-          }
+          if (enriched) applyEdgeEnrichment(enriched)
         })
         setIsLoading(false)
         return
@@ -478,24 +457,8 @@ function App() {
         phone_number: (player as any).phone_number ?? null,
       })
       setDashboardData(data)
-      // Enrich with Edge Function in background
       enrichDashboardWithEdgeFunction(data).then(enriched => {
-        if (enriched) {
-          setEdgeEnrichedData(prev => ({
-            ...prev,
-            ...enriched,
-            stats: enriched.stats ?? prev?.stats,
-            recentMatches: enriched.recentMatches ?? prev?.recentMatches,
-          }))
-          setDashboardData(prev => prev ? {
-            ...prev,
-            ...enriched,
-            stats: enriched.stats ?? prev.stats,
-          } : prev)
-          if (enriched.stats) {
-            setPlayer(p => p ? { ...p, wins: enriched.stats!.wins, losses: enriched.stats!.losses } as any : p)
-          }
-        }
+        if (enriched) applyEdgeEnrichment(enriched)
       })
     }
   }
@@ -618,6 +581,7 @@ function App() {
       )
 
       if (playerAccount) {
+        clearDashboardSession()
         setPlayer(playerAccount as any)
         setAuthUserId(authData?.user?.id || playerAccount.user_id || null)
         fetchPlayerClubs(playerAccount.id).then(ids => setPlayer(prev => prev ? { ...prev, club_ids: ids } as any : prev))
@@ -630,22 +594,7 @@ function App() {
           })
           setDashboardData(data)
           enrichDashboardWithEdgeFunction(data).then(enriched => {
-            if (enriched) {
-              setEdgeEnrichedData(prev => ({
-                ...prev,
-                ...enriched,
-                stats: enriched.stats ?? prev?.stats,
-                recentMatches: enriched.recentMatches ?? prev?.recentMatches,
-              }))
-              setDashboardData(prev => prev ? {
-                ...prev,
-                ...enriched,
-                stats: enriched.stats ?? prev.stats,
-              } : prev)
-              if (enriched.stats) {
-                setPlayer(p => p ? { ...p, wins: enriched.stats!.wins, losses: enriched.stats!.losses } as any : p)
-              }
-            }
+            if (enriched) applyEdgeEnrichment(enriched)
           })
         }
       }
@@ -662,7 +611,9 @@ function App() {
     await supabase.auth.signOut()
     localStorage.removeItem('padel_one_player_phone')
     setPlayer(null)
+    setAuthUserId(null)
     setIsAuthenticated(false)
+    clearDashboardSession()
     setPhone('')
     setPassword('')
   }
@@ -719,6 +670,8 @@ function App() {
           window.location.href = returnTo
           return
         }
+        // Impedir que stats/jogos do utilizador anterior fiquem no ecrã da conta nova
+        clearDashboardSession()
         setPlayer(pa as any)
         setAuthUserId(pa.user_id || null)
         setIsAuthenticated(true)
@@ -729,6 +682,9 @@ function App() {
         if (pa.user_id) {
           const data = await fetchPlayerDashboardData(pa.user_id, { id: pa.id, name: pa.name, phone_number: pa.phone_number })
           setDashboardData(data)
+          enrichDashboardWithEdgeFunction(data).then(enriched => {
+            if (enriched) applyEdgeEnrichment(enriched)
+          })
         }
       }} />
     }

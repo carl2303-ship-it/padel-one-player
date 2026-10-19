@@ -25,6 +25,7 @@ import ClubLeagueLineupModal, {
   isLineupPublic,
   lineupLockAt,
 } from '../ClubLeagueLineupModal'
+import ClubLeagueResultsModal from '../ClubLeagueResultsModal'
 
 type Tab = 'teams' | 'standings' | 'calendar' | 'history'
 type CalendarMode = 'matchdays' | 'teams'
@@ -62,6 +63,8 @@ export default function ClubLeagueScreen({
     confrontation: ClubLeagueConfrontationRow
     team: ClubLeagueTeamRow
   } | null>(null)
+  const [resultsConfrontation, setResultsConfrontation] =
+    useState<ClubLeagueConfrontationRow | null>(null)
 
   useEffect(() => {
     if (!selectedCategory && categories[0]?.id) setSelectedCategory(categories[0].id)
@@ -90,6 +93,16 @@ export default function ClubLeagueScreen({
     return m
   }, [bundle])
 
+  const myRosterTeamIds = useMemo(() => {
+    const ids = new Set<string>()
+    if (!playerAccountId) return ids
+    for (const team of bundle?.teams || []) {
+      const roster = team.club_league_players || []
+      if (roster.some((p) => p.player_account_id === playerAccountId)) ids.add(team.id)
+    }
+    return ids
+  }, [bundle, playerAccountId])
+
   const captainTeamIds = useMemo(() => {
     const ids = new Set<string>()
     if (!playerAccountId) return ids
@@ -108,6 +121,13 @@ export default function ClubLeagueScreen({
     }
     return ids
   }, [bundle, playerAccountId])
+
+  const canSubmitResults = (c: ClubLeagueConfrontationRow) => {
+    if (!c.home_team_id || !c.away_team_id) return false
+    return (
+      myRosterTeamIds.has(c.home_team_id) || myRosterTeamIds.has(c.away_team_id)
+    )
+  }
 
   const myCaptainTeam = useMemo(() => {
     for (const id of captainTeamIds) {
@@ -332,6 +352,27 @@ export default function ClubLeagueScreen({
     )
   }
 
+  const renderResultsButton = (c: ClubLeagueConfrontationRow) => {
+    if (!canSubmitResults(c)) return null
+    const hasResults = (gamesByConfrontation.get(c.id) || []).length > 0 || c.status === 'completed'
+    return (
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation()
+          setResultsConfrontation(c)
+        }}
+        className={`w-full mt-2 px-3 py-2.5 rounded-xl text-sm font-semibold ${
+          hasResults
+            ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+            : 'bg-emerald-600 text-white shadow-sm'
+        }`}
+      >
+        {hasResults ? 'Editar / corrigir resultado' : 'Submeter resultado (3 duplas)'}
+      </button>
+    )
+  }
+
   const renderConfrontationGames = (c: ClubLeagueConfrontationRow) => {
     const homeLineup = c.home_team_id
       ? lineupsByConfrontationTeam.get(`${c.id}:${c.home_team_id}`)
@@ -349,6 +390,7 @@ export default function ClubLeagueScreen({
           {renderLineupStatus(c, c.away_team_id, 'Fora')}
         </div>
         {renderCaptainLineupButton(c)}
+        {renderResultsButton(c)}
         {games.length === 0 ? (
           publicNow && homeLineup && awayLineup ? (
             <p className="text-xs text-gray-500 text-center py-1">Sem resultados de duplas ainda.</p>
@@ -386,9 +428,10 @@ export default function ClubLeagueScreen({
     const home = c.home_team_id ? teamById.get(c.home_team_id) : null
     const away = c.away_team_id ? teamById.get(c.away_team_id) : null
     const expanded = expandedConfrontationId === c.id
-    const isMyMatch =
+    const isMyCaptainMatch =
       (c.home_team_id && captainTeamIds.has(c.home_team_id)) ||
       (c.away_team_id && captainTeamIds.has(c.away_team_id))
+    const isMyRosterMatch = canSubmitResults(c)
 
     return (
       <div key={c.id} className="border border-gray-100 rounded-xl overflow-hidden">
@@ -431,8 +474,11 @@ export default function ClubLeagueScreen({
           </div>
         </button>
 
-        {isMyMatch && !expanded && (
-          <div className="px-3 pb-3">{renderCaptainLineupButton(c)}</div>
+        {!expanded && (isMyCaptainMatch || isMyRosterMatch) && (
+          <div className="px-3 pb-3 space-y-0">
+            {isMyCaptainMatch ? renderCaptainLineupButton(c) : null}
+            {isMyRosterMatch ? renderResultsButton(c) : null}
+          </div>
         )}
         {expanded && renderConfrontationGames(c)}
       </div>
@@ -819,10 +865,15 @@ export default function ClubLeagueScreen({
                                     )}
                                   </div>
                                 </button>
-                                {calendarTeamId &&
-                                  captainTeamIds.has(calendarTeamId) &&
-                                  !expanded && (
-                                    <div className="px-3 pb-3">{renderCaptainLineupButton(c)}</div>
+                                {!expanded &&
+                                  ((calendarTeamId && captainTeamIds.has(calendarTeamId)) ||
+                                    canSubmitResults(c)) && (
+                                    <div className="px-3 pb-3">
+                                      {calendarTeamId && captainTeamIds.has(calendarTeamId)
+                                        ? renderCaptainLineupButton(c)
+                                        : null}
+                                      {renderResultsButton(c)}
+                                    </div>
                                   )}
                                 {expanded && renderConfrontationGames(c)}
                               </div>
@@ -909,6 +960,42 @@ export default function ClubLeagueScreen({
           onClose={() => setLineupCtx(null)}
           onSuccess={() => {
             setLineupCtx(null)
+            void load()
+          }}
+        />
+      )}
+
+      {resultsConfrontation && (
+        <ClubLeagueResultsModal
+          confrontation={resultsConfrontation}
+          homeTeam={
+            resultsConfrontation.home_team_id
+              ? teamById.get(resultsConfrontation.home_team_id)
+              : null
+          }
+          awayTeam={
+            resultsConfrontation.away_team_id
+              ? teamById.get(resultsConfrontation.away_team_id)
+              : null
+          }
+          homeLineup={
+            resultsConfrontation.home_team_id
+              ? lineupsByConfrontationTeam.get(
+                  `${resultsConfrontation.id}:${resultsConfrontation.home_team_id}`
+                ) || null
+              : null
+          }
+          awayLineup={
+            resultsConfrontation.away_team_id
+              ? lineupsByConfrontationTeam.get(
+                  `${resultsConfrontation.id}:${resultsConfrontation.away_team_id}`
+                ) || null
+              : null
+          }
+          existingGames={gamesByConfrontation.get(resultsConfrontation.id) || []}
+          onClose={() => setResultsConfrontation(null)}
+          onSuccess={() => {
+            setResultsConfrontation(null)
             void load()
           }}
         />

@@ -297,7 +297,8 @@ export interface PlayerDashboardData {
   stats: PlayerStats
 }
 
-const emptyStats: PlayerStats = {
+/** Stats vazias — usar ao limpar sessão / conta nova sem jogos. */
+export const emptyStats: PlayerStats = {
   totalMatches: 0,
   wins: 0,
   draws: 0,
@@ -896,14 +897,12 @@ export async function enrichDashboardWithEdgeFunction(currentDashboardData?: Pla
     if (edgeData.pastTournamentDetails && Object.keys(edgeData.pastTournamentDetails).length > 0) {
       enriched.pastTournamentDetails = edgeData.pastTournamentDetails
     }
-    // Merge stats from edge function (bypasses RLS, always has correct data)
-    // Edge Function now includes open game results in stats
+    // Sempre definir stats (mesmo 0) — senão o merge no App mantém stats do utilizador anterior.
+    // Edge Function agora inclui open game results em stats quando existem.
     if (edgeData.stats) {
-      // Check if Edge Function already includes open games (v2+)
       const edgeHasOpenGames = (edgeData.recentMatches || []).some((m: any) => m.is_open_game)
-      
+
       if (edgeHasOpenGames) {
-        // Edge Function v2+ already includes open games in stats
         enriched.stats = {
           totalMatches: edgeData.stats.totalMatches || 0,
           wins: edgeData.stats.wins || 0,
@@ -914,7 +913,6 @@ export async function enrichDashboardWithEdgeFunction(currentDashboardData?: Pla
           bestFinish: '-',
         }
       } else {
-        // Edge Function v1 (doesn't include open games) - add open game stats from client
         let openGameWins = 0
         let openGameDraws = 0
         let openGameLosses = 0
@@ -936,6 +934,14 @@ export async function enrichDashboardWithEdgeFunction(currentDashboardData?: Pla
           tournamentsPlayed: edgeData.pastTournaments?.length || 0,
           bestFinish: '-',
         }
+      }
+    } else {
+      enriched.stats = {
+        ...emptyStats,
+        tournamentsPlayed: edgeData.pastTournaments?.length || 0,
+      }
+      if (!edgeData.recentMatches?.length) {
+        enriched.recentMatches = []
       }
     }
     // Merge recent matches from edge function (bypasses RLS for stats/visibility)
