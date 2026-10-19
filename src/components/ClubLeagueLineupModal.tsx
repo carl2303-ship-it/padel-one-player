@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Loader2, Save, X } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import type { ClubLeaguePlayerRow, ClubLeagueTeamRow, ClubLeagueConfrontationRow } from '../lib/clubLeagueData'
@@ -157,9 +158,15 @@ export default function ClubLeagueLineupModal({ confrontation, team, onClose, on
     }
   }
 
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
-      <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-xl w-full max-w-lg max-h-[92vh] overflow-y-auto">
+  return createPortal(
+    <div
+      className="fixed inset-0 bg-black/50 flex items-start sm:items-center justify-center z-[60] p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-24 sm:pb-4 overflow-y-auto"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[min(92vh,calc(100dvh-5.5rem))] overflow-y-auto my-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="flex items-start justify-between p-4 border-b border-gray-100 sticky top-0 bg-white z-10">
           <div className="min-w-0 pr-2">
             <h2 className="text-lg font-semibold text-gray-900">Lineup — {team.name}</h2>
@@ -242,6 +249,7 @@ export default function ClubLeagueLineupModal({ confrontation, team, onClose, on
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
