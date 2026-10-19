@@ -384,10 +384,10 @@ function App() {
 
     // If no valid Supabase session, clear local state and force re-login
     if (!session) {
-      const savedPhone = localStorage.getItem('padel_one_player_phone')
-      if (savedPhone) {
-        // Session expired but phone is saved - user needs to re-login
-      }
+      clearDashboardSession()
+      setPlayer(null)
+      setAuthUserId(null)
+      setIsAuthenticated(false)
       setIsLoading(false)
       return
     }
