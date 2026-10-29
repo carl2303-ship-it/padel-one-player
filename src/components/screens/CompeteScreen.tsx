@@ -857,15 +857,20 @@ export default function CompeteScreen({
                   </p>
                 </div>
               </div>
-              <div className="card p-3 flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => viewEnrolled(td.id, td.name)}
+                className="card p-3 flex items-center gap-3 text-left w-full hover:bg-amber-50/50 transition-colors active:scale-[0.99]"
+              >
                 <div className="w-10 h-10 rounded-xl bg-amber-50 flex items-center justify-center">
                   <Users className="w-5 h-5 text-amber-600" />
                 </div>
-                <div>
+                <div className="flex-1 min-w-0">
                   <p className="text-xs text-gray-500">Inscritos</p>
                   <p className="text-sm font-semibold text-gray-900">{td.total_enrolled}</p>
                 </div>
-              </div>
+                <ChevronRight className="w-4 h-4 text-gray-400 flex-shrink-0" />
+              </button>
               <div className="card p-3 flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-purple-50 flex items-center justify-center">
                   <Trophy className="w-5 h-5 text-purple-600" />
@@ -1069,23 +1074,14 @@ export default function CompeteScreen({
               </div>
             )}
 
-            {/* Categorias: grupos, jogos e brackets (ou inscritos) */}
+            {/* Categorias: grupos, jogos e brackets (inscritos via card Inscritos) */}
             {categoryDetailsLoading ? (
               <div className="card p-6 flex justify-center">
                 <div className="w-6 h-6 border-2 border-red-600 border-t-transparent rounded-full animate-spin" />
               </div>
             ) : (
               <div className="space-y-4">
-                {td.enrolled.length === 0 && categoryDetails.length === 0 ? (
-                  <div className="card p-4">
-                    <h3 className="text-base font-bold text-gray-900 mb-4 flex items-center gap-2">
-                      <Users className="w-5 h-5 text-red-600" />
-                      {(t as any).partner?.enrolledList || 'Inscritos'} ({td.total_enrolled})
-                    </h3>
-                    <p className="text-gray-500 text-center py-4">{(t as any).partner?.noEnrolled || 'Ainda sem inscritos.'}</p>
-                  </div>
-                ) : (
-                  (() => {
+                {(() => {
                     const catDetailsMap = new Map(categoryDetails.map(cd => [cd.category_id, cd]))
                     const knockoutOrderLocal: Record<string, number> = { 'round_of_16': 0, 'quarter': 1, 'semi': 2, '3rd': 3, 'final': 4 }
                     const getKOOrder = (round: string) => {
@@ -1103,7 +1099,15 @@ export default function CompeteScreen({
                       return round
                     }
                     const isAmericanoFormat = ['mixed_american', 'individual_groups_knockout', 'round_robin', 'ladder'].includes(td.format)
-                    return td.enrolled.map((cat) => {
+                    const isLadder = td.format === 'ladder'
+                    const categoriesWithPlay = td.enrolled.filter((cat) => {
+                      let catDetail = catDetailsMap.get(cat.category_id)
+                      if (!catDetail && categoryDetails.length === 1) catDetail = categoryDetails[0]
+                      const hasGroupsOrMatches = !isAmericanoFormat && !!catDetail?.hasData
+                      return isLadder || hasGroupsOrMatches
+                    })
+                    if (categoriesWithPlay.length === 0) return null
+                    return categoriesWithPlay.map((cat) => {
                       let catDetail = catDetailsMap.get(cat.category_id)
                       if (!catDetail && categoryDetails.length === 1) catDetail = categoryDetails[0]
                       const hasGroupsOrMatches = !isAmericanoFormat && catDetail?.hasData
@@ -1131,7 +1135,7 @@ export default function CompeteScreen({
 
                           {isExpanded && (
                             <div className="mt-3 space-y-3">
-                              {td.format === 'ladder' && (
+                              {isLadder && (
                                 <PlayerLadderTournamentPanel
                                   tournamentId={td.id}
                                   categoryId={cat.category_id}
@@ -1140,18 +1144,6 @@ export default function CompeteScreen({
                                   tournamentName={td.name}
                                   onOpenChallengeChat={onOpenCommunityGroupChat}
                                 />
-                              )}
-                              {cat.items.length > 0 && (
-                                <div className="space-y-1.5">
-                                  {cat.items.map((item, idx) => (
-                                    <EnrolledItemRow
-                                      key={item.id}
-                                      item={item}
-                                      index={idx}
-                                      onPlayerClick={handleEnrolledPlayerClick}
-                                    />
-                                  ))}
-                                </div>
                               )}
                               {hasGroupsOrMatches && catDetail ? (
                                 <>
@@ -1270,8 +1262,7 @@ export default function CompeteScreen({
                         </div>
                       )
                     })
-                  })()
-                )}
+                })()}
               </div>
             )}
           </div>
@@ -1395,6 +1386,47 @@ export default function CompeteScreen({
           </div>
         )}
       </div>
+            {viewingEnrolled && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl max-w-lg w-full max-h-[85vh] overflow-hidden">
+            <div className="p-4 border-b flex items-center justify-between">
+              <h2 className="text-lg font-bold">{(t as any).partner?.enrolledList || 'Inscritos'} — {viewingEnrolled.name}</h2>
+              <button onClick={() => { setViewingEnrolled(null); setEnrolledData([]) }} className="text-gray-400 hover:text-gray-600">✕</button>
+            </div>
+            <div className="overflow-y-auto max-h-[70vh] p-4">
+              {enrolledLoading ? (
+                <div className="flex justify-center py-8">
+                  <div className="w-8 h-8 border-2 border-red-600 border-t-transparent rounded-full animate-spin" />
+                </div>
+              ) : enrolledData.length === 0 ? (
+                <p className="text-gray-500 text-center py-6">{(t as any).partner?.noEnrolled || 'Ainda sem inscritos.'}</p>
+              ) : (
+                <div className="space-y-6">
+                  {enrolledData.map((cat) => (
+                    <div key={cat.category_id}>
+                      <h3 className="text-sm font-semibold text-gray-700 mb-2 flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-red-500" />
+                        {cat.category_name}
+                      </h3>
+                      <ul className="space-y-1.5">
+                        {cat.items.map((item, idx) => (
+                          <li key={item.id}>
+                            <EnrolledItemRow
+                              item={item}
+                              index={idx}
+                              onPlayerClick={handleEnrolledPlayerClick}
+                            />
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
       {playerPreviewModal}
     </>
     )
