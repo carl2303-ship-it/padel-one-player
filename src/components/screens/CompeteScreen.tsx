@@ -32,6 +32,12 @@ import {
 import { getCachedPlayerData } from '../../lib/playerDataCache'
 import { isLikelyTeamLabel } from '../../lib/matchPlayerNames'
 import { normalizePhone } from '../../lib/phoneUtils'
+import {
+  extractCategoryCodes,
+  extractLevelRangeFromName,
+  isPlayerEligibleForAnyCategory,
+  isPlayerEligibleForCategory,
+} from '../../lib/categoryEligibility'
 import PlayerLadderTournamentPanel from '../PlayerLadderTournamentPanel'
 import ClubLeagueScreen from './ClubLeagueScreen'
 import {
@@ -280,48 +286,123 @@ export default function CompeteScreen({
 
         const { supabase } = await import('../../lib/supabase')
         const filtered: UpcomingTournamentFromTour[] = []
+        const playerEligibility = {
+          player_category: player?.player_category ?? null,
+          level: player?.level != null ? Number(player.level) : null,
+        }
+
+        const tournamentIds = activeNotEnrolled.map((t) => t.id)
+        const catsByTournament = new Map<string, {
+          id: string
+          name: string
+          min_level: number | null
+          max_level: number | null
+          max_teams: number | null
+          accepted_levels: string[] | null
+          tournament_id: string
+        }[]>()
+        if (tournamentIds.length > 0) {
+          const { data: allCategories } = await supabase
+            .from('tournament_categories')
+            .select('id, name, min_level, max_level, max_teams, accepted_levels, tournament_id')
+            .in('tournament_id', tournamentIds)
+          for (const cat of allCategories || []) {
+            const listForT = catsByTournament.get(cat.tournament_id) || []
+            listForT.push(cat)
+            catsByTournament.set(cat.tournament_id, listForT)
+          }
+        }
+
+        const categoryHasHints = (cat: {
+          name: string
+          min_level: number | null
+          max_level: number | null
+          accepted_levels: string[] | null
+        }) => {
+          if (cat.min_level != null || cat.max_level != null) return true
+          if (cat.accepted_levels && cat.accepted_levels.length > 0) return true
+          if (extractCategoryCodes(cat).length > 0) return true
+          const range = extractLevelRangeFromName(cat.name)
+          return range.min_level != null || range.max_level != null
+        }
 
         for (const tournament of activeNotEnrolled) {
-          const { data: categories } = await supabase
-            .from('tournament_categories')
-            .select('id, name, min_level, max_level, max_teams')
-            .eq('tournament_id', tournament.id)
+          const categories = catsByTournament.get(tournament.id) || []
+          const isInvited = invitedIds.has(tournament.id)
+          const isClubLeague = tournament.format === 'club_league'
 
-          if (categories && categories.length > 0) {
-            let hasCompatibleCategory: boolean
-            const pLevel = player?.level != null ? Number(player.level) : null
-
-            if (pLevel != null) {
-              hasCompatibleCategory = categories.some(cat => {
-                const minLvl = cat.min_level != null ? Number(cat.min_level) : null
-                const maxLvl = cat.max_level != null ? Number(cat.max_level) : null
-                if (minLvl == null && maxLvl == null) return true
-                if (minLvl != null && pLevel < minLvl) return false
-                if (maxLvl != null && pLevel > maxLvl) return false
-                return true
-              })
+          let eligible = false
+          if (isInvited || isClubLeague) {
+            eligible = true
+          } else if (categories.length > 0) {
+            const withHints = categories.filter(categoryHasHints)
+            if (withHints.length > 0) {
+              eligible = isPlayerEligibleForAnyCategory(
+                withHints.map((cat) => ({
+                  name: cat.name || '',
+                  accepted_levels: cat.accepted_levels ?? null,
+                  min_level: cat.min_level != null ? Number(cat.min_level) : null,
+                  max_level: cat.max_level != null ? Number(cat.max_level) : null,
+                })),
+                playerEligibility,
+              )
             } else {
-              const allHaveLevel = categories.every(cat => cat.min_level != null || cat.max_level != null)
-              hasCompatibleCategory = !allHaveLevel
-            }
-
-            if (hasCompatibleCategory) {
-              const totalMax = categories.reduce((sum, c) => c.max_teams ? sum + c.max_teams : sum, 0)
-              let isFull = false
-              if (totalMax > 0) {
-                const isIndiv = tournament.format === 'individual_groups_knockout' || tournament.format === 'mixed_american' || (tournament.format === 'round_robin' && tournament.round_robin_type === 'individual')
-                const table = isIndiv ? 'players' : 'teams'
-                const { count } = await supabase
-                  .from(table)
-                  .select('id', { count: 'exact', head: true })
-                  .eq('tournament_id', tournament.id)
-                isFull = (count ?? 0) >= totalMax
-              }
-              filtered.push({ ...tournament, is_full: isFull })
+              // Categorias sem nível/categoria → usar o nome do torneio
+              const nameHints = categoryHasHints({
+                name: tournament.name || '',
+                min_level: null,
+                max_level: null,
+                accepted_levels: null,
+              })
+              eligible = nameHints
+                ? isPlayerEligibleForCategory(
+                    {
+                      name: tournament.name || '',
+                      accepted_levels: null,
+                      min_level: null,
+                      max_level: null,
+                    },
+                    playerEligibility,
+                  )
+                : false
             }
           } else {
-            filtered.push(tournament)
+            const nameHints = categoryHasHints({
+              name: tournament.name || '',
+              min_level: null,
+              max_level: null,
+              accepted_levels: null,
+            })
+            eligible = nameHints
+              ? isPlayerEligibleForCategory(
+                  {
+                    name: tournament.name || '',
+                    accepted_levels: null,
+                    min_level: null,
+                    max_level: null,
+                  },
+                  playerEligibility,
+                )
+              : false
           }
+
+          if (!eligible) continue
+
+          const totalMax = categories.reduce((sum, c) => (c.max_teams ? sum + c.max_teams : sum), 0)
+          let isFull = false
+          if (totalMax > 0) {
+            const isIndiv =
+              tournament.format === 'individual_groups_knockout' ||
+              tournament.format === 'mixed_american' ||
+              (tournament.format === 'round_robin' && tournament.round_robin_type === 'individual')
+            const table = isIndiv ? 'players' : 'teams'
+            const { count } = await supabase
+              .from(table)
+              .select('id', { count: 'exact', head: true })
+              .eq('tournament_id', tournament.id)
+            isFull = (count ?? 0) >= totalMax
+          }
+          filtered.push({ ...tournament, is_full: isFull })
         }
 
         if (active) {
