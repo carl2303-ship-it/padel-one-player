@@ -118,6 +118,28 @@ export function composeInternationalPhone(dialCode: string, localNumber: string)
  * 912345678 (móvel PT) → 351912345678
  * 07xxx / 7xxxxxxxxx (móvel UK) → 447xxxxxxxxx
  */
+/** Strip mistaken national trunk 0 after country code (+33 06… → 336…). */
+function stripTrunkZeroAfterCountry(digits: string): string {
+  // dialLen = country calling code length; trunk 0 sits right after it
+  const rules: { re: RegExp; dialLen: number }[] = [
+    { re: /^330[1-9]\d{8}$/, dialLen: 2 }, // FR
+    { re: /^320[1-9]\d{7,8}$/, dialLen: 2 }, // BE
+    { re: /^490[1-9]\d{6,12}$/, dialLen: 2 }, // DE
+    { re: /^390[1-9]\d{5,11}$/, dialLen: 2 }, // IT
+    { re: /^310[1-9]\d{7,9}$/, dialLen: 2 }, // NL
+    { re: /^410[1-9]\d{7,10}$/, dialLen: 2 }, // CH
+    { re: /^340[1-9]\d{8}$/, dialLen: 2 }, // ES
+    { re: /^3510[1-9]\d{8}$/, dialLen: 3 }, // PT
+    { re: /^440[127]\d{8,9}$/, dialLen: 2 }, // UK
+  ]
+  for (const { re, dialLen } of rules) {
+    if (re.test(digits)) {
+      return digits.slice(0, dialLen) + digits.slice(dialLen + 1)
+    }
+  }
+  return digits
+}
+
 export function normalizePhone(phone: string | null | undefined): string {
   if (!phone) return '';
 
@@ -130,13 +152,22 @@ export function normalizePhone(phone: string | null | undefined): string {
   let digits = cleaned.replace(/\D/g, '');
   if (!digits) return '';
 
-  // Local trunk prefix (UK 07…, etc.)
+  // FR local mobile with trunk: 06xxxxxxxx / 07xxxxxxxx → 33 + national
+  if (/^0[67]\d{8}$/.test(digits)) {
+    return '33' + digits.slice(1);
+  }
+
+  // Local trunk prefix (UK 07…, etc.) when no country code yet
   if (digits.startsWith('0') && digits.length >= 10 && digits.length <= 11) {
     digits = digits.slice(1);
   }
 
+  // International with mistaken trunk 0 after dial code (+3306… → 336…)
+  digits = stripTrunkZeroAfterCountry(digits);
+
   if (digits.startsWith('44') && digits.length >= 12) return digits;
   if (digits.startsWith('351') && digits.length >= 12) return digits;
+  if (digits.startsWith('33') && digits.length >= 11) return digits;
 
   if (isPtMobile(digits)) return '351' + digits;
   if (isUkMobile(digits)) return '44' + digits;
@@ -207,6 +238,8 @@ export function phoneLookupCandidates(phone: string | null | undefined): string[
   if (/^[67]\d{8}$/.test(key)) {
     add('33' + key); add('+33' + key);
     add('34' + key); add('+34' + key);
+    // Legacy mistaken trunk 0 after FR dial (+3306…)
+    add('330' + key); add('+330' + key);
   }
   if (/^9[1236]\d{7}$/.test(key)) {
     add('351' + key); add('+351' + key);
