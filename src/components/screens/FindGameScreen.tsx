@@ -3,7 +3,7 @@ import { Building2, Check, ChevronLeft, Lock, Plus, RefreshCw, Search, X } from 
 import { useI18n } from '../../lib/i18nContext'
 import { supabase, type PlayerAccount } from '../../lib/supabase'
 import { levelColors, searchPlayers, type CommunityPlayer } from '../../lib/communityData'
-import { fetchAllClubs } from '../../lib/clubAndTournaments'
+import { createPlayerSuggestedClub, fetchAllClubs } from '../../lib/clubAndTournaments'
 import { OpenGameResultScores } from '../shared/matchUi'
 
 export default function FindGameScreen({
@@ -247,6 +247,18 @@ export default function FindGameScreen({
   const [creating, setCreating] = useState(false)
   const [groupName, setGroupName] = useState<string | null>(null)
 
+  // Criar jogo em qualquer clube (com ou sem campo reservado)
+  const [createClubSearch, setCreateClubSearch] = useState('')
+  const [createSelectedClub, setCreateSelectedClub] = useState<{ id: string; name: string; city?: string | null; is_managed?: boolean } | null>(null)
+  const [createCourtReserved, setCreateCourtReserved] = useState(false)
+  const [createDate, setCreateDate] = useState(() => new Date().toISOString().split('T')[0])
+  const [createTime, setCreateTime] = useState('18:00')
+  const [createClubsList, setCreateClubsList] = useState<{ id: string; name: string; city: string | null; is_managed?: boolean }[]>([])
+  const [showAddClubModal, setShowAddClubModal] = useState(false)
+  const [newClubName, setNewClubName] = useState('')
+  const [newClubCity, setNewClubCity] = useState('')
+  const [addingClub, setAddingClub] = useState(false)
+
   useEffect(() => {
     if (!groupId) { setGroupName(null); return }
     (async () => {
@@ -334,18 +346,29 @@ export default function FindGameScreen({
     loadClubs()
   }, [])
 
-  // Load clubs availability when "create" section is opened
+  // Load clubs + optional availability when "create" section is opened
   useEffect(() => {
-    if (activeSection === 'create') {
-      const loadAvailability = async () => {
-        setLoadingClubs(true)
+    if (activeSection !== 'create') return
+    let active = true
+    ;(async () => {
+      setLoadingClubs(true)
+      try {
+        const clubs = await fetchAllClubs()
+        if (!active) return
+        setCreateClubsList(clubs.map(c => ({
+          id: c.id,
+          name: c.name,
+          city: c.city,
+          is_managed: c.is_managed,
+        })))
         const { fetchClubsWithAvailability } = await import('../../lib/openGames')
-        const data = await fetchClubsWithAvailability()
-        setClubsAvailability(data)
-        setLoadingClubs(false)
+        const availability = await fetchClubsWithAvailability()
+        if (active) setClubsAvailability(availability)
+      } finally {
+        if (active) setLoadingClubs(false)
       }
-      loadAvailability()
-    }
+    })()
+    return () => { active = false }
   }, [activeSection])
 
   // Separate games: within level (existing) vs out of level (request)
@@ -419,7 +442,21 @@ export default function FindGameScreen({
     }
   }
 
-  // Create a game
+  const refreshGamesAfterCreate = async (scheduledAt: string, clubName: string) => {
+    const { fetchOpenGames } = await import('../../lib/openGames')
+    const dateStr = dates[selectedDay]?.dateStr
+    const data = await fetchOpenGames({
+      clubId: selectedClubId || undefined,
+      dateFrom: dateStr ? dateStr + 'T00:00:00' : undefined,
+      dateTo: dateStr ? dateStr + 'T23:59:59' : undefined,
+    })
+    setGames(data)
+    setActiveSection('existing')
+    if (onRefresh) onRefresh()
+    return { scheduledAt, clubName }
+  }
+
+  // Create a game from managed court slot (campo reservado via disponibilidade)
   const handleCreateGame = async () => {
     if (!createModal || !userId) return
     const court = createModal.courts[selectedCourtIdx]
@@ -436,6 +473,7 @@ export default function FindGameScreen({
       playerPhone: player?.phone_number || null,
       clubId: createModal.clubId,
       courtId: court.court_id,
+      courtReserved: true,
       scheduledAt,
       durationMinutes: createDuration,
       gameType: createGameType,
@@ -447,18 +485,9 @@ export default function FindGameScreen({
     
     setCreating(false)
     if (result.success) {
+      const clubName = createModal.clubName
       setCreateModal(null)
-      setActiveSection('existing')
-      // Refresh games list
-      const { fetchOpenGames } = await import('../../lib/openGames')
-      const dateStr = dates[selectedDay]?.dateStr
-      const data = await fetchOpenGames({
-        clubId: selectedClubId || undefined,
-        dateFrom: dateStr ? dateStr + 'T00:00:00' : undefined,
-        dateTo: dateStr ? dateStr + 'T23:59:59' : undefined,
-      })
-      setGames(data)
-      // Send a system message in the group chat
+      await refreshGamesAfterCreate(scheduledAt, clubName)
       if (groupId && result.gameId) {
         try {
           const { sendMessage } = await import('../../lib/groupChat')
@@ -467,16 +496,96 @@ export default function FindGameScreen({
           const dateDisplay = dateObj.toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit' })
           await sendMessage({
             groupId,
-            content: `🎾 Novo jogo criado para o grupo!\n📅 ${dateDisplay} às ${timeStr}\n📍 ${createModal.clubName}`,
+            content: `🎾 Novo jogo criado para o grupo!\n📅 ${dateDisplay} às ${timeStr}\n📍 ${clubName}`,
             messageType: 'system',
           })
         } catch (_) { /* ignore */ }
       }
-      // Refresh dashboard
-      if (onRefresh) onRefresh()
     } else {
       alert(result.error || 'Erro ao criar jogo')
     }
+  }
+
+  // Create a game at any club (with or without reserved court)
+  const handleCreateFreeGame = async () => {
+    if (!userId || !createSelectedClub) {
+      alert('Escolhe um clube')
+      return
+    }
+    if (!createDate || !createTime) {
+      alert('Indica a data e hora')
+      return
+    }
+    setCreating(true)
+    const { createOpenGame } = await import('../../lib/openGames')
+    const scheduledAt = `${createDate}T${createTime}:00`
+    const result = await createOpenGame({
+      userId,
+      playerAccountId: player?.id || null,
+      playerName: player?.name || null,
+      playerPhone: player?.phone_number || null,
+      clubId: createSelectedClub.id,
+      courtId: null,
+      courtReserved: createCourtReserved,
+      scheduledAt,
+      durationMinutes: createDuration,
+      gameType: createGameType,
+      gender: createGender,
+      playerLevel,
+      pricePerPlayer: 0,
+      groupId: groupId || undefined,
+    })
+    setCreating(false)
+    if (result.success) {
+      await refreshGamesAfterCreate(scheduledAt, createSelectedClub.name)
+      if (groupId && result.gameId) {
+        try {
+          const { sendMessage } = await import('../../lib/groupChat')
+          const dateObj = new Date(scheduledAt)
+          const timeStr = dateObj.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' })
+          const dateDisplay = dateObj.toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit' })
+          await sendMessage({
+            groupId,
+            content: `🎾 Novo jogo criado para o grupo!\n📅 ${dateDisplay} às ${timeStr}\n📍 ${createSelectedClub.name}`,
+            messageType: 'system',
+          })
+        } catch (_) { /* ignore */ }
+      }
+      alert('Jogo criado! Jogadores do teu nível vão receber um alerta.')
+    } else {
+      alert(result.error || 'Erro ao criar jogo')
+    }
+  }
+
+  const handleAddClub = async () => {
+    if (!newClubName.trim()) {
+      alert('Indica o nome do clube')
+      return
+    }
+    setAddingClub(true)
+    const result = await createPlayerSuggestedClub({
+      name: newClubName,
+      city: newClubCity || null,
+    })
+    setAddingClub(false)
+    if (!result.success || !result.club) {
+      alert(result.error || 'Erro ao adicionar clube')
+      return
+    }
+    const club = {
+      id: result.club.id,
+      name: result.club.name,
+      city: result.club.city,
+      is_managed: result.club.is_managed,
+    }
+    setCreateClubsList(prev => {
+      if (prev.some(c => c.id === club.id)) return prev
+      return [...prev, club].sort((a, b) => a.name.localeCompare(b.name))
+    })
+    setCreateSelectedClub(club)
+    setShowAddClubModal(false)
+    setNewClubName('')
+    setNewClubCity('')
   }
 
   // Format date for display
@@ -616,6 +725,11 @@ export default function FindGameScreen({
                 {game.gender === 'male' ? '♂️' : game.gender === 'female' ? '♀️' : '⚥'} {game.gender === 'male' ? t.games.male : game.gender === 'female' ? t.games.female : t.games.mixed}
               </span>
             )}
+            <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+              game.court_reserved ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-600'
+            }`}>
+              {game.court_reserved ? 'Campo reservado' : 'Sem reserva de campo'}
+            </span>
             {game.court_name && (
               <span className="flex items-center gap-1">
                 🏟️ {game.court_name}
@@ -1201,7 +1315,7 @@ export default function FindGameScreen({
         <div className="space-y-3">
           <div>
             <h2 className="text-lg font-bold text-gray-900">{t.games.createGameSection}</h2>
-            <p className="text-xs text-gray-500">{t.games.createGameSectionDesc}</p>
+            <p className="text-xs text-gray-500">Escolhe qualquer clube, indica se o campo está reservado e alerta jogadores do teu nível.</p>
           </div>
           {groupId && (
             <div className="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-xl px-4 py-2">
@@ -1215,73 +1329,270 @@ export default function FindGameScreen({
           {loadingClubs ? (
             <div className="text-center py-10">
               <div className="animate-spin w-8 h-8 border-2 border-red-600 border-t-transparent rounded-full mx-auto mb-3" />
-              <p className="text-sm text-gray-500">A carregar disponibilidades...</p>
+              <p className="text-sm text-gray-500">A carregar clubes...</p>
             </div>
-          ) : clubsAvailability.length > 0 ? (
-            <div className="space-y-6">
-              {clubsAvailability.map(club => (
-                <div key={club.id} className="border border-gray-200 rounded-2xl overflow-hidden bg-white shadow-sm">
-                  {/* Club header */}
-                  <div className="p-4 flex items-center gap-3 border-b border-gray-100">
-                    {club.logo_url ? (
-                      <img src={club.logo_url} alt="" className="w-14 h-14 rounded-xl object-cover" />
-                    ) : (
-                      <div className="w-14 h-14 rounded-xl bg-gray-100 flex items-center justify-center">
-                        <Building2 className="w-7 h-7 text-gray-400" />
-                      </div>
-                    )}
-                    <div>
-                      <p className="font-bold text-gray-900">{club.name}</p>
-                      {club.city && <p className="text-xs text-gray-500">{club.city}</p>}
+          ) : (
+            <div className="space-y-4">
+              {/* Club picker */}
+              <div className="card p-4 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="text-sm font-semibold text-gray-900">Clube</h3>
+                  <button
+                    type="button"
+                    onClick={() => setShowAddClubModal(true)}
+                    className="text-xs font-semibold text-red-600 flex items-center gap-1"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Adicionar clube
+                  </button>
+                </div>
+                <div className="relative">
+                  <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="search"
+                    value={createClubSearch}
+                    onChange={(e) => setCreateClubSearch(e.target.value)}
+                    placeholder="Procurar clube..."
+                    className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-gray-200 text-sm"
+                  />
+                </div>
+                {createSelectedClub ? (
+                  <div className="flex items-center justify-between gap-2 rounded-xl bg-red-50 border border-red-100 px-3 py-2">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-gray-900 truncate">{createSelectedClub.name}</p>
+                      {createSelectedClub.city && <p className="text-xs text-gray-500">{createSelectedClub.city}</p>}
                     </div>
+                    <button type="button" onClick={() => setCreateSelectedClub(null)} className="text-gray-400 hover:text-gray-600">
+                      <X className="w-4 h-4" />
+                    </button>
                   </div>
+                ) : (
+                  <div className="max-h-48 overflow-y-auto space-y-1">
+                    {createClubsList
+                      .filter(c => {
+                        const q = createClubSearch.trim().toLowerCase()
+                        if (!q) return true
+                        return c.name.toLowerCase().includes(q) || (c.city || '').toLowerCase().includes(q)
+                      })
+                      .slice(0, 40)
+                      .map(club => (
+                        <button
+                          key={club.id}
+                          type="button"
+                          onClick={() => setCreateSelectedClub(club)}
+                          className="w-full text-left px-3 py-2 rounded-lg hover:bg-gray-50 flex items-center gap-2"
+                        >
+                          <Building2 className="w-4 h-4 text-gray-400 flex-shrink-0" />
+                          <span className="text-sm text-gray-800 truncate">{club.name}</span>
+                          {club.city && <span className="text-xs text-gray-400 ml-auto truncate">{club.city}</span>}
+                        </button>
+                      ))}
+                    {createClubsList.length === 0 && (
+                      <p className="text-sm text-gray-500 text-center py-4">Sem clubes. Adiciona um novo.</p>
+                    )}
+                  </div>
+                )}
+              </div>
 
-                  {/* Time slots by day */}
-                  <div className="p-4 space-y-4">
-                    {Object.entries(club.availability).map(([date, slots]) => (
-                      <div key={date}>
-                        <p className="font-bold text-gray-800 text-sm mb-2">{formatDateLabel(date)}</p>
-                        <div className="flex gap-2 flex-wrap">
-                          {slots.map((slot, idx) => (
-                            <button
-                              key={`${date}-${idx}`}
-                              onClick={() => {
-                                setCreateModal({
-                                  clubId: club.id,
-                                  clubName: club.name,
-                                  date,
-                                  time: slot.time,
-                                  courts: slot.courts?.map(c => ({ ...c, court_type: c.court_type || null })) || [{ court_id: slot.court_id, court_name: slot.court_name, court_type: null, durations: slot.durations, price_90: slot.price_90, price_60: slot.price_60, price_120: (slot as any).price_120 || 0 }],
-                                })
-                                setSelectedCourtIdx(0)
-                                const firstCourt = slot.courts?.[0] || slot
-                                setCreateDuration(firstCourt.durations.includes(90) ? 90 : firstCourt.durations[0] || 60)
-                              }}
-                              className="px-3 py-2 border border-gray-200 rounded-xl hover:border-blue-400 hover:bg-blue-50 transition-colors text-center"
-                            >
-                              <p className="font-bold text-gray-900 text-sm">{slot.time}</p>
-                              <p className="text-[10px] text-gray-500">
-                                {(slot.courts?.length || 1)} {(slot.courts?.length || 1) > 1 ? t.games.courts : t.games.court} • {slot.durations.sort((a: number, b: number) => a - b).map((d: number) => `${d}min`).join('/')}
-                              </p>
-                              {slot.courts && slot.courts.length === 1 && slot.courts[0].court_type && (
-                                <p className="text-[9px] text-gray-400">
-                                  {slot.courts[0].court_type === 'indoor' ? `🏠 ${t.games.indoor}` : slot.courts[0].court_type === 'outdoor' ? `☀️ ${t.games.outdoor}` : `🏗️ ${t.games.covered}`}
-                                </p>
-                              )}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
+              {/* Court reserved toggle */}
+              <div className="card p-4 space-y-3">
+                <h3 className="text-sm font-semibold text-gray-900">Campo reservado?</h3>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCreateCourtReserved(false)}
+                    className={`py-2.5 rounded-xl text-sm font-semibold border ${!createCourtReserved ? 'bg-gray-900 text-white border-gray-900' : 'bg-white text-gray-700 border-gray-200'}`}
+                  >
+                    Não
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCreateCourtReserved(true)}
+                    className={`py-2.5 rounded-xl text-sm font-semibold border ${createCourtReserved ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-700 border-gray-200'}`}
+                  >
+                    Sim
+                  </button>
+                </div>
+                <p className="text-xs text-gray-500">
+                  {createCourtReserved
+                    ? 'Os jogadores já têm (ou vão ter) campo reservado. Se o clube tiver gestão de reservas, podes escolher um horário livre abaixo.'
+                    : 'Jogo social sem reserva de campo no clube — ideal para qualquer clube.'}
+                </p>
+              </div>
+
+              {/* Date / time / duration / gender */}
+              <div className="card p-4 space-y-3">
+                <h3 className="text-sm font-semibold text-gray-900">Quando</h3>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs text-gray-500 mb-1 block">Data</label>
+                    <input
+                      type="date"
+                      value={createDate}
+                      min={new Date().toISOString().split('T')[0]}
+                      onChange={(e) => setCreateDate(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500 mb-1 block">Hora</label>
+                    <input
+                      type="time"
+                      value={createTime}
+                      onChange={(e) => setCreateTime(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl border border-gray-200 text-sm"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Duração</label>
+                  <div className="flex gap-2">
+                    {[60, 90, 120].map(d => (
+                      <button
+                        key={d}
+                        type="button"
+                        onClick={() => setCreateDuration(d)}
+                        className={`flex-1 py-2 rounded-xl text-sm font-semibold border ${createDuration === d ? 'bg-red-600 text-white border-red-600' : 'bg-white text-gray-700 border-gray-200'}`}
+                      >
+                        {d} min
+                      </button>
                     ))}
                   </div>
                 </div>
-              ))}
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Género</label>
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {([
+                      ['all', 'Todos'],
+                      ['male', 'Masc'],
+                      ['female', 'Fem'],
+                      ['mixed', 'Misto'],
+                    ] as const).map(([value, label]) => (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => setCreateGender(value)}
+                        className={`py-2 rounded-xl text-xs font-semibold border ${createGender === value ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-200'}`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <p className="text-xs text-gray-500">
+                  Nível do jogo: {(Math.max(0.5, playerLevel - 0.5)).toFixed(1)} – {(playerLevel + 0.5).toFixed(1)} (baseado no teu nível)
+                </p>
+                <button
+                  type="button"
+                  onClick={handleCreateFreeGame}
+                  disabled={creating || !createSelectedClub}
+                  className="w-full py-3 rounded-xl bg-red-600 hover:bg-red-700 disabled:bg-gray-300 text-white font-semibold"
+                >
+                  {creating ? 'A criar...' : 'Criar jogo e alertar nível'}
+                </button>
+              </div>
+
+              {/* Optional: managed club slots when reserved */}
+              {createCourtReserved && clubsAvailability.length > 0 && (
+                <div className="space-y-3">
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-900">Ou escolhe um horário livre (clubes com reservas)</h3>
+                    <p className="text-xs text-gray-500">Reservar campo no clube via disponibilidade</p>
+                  </div>
+                  {clubsAvailability
+                    .filter(club => !createSelectedClub || club.id === createSelectedClub.id)
+                    .map(club => (
+                    <div key={club.id} className="border border-gray-200 rounded-2xl overflow-hidden bg-white shadow-sm">
+                      <div className="p-4 flex items-center gap-3 border-b border-gray-100">
+                        {club.logo_url ? (
+                          <img src={club.logo_url} alt="" className="w-14 h-14 rounded-xl object-cover" />
+                        ) : (
+                          <div className="w-14 h-14 rounded-xl bg-gray-100 flex items-center justify-center">
+                            <Building2 className="w-7 h-7 text-gray-400" />
+                          </div>
+                        )}
+                        <div>
+                          <p className="font-bold text-gray-900">{club.name}</p>
+                          {club.city && <p className="text-xs text-gray-500">{club.city}</p>}
+                        </div>
+                      </div>
+                      <div className="p-4 space-y-4">
+                        {Object.entries(club.availability).map(([date, slots]) => (
+                          <div key={date}>
+                            <p className="font-bold text-gray-800 text-sm mb-2">{formatDateLabel(date)}</p>
+                            <div className="flex gap-2 flex-wrap">
+                              {slots.map((slot, idx) => (
+                                <button
+                                  key={`${date}-${idx}`}
+                                  onClick={() => {
+                                    setCreateSelectedClub({ id: club.id, name: club.name, city: club.city, is_managed: true })
+                                    setCreateModal({
+                                      clubId: club.id,
+                                      clubName: club.name,
+                                      date,
+                                      time: slot.time,
+                                      courts: slot.courts?.map(c => ({ ...c, court_type: c.court_type || null })) || [{ court_id: slot.court_id, court_name: slot.court_name, court_type: null, durations: slot.durations, price_90: slot.price_90, price_60: slot.price_60, price_120: (slot as any).price_120 || 0 }],
+                                    })
+                                    setSelectedCourtIdx(0)
+                                    const firstCourt = slot.courts?.[0] || slot
+                                    setCreateDuration(firstCourt.durations.includes(90) ? 90 : firstCourt.durations[0] || 60)
+                                  }}
+                                  className="px-3 py-2 border border-gray-200 rounded-xl hover:border-blue-400 hover:bg-blue-50 transition-colors text-center"
+                                >
+                                  <p className="font-bold text-gray-900 text-sm">{slot.time}</p>
+                                  <p className="text-[10px] text-gray-500">
+                                    {(slot.courts?.length || 1)} {(slot.courts?.length || 1) > 1 ? t.games.courts : t.games.court} • {slot.durations.sort((a: number, b: number) => a - b).map((d: number) => `${d}min`).join('/')}
+                                  </p>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
-          ) : (
-            <div className="card p-8 text-center">
-              <span className="text-4xl block mb-3">🏟️</span>
-              <p className="font-semibold text-gray-700 mb-1">Sem disponibilidades</p>
-              <p className="text-sm text-gray-500">Não há clubes com disponibilidade neste momento</p>
+          )}
+
+          {showAddClubModal && (
+            <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/50">
+              <div className="bg-white rounded-2xl p-4 w-full max-w-md space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-bold text-gray-900">Adicionar clube</h3>
+                  <button type="button" onClick={() => setShowAddClubModal(false)} className="p-1 rounded hover:bg-gray-100">
+                    <X className="w-4 h-4 text-gray-500" />
+                  </button>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Nome do clube</label>
+                  <input
+                    type="text"
+                    value={newClubName}
+                    onChange={(e) => setNewClubName(e.target.value)}
+                    placeholder="Ex.: Padel Club Lisboa"
+                    className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Cidade (opcional)</label>
+                  <input
+                    type="text"
+                    value={newClubCity}
+                    onChange={(e) => setNewClubCity(e.target.value)}
+                    placeholder="Ex.: Lisboa"
+                    className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={handleAddClub}
+                  disabled={addingClub || !newClubName.trim()}
+                  className="w-full py-3 rounded-xl bg-red-600 hover:bg-red-700 disabled:bg-gray-300 text-white font-semibold"
+                >
+                  {addingClub ? 'A guardar...' : 'Guardar clube'}
+                </button>
+              </div>
             </div>
           )}
         </div>

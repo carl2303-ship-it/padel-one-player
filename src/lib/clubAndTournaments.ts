@@ -42,6 +42,46 @@ export async function fetchAllClubs(): Promise<ClubDetail[]> {
   return (data || []) as ClubDetail[]
 }
 
+/** Jogador sugere/adiciona um clube ao directório (sem gestão de reservas). */
+export async function createPlayerSuggestedClub(params: {
+  name: string
+  city?: string | null
+  country?: string | null
+}): Promise<{ success: boolean; club?: ClubDetail; error?: string }> {
+  const name = params.name.trim()
+  if (name.length < 2) return { success: false, error: 'Indica o nome do clube' }
+
+  const { data: existing } = await supabase
+    .from('clubs')
+    .select('id, name, description, logo_url, photo_url_1, photo_url_2, address, city, country, phone, email, website, owner_id, is_managed, plan_type, latitude, longitude, cover_image_url, photos, num_courts, amenities')
+    .ilike('name', name)
+    .limit(1)
+    .maybeSingle()
+
+  if (existing) {
+    return { success: true, club: existing as ClubDetail }
+  }
+
+  const { data, error } = await supabase
+    .from('clubs')
+    .insert({
+      name,
+      city: params.city?.trim() || null,
+      country: params.country?.trim() || 'Portugal',
+      owner_id: null,
+      is_managed: false,
+      plan_type: 'preview',
+    })
+    .select('id, name, description, logo_url, photo_url_1, photo_url_2, address, city, country, phone, email, website, owner_id, is_managed, plan_type, latitude, longitude, cover_image_url, photos, num_courts, amenities')
+    .single()
+
+  if (error || !data) {
+    console.error('[Clubs] Error suggesting club:', error)
+    return { success: false, error: error?.message || 'Erro ao adicionar clube' }
+  }
+  return { success: true, club: data as ClubDetail }
+}
+
 /** Busca um clube por id (clube favorito do jogador). */
 export async function fetchClubById(clubId: string): Promise<ClubDetail | null> {
   const { data } = await supabase

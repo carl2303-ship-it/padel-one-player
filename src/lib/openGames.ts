@@ -86,6 +86,8 @@ export interface OpenGame {
   club_payment_method?: ClubPaymentMethod
   group_id?: string | null
   is_quick_result?: boolean
+  /** True when a court is reserved / will be booked when full */
+  court_reserved?: boolean
 }
 
 export type ClubPaymentMethod = 'at_club' | 'per_player' | 'full_court' | 'at_club_or_per_player' | 'at_club_or_full_court' | 'all'
@@ -332,6 +334,7 @@ export async function fetchOpenGames(filters?: {
       players: gamePlayers,
       created_at: g.created_at,
       club_payment_method: club.payment_method,
+      court_reserved: !!g.court_reserved || !!g.court_id,
     }
   })
 
@@ -879,7 +882,7 @@ async function tryCompleteGameAndBookCourt(gameId: string): Promise<{
 }> {
   const { data: game } = await supabase
     .from('open_games')
-    .select('id, max_players, status')
+    .select('id, max_players, status, court_id, court_reserved')
     .eq('id', gameId)
     .maybeSingle()
 
@@ -899,6 +902,11 @@ async function tryCompleteGameAndBookCourt(gameId: string): Promise<{
   }
 
   await supabase.from('open_games').update({ status: 'full' }).eq('id', gameId)
+
+  // Jogos sem campo / sem reserva: só marca full, não tenta booking no clube
+  if (!game.court_id || game.court_reserved === false) {
+    return { isFull: true, bookingCreated: false }
+  }
 
   const bookingResult = await createCourtBookingForGame(gameId)
   if (bookingResult.error === 'court_unavailable') {
@@ -923,7 +931,10 @@ export async function createOpenGame(params: {
   playerName?: string | null
   playerPhone?: string | null
   clubId: string
-  courtId: string
+  /** Opcional — jogos sem package de reservas podem não ter campo */
+  courtId?: string | null
+  /** Campo já reservado pelos jogadores (ou booking automático quando cheio) */
+  courtReserved?: boolean
   scheduledAt: string
   durationMinutes: number
   gameType: 'competitive' | 'friendly'
@@ -947,6 +958,9 @@ export async function createOpenGame(params: {
   const levelMin = Math.max(0.5, params.playerLevel - 0.5)
   const levelMax = params.playerLevel + 0.5
 
+  const courtId = params.courtId || null
+  const courtReserved = params.courtReserved ?? !!courtId
+
   let tz = params.clubTimezone || DEFAULT_TZ
   if (!params.clubTimezone) {
     const { data: clubTz } = await supabase
@@ -966,7 +980,8 @@ export async function createOpenGame(params: {
     .insert({
       creator_user_id: realUserId,
       club_id: params.clubId,
-      court_id: params.courtId,
+      court_id: courtId,
+      court_reserved: courtReserved,
       scheduled_at: scheduledAtISO,
       duration_minutes: params.durationMinutes,
       game_type: 'competitive',
