@@ -1713,22 +1713,13 @@ function HomeScreen({
         </div>
       )}
 
-      {/* Quick Actions — 4 principais sempre numa linha */}
-      <div className="grid grid-cols-4 gap-1 sm:gap-2">
-        <ActionButton icon={TrendingUp} label={t.home.rankings} color="rose" onClick={onOpenRankings} />
+      {/* Quick Actions — 5 numa linha */}
+      <div className="grid grid-cols-5 gap-1 sm:gap-2">
         <ActionButton icon={Trophy} label={t.home.tournaments} color="amber" onClick={onOpenCompete} />
+        <ActionButton icon={Gamepad2} label={t.home.findGame} color="purple" emoji="🎾" onClick={onOpenFindGame} />
         <ActionButton icon={Target} label="Resultados" color="rose" emoji="📊" onClick={onOpenMyResults} />
         <ActionButton icon={Target} label={t.common.quickResult} color="emerald" emoji="✍️" onClick={onOpenGameResults} />
-      </div>
-      <div className="grid grid-cols-4 gap-1 sm:gap-2">
-        {canBook && <ActionButton icon={Calendar} label={t.home.book} color="lime" onClick={onOpenBooking} />}
-        <ActionButton icon={Building2} label="Clubes" color="blue" onClick={onOpenClubsList} />
-        {canFindGame && (
-          <ActionButton icon={Gamepad2} label={t.home.findGame} color="purple" emoji="🎾" onClick={onOpenFindGame} />
-        )}
-        {canLearn && (
-          <ActionButton icon={GraduationCap} label={t.home.learn} color="emerald" onClick={onOpenLearn} />
-        )}
+        <ActionButton icon={TrendingUp} label={t.home.rankings} color="rose" onClick={onOpenRankings} />
       </div>
 
       {/* Profile Card - Foto + Nome + Bio */}
