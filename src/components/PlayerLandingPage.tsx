@@ -18,7 +18,7 @@ import { useI18n } from '../lib/i18nContext'
 /** Entrada real na PWA: o ecrã de login já usado pelo header («Entrar»). */
 const PLAYER_APP_HREF = '/login'
 /** Canal de contacto já usado na página de clubes. */
-const CLUB_DEMO_HREF = `mailto:info@boostpadel.store?subject=${encodeURIComponent('Agendar Demonstração para o Clube')}`
+const CLUB_DEMO_HREF = `mailto:info@sportsevents.app?subject=${encodeURIComponent('Agendar Demonstração para o Clube')}`
 
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>
@@ -28,7 +28,7 @@ type BeforeInstallPromptEvent = Event & {
 const metrics = [
   { value: '800+', label: 'Jogadores' },
   { value: '200+', label: 'Quadros de Torneio' },
-  { value: '5+', label: 'Anos de Comunidade' },
+  { value: '2+', label: 'Anos de Comunidade' },
 ]
 
 const playerFeatures = [
@@ -307,8 +307,8 @@ export default function PlayerLandingPage({ onLogin, onRegister }: { onLogin: ()
             </a>
             <p className="mt-4 max-w-xl text-sm leading-relaxed text-slate-400">
               Escreve para{' '}
-              <a href="mailto:info@boostpadel.store" className="font-medium text-cyan-300 underline-offset-2 hover:underline">
-                info@boostpadel.store
+              <a href="mailto:info@sportsevents.app" className="font-medium text-cyan-300 underline-offset-2 hover:underline">
+                info@sportsevents.app
               </a>
               {' '}e marcamos uma demonstração do Padel One para o teu clube.
             </p>
@@ -349,8 +349,8 @@ export default function PlayerLandingPage({ onLogin, onRegister }: { onLogin: ()
                 <h4 className="mb-3 text-sm font-semibold text-white">{l.footerContact}</h4>
                 <ul className="space-y-2 text-sm">
                   <li>
-                    <a href="mailto:info@boostpadel.store" className="inline-flex items-center gap-1 transition hover:text-white">
-                      <Mail className="h-3.5 w-3.5" /> info@boostpadel.store
+                    <a href="mailto:info@sportsevents.app" className="inline-flex items-center gap-1 transition hover:text-white">
+                      <Mail className="h-3.5 w-3.5" /> info@sportsevents.app
                     </a>
                   </li>
                 </ul>
