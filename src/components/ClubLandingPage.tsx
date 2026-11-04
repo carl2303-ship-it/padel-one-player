@@ -1,35 +1,30 @@
-import { useState, useEffect } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { supabase } from '../lib/supabase'
 import {
-  Trophy,
-  Calendar,
-  BarChart3,
-  Users,
-  CreditCard,
-  Gift,
-  Smartphone,
-  ArrowRight,
-  Mail,
-  ChevronRight,
-  HelpCircle,
-  ExternalLink,
-  Building2,
-  GraduationCap,
-  ShoppingBag,
-  MessageCircle,
-  Check,
   Bot,
+  Building2,
+  Check,
+  ChevronRight,
+  ExternalLink,
+  HelpCircle,
+  LayoutDashboard,
+  Mail,
+  MessageCircle,
+  MonitorSmartphone,
+  Smartphone,
+  Trophy,
+  Users,
   Zap,
-  Instagram,
-  Globe,
 } from 'lucide-react'
+
+const CONTACT_EMAIL = 'info@sportsevents.app'
+const DEMO_HREF = `mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent('Agendar Demonstração — Clubes, Resorts & Organizadores')}`
 
 const apps = [
   {
     name: 'Padel One Player',
     tagline: 'A app dos jogadores',
     url: 'https://padel1.app',
-    color: 'from-red-500 to-orange-500',
     icon: Smartphone,
     features: [
       'Reserva de campos online',
@@ -42,9 +37,8 @@ const apps = [
   },
   {
     name: 'Padel One Tour',
-    tagline: 'Gestão de torneios',
+    tagline: 'Gestão de torneios para organizadores',
     url: 'https://tour.padel1.app',
-    color: 'from-emerald-500 to-teal-500',
     icon: Trophy,
     features: [
       'Americanos, Grupos, Eliminatórias',
@@ -59,7 +53,6 @@ const apps = [
     name: 'Padel One Manager',
     tagline: 'Gestão completa do clube',
     url: 'https://manager.padel1.app',
-    color: 'from-blue-500 to-indigo-500',
     icon: Building2,
     features: [
       'Gestão de campos e reservas',
@@ -72,46 +65,48 @@ const apps = [
   },
 ]
 
-const benefits = [
+const solutionModules = [
   {
-    icon: BarChart3,
-    title: 'Digitalização total',
-    desc: 'Deixa de usar papel e WhatsApp. Toda a gestão do clube numa plataforma integrada.',
+    icon: LayoutDashboard,
+    title: 'Padel1 Manager',
+    subtitle: 'Gestão Total de Campos & Reservas',
+    description:
+      'Fim dos mapas em papel e das mensagens no WhatsApp. Painel de controlo completo para receção e reservas online automatizadas.',
+    visual: 'manager' as const,
+  },
+  {
+    icon: MonitorSmartphone,
+    title: 'Smart Courts & Placares Digitais',
+    subtitle: 'Hardware + Software',
+    description:
+      'Integração com ecrãs no clube, placares digitais de campo e botões de pontuação para transmissão e experiência profissional dos atletas.',
+    visual: 'courts' as const,
+  },
+  {
+    icon: Trophy,
+    title: 'Torneios & Ligas para Organizadores',
+    subtitle: 'Padel1 Tour · Quadros automáticos',
+    description:
+      'Criação automática de grupos, eliminatórias, distribuição de horários por campo e atualização dinâmica dos resultados — para clubes, resorts e organizadores independentes.',
+    visual: 'tournaments' as const,
   },
   {
     icon: Users,
-    title: 'Engagement dos jogadores',
-    desc: 'Os jogadores usam a app diariamente para reservar, jogar e interagir. Mais actividade no teu clube.',
-  },
-  {
-    icon: CreditCard,
-    title: 'Pagamentos simplificados',
-    desc: 'Pagamentos online de reservas, torneios e consumos no bar. Stripe integrado.',
-  },
-  {
-    icon: Gift,
-    title: 'Programa de recompensas',
-    desc: 'Fideliza jogadores com pontos e prémios. Cada jogo, torneio e consumo gera pontos.',
-  },
-  {
-    icon: GraduationCap,
-    title: 'Academia integrada',
-    desc: 'Gere aulas pontuais, packs e aulas de grupo. Os jogadores inscrevem-se directamente pela app.',
-  },
-  {
-    icon: ShoppingBag,
-    title: 'Gestão de bar',
-    desc: 'Cria contas, adiciona itens, controla consumos e gera relatórios do bar do clube.',
+    title: 'Comunidade Ativa de Jogadores',
+    subtitle: 'Rede de jogadores registados',
+    description:
+      'Acesso direto a uma rede de centenas de jogadores registados e ativos para encher campos e eventos em horários de menor ocupação, em qualquer região.',
+    visual: 'community' as const,
   },
 ]
 
 const MODULE_COLORS: Record<string, string> = {
-  tournaments: 'from-emerald-500 to-teal-500',
-  manager: 'from-blue-500 to-indigo-500',
-  bar: 'from-orange-500 to-amber-500',
-  ai_full: 'from-purple-500 to-indigo-600',
-  ai_light: 'from-violet-500 to-purple-500',
-};
+  tournaments: 'from-emerald-400 to-cyan-400',
+  manager: 'from-cyan-400 to-blue-400',
+  bar: 'from-amber-400 to-orange-400',
+  ai_full: 'from-violet-400 to-fuchsia-400',
+  ai_light: 'from-purple-400 to-violet-400',
+}
 
 const DEFAULT_MODULES = [
   {
@@ -194,14 +189,14 @@ const DEFAULT_MODULES = [
       'Confirmação automática',
     ],
   },
-];
+]
 
 const DEFAULT_PACKS = [
   {
     code: 'light',
     name: 'Pack Light',
     tagline: 'Mantém a tua app de reservas actual',
-    description: 'O plano perfeito para os clubes que querem ficar com a sua aplicação actual de Gestão de Reservas!',
+    description: 'O plano perfeito para clubes e organizadores que querem ficar com a sua aplicação actual de Gestão de Reservas!',
     price_monthly: 89,
     price_annual: 990,
     compare_price_monthly: 129,
@@ -230,58 +225,150 @@ const DEFAULT_PACKS = [
     ],
     is_popular: true,
   },
-];
+]
 
 interface PlatformPack {
-  code: string;
-  name: string;
-  tagline: string | null;
-  description: string | null;
-  price_monthly: number;
-  price_annual: number;
-  compare_price_monthly: number | null;
-  compare_price_annual: number | null;
-  landing_features: string[];
-  is_popular: boolean;
+  code: string
+  name: string
+  tagline: string | null
+  description: string | null
+  price_monthly: number
+  price_annual: number
+  compare_price_monthly: number | null
+  compare_price_annual: number | null
+  landing_features: string[]
+  is_popular: boolean
 }
 
 interface PlatformModule {
-  code: string;
-  name: string;
-  description: string | null;
-  price_monthly: number | null;
-  price_annual: number | null;
-  target_types: string[];
-  requires_modules: string[];
-  landing_features: string[];
+  code: string
+  name: string
+  description: string | null
+  price_monthly: number | null
+  price_annual: number | null
+  target_types: string[]
+  requires_modules: string[]
+  landing_features: string[]
 }
 
-const aiChannels = [
-  { icon: MessageCircle, name: 'WhatsApp', desc: 'Responde automaticamente a mensagens dos clientes' },
-  { icon: Instagram, name: 'Instagram', desc: 'Responde a DMs e comentários no Instagram do clube' },
-  { icon: Globe, name: 'Facebook', desc: 'Gere mensagens no Messenger do clube' },
-  { icon: Mail, name: 'Email', desc: 'Responde a emails de reservas e dúvidas' },
-  { icon: Globe, name: 'Website', desc: 'Chat ao vivo no site do clube' },
-]
+function SectionEyebrow({ children }: { children: ReactNode }) {
+  return <p className="text-sm font-semibold uppercase tracking-[0.18em] text-cyan-300">{children}</p>
+}
+
+function ClubModuleVisual({ variant }: { variant: 'manager' | 'courts' | 'tournaments' | 'community' }) {
+  if (variant === 'manager') {
+    return (
+      <div className="rounded-2xl border border-slate-800 bg-slate-950/80 p-4">
+        <div className="mb-3 flex items-center gap-2">
+          <LayoutDashboard className="h-4 w-4 text-cyan-300" />
+          <p className="text-xs font-bold text-white">Painel de reservas</p>
+        </div>
+        <div className="grid grid-cols-4 gap-1.5">
+          {['09', '10', '11', '12', '13', '14', '15', '16'].map((hour, index) => (
+            <div
+              key={hour}
+              className={`rounded-md px-1 py-2 text-center text-[10px] font-semibold ${
+                index === 2 || index === 5
+                  ? 'bg-emerald-400 text-slate-950'
+                  : index === 3
+                    ? 'bg-amber-400/20 text-amber-200 ring-1 ring-amber-400/30'
+                    : 'bg-slate-900 text-slate-400'
+              }`}
+            >
+              {hour}h
+            </div>
+          ))}
+        </div>
+        <p className="mt-3 text-[11px] text-slate-400">Receção + reservas online no mesmo ecrã.</p>
+      </div>
+    )
+  }
+
+  if (variant === 'courts') {
+    return (
+      <div className="rounded-2xl border border-slate-800 bg-slate-950/80 p-4">
+        <div className="rounded-xl border border-cyan-400/20 bg-gradient-to-br from-slate-900 to-slate-950 p-3">
+          <div className="mb-2 flex items-center justify-between">
+            <p className="text-[10px] font-bold uppercase tracking-wide text-cyan-300">Campo 3 · Live</p>
+            <MonitorSmartphone className="h-4 w-4 text-cyan-300" />
+          </div>
+          <div className="grid grid-cols-2 gap-3 text-center">
+            <div>
+              <p className="text-[10px] text-slate-400">Equipa A</p>
+              <p className="text-3xl font-black text-white">6</p>
+            </div>
+            <div>
+              <p className="text-[10px] text-slate-400">Equipa B</p>
+              <p className="text-3xl font-black text-emerald-300">4</p>
+            </div>
+          </div>
+          <p className="mt-2 text-center text-[10px] text-slate-500">Placar digital + botão de pontuação</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (variant === 'tournaments') {
+    return (
+      <div className="rounded-2xl border border-slate-800 bg-slate-950/80 p-4">
+        <p className="mb-2 text-xs font-bold text-white">Geração automática</p>
+        <div className="space-y-2">
+          {['Grupos A–D criados', 'Horários por campo', 'Eliminatórias publicadas'].map((item, index) => (
+            <div key={item} className="flex items-center gap-2 rounded-lg border border-slate-800 bg-slate-900/70 px-2.5 py-2">
+              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-emerald-400/15 text-[10px] font-black text-emerald-300">
+                {index + 1}
+              </span>
+              <span className="text-[11px] text-slate-200">{item}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="rounded-2xl border border-slate-800 bg-slate-950/80 p-4">
+      <div className="mb-3 flex items-center gap-2">
+        <Users className="h-4 w-4 text-emerald-300" />
+        <p className="text-xs font-bold text-white">Rede ativa · Global</p>
+      </div>
+      <div className="flex -space-x-2">
+        {['JM', 'AL', 'CR', 'TS', 'MK', '+'].map((initials, index) => (
+          <div
+            key={initials}
+            className={`flex h-8 w-8 items-center justify-center rounded-full border-2 border-slate-950 text-[10px] font-bold ${
+              index === 5 ? 'bg-cyan-400 text-slate-950' : 'bg-slate-700 text-white'
+            }`}
+          >
+            {initials}
+          </div>
+        ))}
+      </div>
+      <p className="mt-3 text-[11px] leading-relaxed text-slate-400">
+        Centenas de jogadores registados para encher campos e eventos em qualquer região.
+      </p>
+    </div>
+  )
+}
 
 export default function ClubLandingPage() {
-  const [modules, setModules] = useState<PlatformModule[]>(DEFAULT_MODULES);
-  const [packs, setPacks] = useState<PlatformPack[]>(DEFAULT_PACKS as PlatformPack[]);
-  const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('monthly');
+  const [modules, setModules] = useState<PlatformModule[]>(DEFAULT_MODULES)
+  const [packs, setPacks] = useState<PlatformPack[]>(DEFAULT_PACKS as PlatformPack[])
+  const [billingCycle, setBillingCycle] = useState<'monthly' | 'annual'>('monthly')
 
   useEffect(() => {
     const load = async () => {
       const [modsRes, packsRes] = await Promise.all([
         supabase.rpc('get_active_modules_public'),
         supabase.rpc('get_active_packs_public'),
-      ]);
+      ])
 
       if (modsRes.data && modsRes.data.length > 0) {
         setModules(modsRes.data.map((m: PlatformModule) => ({
           ...m,
           price_monthly: m.price_monthly != null ? Number(m.price_monthly) : null,
           price_annual: m.price_annual != null ? Number(m.price_annual) : null,
-        })));
+        })))
       }
 
       if (packsRes.data && packsRes.data.length > 0) {
@@ -291,205 +378,186 @@ export default function ClubLandingPage() {
           price_annual: Number(p.price_annual),
           compare_price_monthly: p.compare_price_monthly != null ? Number(p.compare_price_monthly) : null,
           compare_price_annual: p.compare_price_annual != null ? Number(p.compare_price_annual) : null,
-        })));
+        })))
       }
-    };
-    load();
-  }, []);
+    }
+    load()
+  }, [])
 
   return (
-    <div className="min-h-screen bg-white">
-      {/* Header */}
-      <header className="sticky top-0 z-50 bg-white/80 backdrop-blur-lg border-b border-gray-100">
-        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <img src="/icon.png" alt="Padel One" className="w-9 h-9 rounded-xl" />
-            <span className="font-bold text-lg text-gray-900">PADEL ONE</span>
-            <span className="text-xs font-semibold text-gray-400 bg-gray-100 rounded-full px-2 py-0.5 ml-1">CLUBES</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <a
-              href="/"
-              className="px-4 py-2 text-sm font-semibold text-gray-700 hover:text-gray-900 transition"
-            >
+    <div className="min-h-screen bg-[#070b12] text-slate-100">
+      <header className="sticky top-0 z-50 border-b border-slate-800 bg-[#070b12]/80 backdrop-blur-lg">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-3">
+          <a href="/clubs" className="flex min-w-0 items-center gap-2">
+            <img src="/icon.png" alt="Padel One" className="h-9 w-9 rounded-xl" />
+            <span className="truncate text-sm font-bold tracking-tight text-white sm:text-lg">PADEL ONE</span>
+            <span className="hidden rounded-full border border-cyan-400/30 bg-cyan-400/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-cyan-300 sm:inline">
+              B2B
+            </span>
+          </a>
+          <nav className="flex items-center gap-1 sm:gap-2">
+            <a href="/" className="px-2 py-2 text-sm font-semibold text-slate-200 transition hover:text-white sm:px-3">
               Sou Jogador
             </a>
             <a
-              href="mailto:info@boostpadel.store"
-              className="px-5 py-2 text-sm font-bold text-white bg-gradient-to-r from-blue-500 to-indigo-600 rounded-xl hover:shadow-lg hover:shadow-blue-200 transition-all"
+              href={DEMO_HREF}
+              className="rounded-xl bg-gradient-to-r from-emerald-400 to-cyan-300 px-3 py-2 text-sm font-bold text-slate-950 transition hover:shadow-lg hover:shadow-emerald-500/20 sm:px-4"
             >
               Contactar
             </a>
-          </div>
+          </nav>
         </div>
       </header>
 
-      {/* Hero */}
-      <section className="relative overflow-hidden bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50">
-        <div className="absolute inset-0 opacity-30">
-          <div className="absolute top-20 left-10 w-72 h-72 bg-blue-200 rounded-full blur-3xl" />
-          <div className="absolute bottom-10 right-10 w-96 h-96 bg-indigo-200 rounded-full blur-3xl" />
+      <section className="relative overflow-hidden">
+        <div className="pointer-events-none absolute inset-0" aria-hidden="true">
+          <div className="absolute -top-24 left-1/2 h-[28rem] w-[28rem] -translate-x-1/2 rounded-full bg-cyan-400/20 blur-3xl" />
+          <div className="absolute right-0 top-32 h-72 w-72 rounded-full bg-emerald-400/15 blur-3xl" />
+          <div className="absolute inset-0 bg-[linear-gradient(to_right,rgba(255,255,255,0.045)_1px,transparent_1px),linear-gradient(to_bottom,rgba(255,255,255,0.045)_1px,transparent_1px)] bg-[size:52px_52px] [mask-image:radial-gradient(ellipse_at_center,black,transparent_72%)]" />
         </div>
-        <div className="relative max-w-6xl mx-auto px-4 py-20 md:py-28 text-center">
-          <div className="inline-flex items-center gap-2 bg-white/80 backdrop-blur rounded-full px-4 py-1.5 mb-6 border border-blue-100">
-            <Building2 className="w-4 h-4 text-blue-500" />
-            <span className="text-sm font-medium text-gray-700">Para Clubes de Padel</span>
+        <div className="relative mx-auto max-w-6xl px-4 pb-16 pt-16 text-center sm:pb-20 sm:pt-24 md:pb-24 md:pt-28">
+          <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-cyan-400/30 bg-cyan-400/10 px-4 py-1.5">
+            <Building2 className="h-4 w-4 text-cyan-300" />
+            <span className="text-sm font-medium text-cyan-100">Clubes, Resorts & Organizadores</span>
           </div>
-          <h1 className="text-4xl md:text-6xl font-black text-gray-900 leading-tight mb-6">
+          <h1 className="mx-auto max-w-4xl text-4xl font-black leading-[1.08] tracking-tight text-white sm:text-5xl lg:text-6xl">
             O universo{' '}
-            <span className="bg-gradient-to-r from-blue-500 to-indigo-600 bg-clip-text text-transparent">
+            <span className="bg-gradient-to-r from-emerald-300 to-cyan-300 bg-clip-text text-transparent">
               Padel One
             </span>
             <br />
-            para o teu clube
+            para o teu clube, resort ou organização
           </h1>
-          <p className="text-lg md:text-xl text-gray-600 max-w-2xl mx-auto mb-10 leading-relaxed">
-            3 aplicações integradas para digitalizar o teu clube: gestão de reservas, torneios, bar, academia, comunidade e muito mais.
+          <p className="mx-auto mt-6 max-w-2xl text-base leading-relaxed text-slate-300 sm:text-lg md:text-xl">
+            3 aplicações integradas para digitalizar reservas, torneios, bar, academia e comunidade — em qualquer parte do mundo.
           </p>
-          <div className="flex flex-col sm:flex-row gap-4 justify-center">
+          <div className="mt-10 flex flex-col justify-center gap-3 sm:flex-row sm:items-center">
             <a
-              href="mailto:info@boostpadel.store"
-              className="inline-flex items-center justify-center gap-2 px-8 py-4 text-lg font-bold text-white bg-gradient-to-r from-blue-500 to-indigo-600 rounded-2xl hover:shadow-xl hover:shadow-blue-200 transition-all hover:-translate-y-0.5"
+              href={DEMO_HREF}
+              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-400 to-cyan-300 px-6 py-4 text-base font-bold text-slate-950 shadow-lg shadow-emerald-500/20 transition hover:-translate-y-0.5 sm:text-lg"
             >
-              <Mail className="w-5 h-5" />
-              Contacte-nos
+              <Mail className="h-5 w-5" />
+              Agendar Demonstração →
             </a>
             <a
-              href="https://wa.me/351969365059"
-              className="inline-flex items-center justify-center gap-2 px-8 py-4 text-lg font-semibold text-gray-700 bg-white rounded-2xl border-2 border-gray-200 hover:border-green-300 hover:shadow-lg transition-all"
+              href="#solucoes"
+              className="inline-flex items-center justify-center rounded-2xl border border-slate-700 bg-slate-900/50 px-6 py-4 text-base font-semibold text-white transition hover:border-cyan-300/40 hover:bg-slate-900 sm:text-lg"
             >
-              <MessageCircle className="w-5 h-5 text-green-500" />
-              WhatsApp
+              Ver soluções
             </a>
           </div>
         </div>
       </section>
 
-      {/* 3 Apps */}
-      <section className="py-20 bg-white">
-        <div className="max-w-6xl mx-auto px-4">
-          <div className="text-center mb-14">
-            <h2 className="text-3xl md:text-4xl font-black text-gray-900 mb-4">
-              3 Apps, 1 Ecossistema
-            </h2>
-            <p className="text-lg text-gray-500 max-w-xl mx-auto">
-              Cada aplicação resolve uma necessidade específica. Juntas, transformam a gestão do teu clube.
-            </p>
+      <section id="solucoes" className="scroll-mt-20 border-t border-slate-800 bg-[#0b1220] py-16 sm:py-20">
+        <div className="mx-auto max-w-6xl px-4">
+          <SectionEyebrow>Soluções</SectionEyebrow>
+          <h2 className="mt-3 max-w-3xl text-3xl font-black tracking-tight text-white sm:text-4xl">
+            Soluções Padel1 Manager & Smart Courts
+          </h2>
+          <p className="mt-4 max-w-2xl text-base leading-relaxed text-slate-400">
+            Quatro módulos para eliminar o caos operacional de clubes, resorts e organizadores — e encher os campos com jogadores activos.
+          </p>
+          <div className="mt-12 grid grid-cols-1 gap-5 lg:grid-cols-2">
+            {solutionModules.map((module) => {
+              const Icon = module.icon
+              return (
+                <article key={module.title} className="overflow-hidden rounded-3xl border border-slate-800 bg-slate-900/50 transition hover:border-cyan-400/30">
+                  <div className="border-l-2 border-cyan-400/70 p-6 sm:p-7">
+                    <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-cyan-400/10 text-cyan-300 ring-1 ring-cyan-400/20">
+                      <Icon className="h-5 w-5" aria-hidden="true" />
+                    </div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-cyan-300/80">{module.subtitle}</p>
+                    <h3 className="mt-2 text-xl font-black text-white">{module.title}</h3>
+                    <p className="mt-3 text-sm leading-relaxed text-slate-400">{module.description}</p>
+                    <div className="mt-5">
+                      <ClubModuleVisual variant={module.visual} />
+                    </div>
+                  </div>
+                </article>
+              )
+            })}
           </div>
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        </div>
+      </section>
+
+      <section className="border-t border-slate-800 py-16 sm:py-20">
+        <div className="mx-auto max-w-6xl px-4">
+          <SectionEyebrow>Ecossistema</SectionEyebrow>
+          <h2 className="mt-3 text-3xl font-black tracking-tight text-white sm:text-4xl">3 Apps, 1 Ecossistema</h2>
+          <p className="mt-4 max-w-2xl text-base leading-relaxed text-slate-400">
+            Cada aplicação resolve uma necessidade específica. Juntas, transformam a gestão do teu clube, resort ou organização.
+          </p>
+          <div className="mt-10 grid grid-cols-1 gap-5 lg:grid-cols-3">
             {apps.map((app) => (
-              <div
-                key={app.name}
-                className="group rounded-3xl border border-gray-100 hover:border-gray-200 hover:shadow-xl transition-all duration-300 overflow-hidden"
-              >
-                <div className={`bg-gradient-to-br ${app.color} p-6 text-white`}>
-                  <div className="flex items-center gap-3 mb-3">
-                    <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
-                      <app.icon className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <h3 className="font-bold text-lg">{app.name}</h3>
-                      <p className="text-sm opacity-80">{app.tagline}</p>
-                    </div>
-                  </div>
+              <article key={app.name} className="rounded-3xl border border-slate-800 bg-slate-900/50 p-6 transition hover:border-emerald-400/30">
+                <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-400/10 text-emerald-300 ring-1 ring-emerald-400/20">
+                  <app.icon className="h-5 w-5" />
                 </div>
-                <div className="p-6">
-                  <ul className="space-y-3 mb-6">
-                    {app.features.map((f) => (
-                      <li key={f} className="flex items-start gap-2 text-sm text-gray-600">
-                        <ChevronRight className="w-4 h-4 text-gray-400 mt-0.5 shrink-0" />
-                        {f}
-                      </li>
-                    ))}
-                  </ul>
-                  <a
-                    href={app.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-sm font-semibold text-blue-600 hover:text-blue-700 transition"
-                  >
-                    Abrir {app.name.split(' ').pop()}
-                    <ExternalLink className="w-3.5 h-3.5" />
-                  </a>
-                </div>
-              </div>
+                <h3 className="text-lg font-black text-white">{app.name}</h3>
+                <p className="mt-1 text-sm text-slate-400">{app.tagline}</p>
+                <ul className="mt-5 space-y-2">
+                  {app.features.map((feature) => (
+                    <li key={feature} className="flex items-start gap-2 text-sm text-slate-300">
+                      <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" />
+                      {feature}
+                    </li>
+                  ))}
+                </ul>
+                <a
+                  href={app.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-6 inline-flex items-center gap-1 text-sm font-semibold text-cyan-300 transition hover:text-cyan-200"
+                >
+                  Abrir {app.name.split(' ').pop()}
+                  <ExternalLink className="h-3.5 w-3.5" />
+                </a>
+              </article>
             ))}
           </div>
         </div>
       </section>
 
-      {/* Benefits */}
-      <section className="py-20 bg-gray-50">
-        <div className="max-w-6xl mx-auto px-4">
-          <div className="text-center mb-14">
-            <h2 className="text-3xl md:text-4xl font-black text-gray-900 mb-4">
-              Porque escolher o Padel One
-            </h2>
-            <p className="text-lg text-gray-500 max-w-xl mx-auto">
-              Benefícios reais para o dia-a-dia do teu clube.
-            </p>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {benefits.map((b) => (
-              <div
-                key={b.title}
-                className="group p-6 bg-white rounded-2xl border border-gray-100 hover:border-gray-200 hover:shadow-lg transition-all duration-300"
-              >
-                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center mb-4 shadow-lg group-hover:scale-110 transition-transform">
-                  <b.icon className="w-6 h-6 text-white" />
-                </div>
-                <h3 className="text-lg font-bold text-gray-900 mb-2">{b.title}</h3>
-                <p className="text-gray-500 text-sm leading-relaxed">{b.desc}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* AI Agent */}
-      <section className="py-20 bg-white">
-        <div className="max-w-6xl mx-auto px-4">
-          <div className="text-center mb-14">
-            <div className="inline-flex items-center gap-2 bg-purple-50 rounded-full px-4 py-1.5 mb-4 border border-purple-100">
-              <Bot className="w-4 h-4 text-purple-500" />
-              <span className="text-sm font-medium text-purple-700">Novo</span>
+      <section className="border-t border-slate-800 bg-[#0b1220] py-16 sm:py-20">
+        <div className="mx-auto max-w-6xl px-4">
+          <div className="mb-10 text-center">
+            <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-violet-400/30 bg-violet-400/10 px-4 py-1.5">
+              <Bot className="h-4 w-4 text-violet-300" />
+              <span className="text-sm font-medium text-violet-200">Novo</span>
             </div>
-            <h2 className="text-3xl md:text-4xl font-black text-gray-900 mb-4">
-              AI Agent para o teu clube
-            </h2>
-            <p className="text-lg text-gray-500 max-w-2xl mx-auto">
-              Um assistente inteligente que responde automaticamente a todas as questões dos teus clientes, 24/7. Simplifica a vida do gerente do clube.
+            <h2 className="text-3xl font-black tracking-tight text-white sm:text-4xl">AI Agent para o teu clube</h2>
+            <p className="mx-auto mt-4 max-w-2xl text-base leading-relaxed text-slate-400">
+              Um assistente inteligente que responde automaticamente a questões dos teus clientes, 24/7. Simplifica a vida do gerente e do organizador.
             </p>
           </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
-            <div>
-              <div className="space-y-4">
-                {aiChannels.map((ch) => (
-                  <div
-                    key={ch.name}
-                    className="flex items-start gap-4 p-4 bg-gray-50 rounded-2xl border border-gray-100 hover:border-purple-200 hover:shadow-md transition-all"
-                  >
-                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-purple-500 to-indigo-500 flex items-center justify-center shrink-0">
-                      <ch.icon className="w-5 h-5 text-white" />
-                    </div>
-                    <div>
-                      <h4 className="font-bold text-gray-900 text-sm">{ch.name}</h4>
-                      <p className="text-xs text-gray-500">{ch.desc}</p>
-                    </div>
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+            <div className="space-y-3">
+              {[
+                { name: 'WhatsApp', desc: 'Responde automaticamente a mensagens dos clientes' },
+                { name: 'Instagram', desc: 'Responde a DMs e comentários no Instagram do clube' },
+                { name: 'Facebook', desc: 'Gere mensagens no Messenger do clube' },
+                { name: 'Website', desc: 'Chat ao vivo no site do clube' },
+              ].map((channel) => (
+                <div key={channel.name} className="flex items-start gap-3 rounded-2xl border border-slate-800 bg-slate-900/50 p-4">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-400/15 text-violet-300">
+                    <MessageCircle className="h-5 w-5" />
                   </div>
-                ))}
-              </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-white">{channel.name}</h4>
+                    <p className="text-xs text-slate-400">{channel.desc}</p>
+                  </div>
+                </div>
+              ))}
             </div>
-
-            <div className="bg-gradient-to-br from-purple-50 to-indigo-50 rounded-3xl p-8 border border-purple-100">
-              <div className="flex items-center gap-3 mb-6">
-                <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center shadow-lg">
-                  <Bot className="w-7 h-7 text-white" />
+            <div className="rounded-3xl border border-violet-400/20 bg-slate-900/50 p-6 sm:p-8">
+              <div className="mb-6 flex items-center gap-3">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-400 to-fuchsia-400 text-slate-950">
+                  <Bot className="h-6 w-6" />
                 </div>
                 <div>
-                  <h3 className="text-xl font-bold text-gray-900">Padel One AI</h3>
-                  <p className="text-sm text-gray-500">O teu assistente virtual</p>
+                  <h3 className="text-xl font-bold text-white">Padel One AI</h3>
+                  <p className="text-sm text-slate-400">O teu assistente virtual</p>
                 </div>
               </div>
               <ul className="space-y-3">
@@ -500,109 +568,88 @@ export default function ClubLandingPage() {
                   'Disponível 24 horas por dia, 7 dias por semana',
                   'Aprende com os dados do teu clube',
                   'Reduz o trabalho manual do gerente em 80%',
-                ].map((f) => (
-                  <li key={f} className="flex items-start gap-2 text-sm text-gray-700">
-                    <Zap className="w-4 h-4 text-purple-500 mt-0.5 shrink-0" />
-                    {f}
+                ].map((item) => (
+                  <li key={item} className="flex items-start gap-2 text-sm text-slate-300">
+                    <Zap className="mt-0.5 h-4 w-4 shrink-0 text-violet-300" />
+                    {item}
                   </li>
                 ))}
               </ul>
-              <div className="mt-6 p-3 bg-white/60 rounded-xl border border-purple-100">
-                <p className="text-xs text-purple-600 font-semibold text-center">
-                  Incluído no Pack Padel One Total — variante completa com reservas automáticas
-                </p>
-              </div>
             </div>
           </div>
         </div>
       </section>
 
-      {/* Módulos à la carte */}
-      <section className="py-20 bg-white">
-        <div className="max-w-6xl mx-auto px-4">
-          <div className="text-center mb-14">
-            <h2 className="text-3xl md:text-4xl font-black text-gray-900 mb-4">
-              Módulos à la carte
-            </h2>
-            <p className="text-lg text-gray-500 max-w-xl mx-auto">
-              Compra apenas o que precisas. Cada módulo pode ser ativado individualmente para o teu clube ou organização.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-6xl mx-auto">
+      <section className="border-t border-slate-800 py-16 sm:py-20">
+        <div className="mx-auto max-w-6xl px-4">
+          <SectionEyebrow>Preços</SectionEyebrow>
+          <h2 className="mt-3 text-3xl font-black tracking-tight text-white sm:text-4xl">Módulos à la carte</h2>
+          <p className="mt-4 max-w-2xl text-base leading-relaxed text-slate-400">
+            Compra apenas o que precisas. Cada módulo pode ser ativado individualmente para o teu clube, resort ou organização.
+          </p>
+          <div className="mt-10 grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
             {modules.map((mod) => (
-              <div
-                key={mod.code}
-                className="relative rounded-3xl bg-white border-2 border-gray-100 overflow-hidden transition-all hover:shadow-xl hover:border-blue-200"
-              >
-                <div className={`h-2 bg-gradient-to-r ${MODULE_COLORS[mod.code] || 'from-gray-400 to-gray-500'}`} />
+              <article key={mod.code} className="overflow-hidden rounded-3xl border border-slate-800 bg-slate-900/50">
+                <div className={`h-1.5 bg-gradient-to-r ${MODULE_COLORS[mod.code] || 'from-slate-500 to-slate-600'}`} />
                 <div className="p-6">
-                  <h3 className="text-xl font-bold text-gray-900 mb-1">{mod.name}</h3>
-                  <p className="text-sm text-gray-500 mb-4 min-h-[40px]">{mod.description}</p>
-
-                  <div className="mb-4">
+                  <h3 className="text-xl font-bold text-white">{mod.name}</h3>
+                  <p className="mt-2 min-h-[40px] text-sm text-slate-400">{mod.description}</p>
+                  <div className="mt-4">
                     <div className="flex items-end gap-1">
-                      <span className="text-3xl font-black text-gray-900">{mod.price_monthly}€</span>
-                      <span className="text-sm text-gray-400 mb-1">/mês</span>
+                      <span className="text-3xl font-black text-white">{mod.price_monthly}€</span>
+                      <span className="mb-1 text-sm text-slate-500">/mês</span>
                     </div>
                     {mod.price_annual != null && (
-                      <p className="text-xs text-gray-400 mt-1">
-                        ou {mod.price_annual}€/ano
-                      </p>
+                      <p className="mt-1 text-xs text-slate-500">ou {mod.price_annual}€/ano</p>
                     )}
                   </div>
-
                   {mod.requires_modules?.length > 0 && (
-                    <p className="text-xs text-amber-600 mb-3">
-                      Requer: {mod.requires_modules.join(', ')}
-                    </p>
+                    <p className="mt-3 text-xs text-amber-300">Requer: {mod.requires_modules.join(', ')}</p>
                   )}
-
-                  <ul className="space-y-2 mb-6">
-                    {(mod.landing_features || []).map((f) => (
-                      <li key={f} className="flex items-start gap-2 text-sm text-gray-700">
-                        <Check className="w-4 h-4 text-green-500 mt-0.5 shrink-0" />
-                        {f}
+                  <ul className="mt-5 space-y-2">
+                    {(mod.landing_features || []).map((feature) => (
+                      <li key={feature} className="flex items-start gap-2 text-sm text-slate-300">
+                        <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" />
+                        {feature}
                       </li>
                     ))}
                   </ul>
-
                   <a
-                    href={`mailto:info@boostpadel.store?subject=${encodeURIComponent(`Interesse no módulo ${mod.name}`)}`}
-                    className="block text-center py-3 rounded-xl text-sm font-bold bg-gray-100 text-gray-700 hover:bg-gray-200 transition-all"
+                    href={`mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent(`Interesse no módulo ${mod.name}`)}`}
+                    className="mt-6 block rounded-xl bg-slate-800 py-3 text-center text-sm font-bold text-white transition hover:bg-slate-700"
                   >
                     Contactar
                   </a>
                 </div>
-              </div>
+              </article>
             ))}
           </div>
         </div>
       </section>
 
-      {/* Packs */}
-      <section className="py-20 bg-gray-50">
-        <div className="max-w-6xl mx-auto px-4">
-          <div className="text-center mb-10">
-            <h2 className="text-3xl md:text-4xl font-black text-gray-900 mb-4">
-              Packs — poupa vs módulos individuais
-            </h2>
-            <p className="text-lg text-gray-500 max-w-xl mx-auto mb-8">
+      <section className="border-t border-slate-800 bg-[#0b1220] py-16 sm:py-20">
+        <div className="mx-auto max-w-6xl px-4">
+          <div className="text-center">
+            <SectionEyebrow>Packs</SectionEyebrow>
+            <h2 className="mt-3 text-3xl font-black tracking-tight text-white sm:text-4xl">Packs — poupa vs módulos individuais</h2>
+            <p className="mx-auto mt-4 max-w-xl text-base leading-relaxed text-slate-400">
               Preferes um pacote completo? Os packs Light e Total incluem vários módulos a preço especial.
             </p>
-            <div className="inline-flex items-center bg-white rounded-xl p-1 border border-gray-200 shadow-sm">
+            <div className="mt-8 inline-flex items-center rounded-xl border border-slate-700 bg-slate-900/70 p-1">
               <button
+                type="button"
                 onClick={() => setBillingCycle('monthly')}
-                className={`px-5 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  billingCycle === 'monthly' ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-gray-800'
+                className={`rounded-lg px-5 py-2 text-sm font-medium transition-colors ${
+                  billingCycle === 'monthly' ? 'bg-emerald-400 text-slate-950' : 'text-slate-400 hover:text-white'
                 }`}
               >
                 Mensal
               </button>
               <button
+                type="button"
                 onClick={() => setBillingCycle('annual')}
-                className={`px-5 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  billingCycle === 'annual' ? 'bg-blue-600 text-white' : 'text-gray-500 hover:text-gray-800'
+                className={`rounded-lg px-5 py-2 text-sm font-medium transition-colors ${
+                  billingCycle === 'annual' ? 'bg-emerald-400 text-slate-950' : 'text-slate-400 hover:text-white'
                 }`}
               >
                 Anual
@@ -610,159 +657,143 @@ export default function ClubLandingPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 max-w-5xl mx-auto">
+          <div className="mx-auto mt-10 grid max-w-5xl grid-cols-1 gap-6 lg:grid-cols-2">
             {packs.map((pack) => {
-              const price = billingCycle === 'monthly' ? pack.price_monthly : pack.price_annual;
-              const compare = billingCycle === 'monthly' ? pack.compare_price_monthly : pack.compare_price_annual;
-              const period = billingCycle === 'monthly' ? '/mês' : '/ano';
-              const savings = compare && compare > price
-                ? Math.round((1 - price / compare) * 100)
-                : null;
+              const price = billingCycle === 'monthly' ? pack.price_monthly : pack.price_annual
+              const compare = billingCycle === 'monthly' ? pack.compare_price_monthly : pack.compare_price_annual
+              const period = billingCycle === 'monthly' ? '/mês' : '/ano'
+              const savings = compare && compare > price ? Math.round((1 - price / compare) * 100) : null
 
               return (
-                <div
+                <article
                   key={pack.code}
-                  className={`relative rounded-3xl bg-white border-2 overflow-hidden transition-all hover:shadow-xl ${
-                    pack.is_popular ? 'border-blue-500 shadow-lg scale-[1.02]' : 'border-gray-100'
+                  className={`relative overflow-hidden rounded-3xl border bg-slate-900/50 ${
+                    pack.is_popular ? 'border-emerald-400/50 shadow-[0_0_40px_rgba(16,185,129,0.12)]' : 'border-slate-800'
                   }`}
                 >
                   {pack.is_popular && (
-                    <div className="absolute top-0 left-0 right-0 bg-gradient-to-r from-blue-500 to-indigo-600 text-white text-center text-xs font-bold py-1.5">
+                    <div className="bg-gradient-to-r from-emerald-400 to-cyan-300 py-1.5 text-center text-xs font-bold text-slate-950">
                       Mais Completo
                     </div>
                   )}
-                  <div className={`p-8 ${pack.is_popular ? 'pt-10' : ''}`}>
-                    <h3 className="text-2xl font-black text-gray-900 mb-1">{pack.name}</h3>
-                    {pack.tagline && (
-                      <p className="text-sm font-medium text-blue-600 mb-3">{pack.tagline}</p>
-                    )}
-                    <p className="text-sm text-gray-500 mb-6 leading-relaxed">{pack.description}</p>
-
-                    <div className="mb-6">
+                  <div className="p-7 sm:p-8">
+                    <h3 className="text-2xl font-black text-white">{pack.name}</h3>
+                    {pack.tagline && <p className="mt-1 text-sm font-medium text-cyan-300">{pack.tagline}</p>}
+                    <p className="mt-3 text-sm leading-relaxed text-slate-400">{pack.description}</p>
+                    <div className="mt-6">
                       {compare != null && (
-                        <p className="text-sm text-gray-400 line-through mb-1">
+                        <p className="mb-1 text-sm text-slate-500 line-through">
                           {compare.toFixed(2).replace('.00', '')}€{period}
-                          <span className="text-xs ml-2 no-underline text-gray-400">(módulos individuais)</span>
+                          <span className="ml-2 text-xs no-underline">(módulos individuais)</span>
                         </p>
                       )}
                       <div className="flex items-end gap-1">
-                        <span className="text-5xl font-black text-gray-900">
-                          {price.toFixed(2).replace('.00', '')}€
-                        </span>
-                        <span className="text-sm text-gray-400 mb-2">{period}</span>
+                        <span className="text-5xl font-black text-white">{price.toFixed(2).replace('.00', '')}€</span>
+                        <span className="mb-2 text-sm text-slate-500">{period}</span>
                       </div>
                       {savings != null && billingCycle === 'monthly' && (
-                        <p className="text-xs text-green-600 font-semibold mt-1">Poupa {savings}% vs módulos individuais</p>
+                        <p className="mt-1 text-xs font-semibold text-emerald-300">Poupa {savings}% vs módulos individuais</p>
                       )}
                     </div>
-
-                    <ul className="space-y-3 mb-8">
-                      {(pack.landing_features || []).map((f) => (
-                        <li key={f} className="flex items-start gap-2 text-sm text-gray-700">
-                          <Check className="w-4 h-4 text-green-500 mt-0.5 shrink-0" />
-                          {f}
+                    <ul className="mt-6 space-y-3">
+                      {(pack.landing_features || []).map((feature) => (
+                        <li key={feature} className="flex items-start gap-2 text-sm text-slate-300">
+                          <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" />
+                          {feature}
                         </li>
                       ))}
                     </ul>
-
                     <a
-                      href={`mailto:info@boostpadel.store?subject=${encodeURIComponent(`Interesse no ${pack.name}`)}`}
-                      className={`block text-center py-4 rounded-xl text-sm font-bold transition-all ${
+                      href={`mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent(`Interesse no ${pack.name}`)}`}
+                      className={`mt-8 block rounded-xl py-4 text-center text-sm font-bold transition ${
                         pack.is_popular
-                          ? 'bg-gradient-to-r from-blue-500 to-indigo-600 text-white hover:shadow-lg hover:shadow-blue-200'
-                          : 'bg-gray-100 text-gray-800 hover:bg-gray-200'
+                          ? 'bg-gradient-to-r from-emerald-400 to-cyan-300 text-slate-950 hover:shadow-lg hover:shadow-emerald-500/20'
+                          : 'bg-slate-800 text-white hover:bg-slate-700'
                       }`}
                     >
                       Contactar — {pack.name}
                     </a>
                   </div>
-                </div>
-              );
+                </article>
+              )
             })}
           </div>
-
-          <p className="text-center text-sm text-gray-400 mt-8">
-            Preços sem IVA. Pagamento mensal ou anual via Stripe.
-          </p>
+          <p className="mt-8 text-center text-sm text-slate-500">Preços sem IVA. Pagamento mensal ou anual via Stripe.</p>
         </div>
       </section>
 
-      {/* CTA */}
-      <section className="py-20 bg-gradient-to-br from-blue-600 to-indigo-700">
-        <div className="max-w-4xl mx-auto px-4 text-center">
-          <h2 className="text-3xl md:text-4xl font-black text-white mb-6">
-            Pronto para digitalizar o teu clube?
-          </h2>
-          <p className="text-lg text-white/80 max-w-xl mx-auto mb-10">
-            Contacta-nos e descobre como o Padel One pode transformar a gestão do teu clube de padel.
-          </p>
-          <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <a
-              href="mailto:info@boostpadel.store"
-              className="inline-flex items-center justify-center gap-2 px-10 py-4 text-lg font-bold text-blue-600 bg-white rounded-2xl hover:shadow-xl transition-all hover:-translate-y-0.5"
-            >
-              <Mail className="w-5 h-5" />
-              info@boostpadel.store
-            </a>
-            <a
-              href="https://wa.me/351969365059"
-              className="inline-flex items-center justify-center gap-2 px-10 py-4 text-lg font-bold text-white border-2 border-white/30 rounded-2xl hover:bg-white/10 transition-all"
-            >
-              <MessageCircle className="w-5 h-5" />
-              WhatsApp
-            </a>
+      <section className="border-t border-slate-800 py-16 sm:py-20">
+        <div className="mx-auto max-w-6xl px-4">
+          <div className="rounded-3xl border border-slate-800 bg-slate-900/50 p-6 sm:p-8">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h3 className="text-xl font-black text-white">Pronto para digitalizar o teu clube, resort ou organização?</h3>
+                <p className="mt-2 max-w-xl text-sm leading-relaxed text-slate-400">
+                  Escreve para{' '}
+                  <a href={`mailto:${CONTACT_EMAIL}`} className="font-medium text-cyan-300 underline-offset-2 hover:underline">
+                    {CONTACT_EMAIL}
+                  </a>
+                  {' '}e marcamos uma demonstração do Padel One.
+                </p>
+              </div>
+              <a
+                href={DEMO_HREF}
+                className="inline-flex w-full items-center justify-center gap-2 rounded-2xl bg-white px-6 py-4 text-center text-base font-bold text-slate-950 transition hover:-translate-y-0.5 hover:bg-cyan-50 sm:w-auto"
+              >
+                Agendar Demonstração →
+              </a>
+            </div>
           </div>
         </div>
       </section>
 
-      {/* Footer */}
-      <footer className="bg-gray-900 text-gray-400 py-12">
-        <div className="max-w-6xl mx-auto px-4">
-          <div className="flex flex-col md:flex-row items-start justify-between gap-8 mb-10">
+      <footer className="border-t border-slate-800 bg-[#05080e] py-12 text-slate-400">
+        <div className="mx-auto max-w-6xl px-4">
+          <div className="mb-10 flex flex-col items-start justify-between gap-8 md:flex-row">
             <div>
-              <div className="flex items-center gap-2 mb-3">
-                <img src="/icon.png" alt="Padel One" className="w-8 h-8 rounded-lg" />
-                <span className="font-bold text-white text-lg">PADEL ONE</span>
+              <div className="mb-3 flex items-center gap-2">
+                <img src="/icon.png" alt="Padel One" className="h-8 w-8 rounded-lg" />
+                <span className="text-lg font-bold text-white">PADEL ONE</span>
               </div>
-              <p className="text-sm max-w-xs leading-relaxed">
-                O ecossistema completo para clubes de padel. 3 aplicações, 1 plataforma integrada.
+              <p className="max-w-xs text-sm leading-relaxed">
+                O ecossistema completo para clubes, resorts e organizadores de padel. 3 aplicações, 1 plataforma integrada — em todo o mundo.
               </p>
             </div>
-            <div className="flex flex-col sm:flex-row gap-8">
+            <div className="flex flex-col gap-8 sm:flex-row">
               <div>
-                <h4 className="font-semibold text-white text-sm mb-3">Apps</h4>
+                <h4 className="mb-3 text-sm font-semibold text-white">Apps</h4>
                 <ul className="space-y-2 text-sm">
-                  <li><a href="https://padel1.app" target="_blank" rel="noopener noreferrer" className="hover:text-white transition">Player</a></li>
-                  <li><a href="https://tour.padel1.app" target="_blank" rel="noopener noreferrer" className="hover:text-white transition">Tour</a></li>
-                  <li><a href="https://manager.padel1.app" target="_blank" rel="noopener noreferrer" className="hover:text-white transition">Manager</a></li>
+                  <li><a href="https://padel1.app" target="_blank" rel="noopener noreferrer" className="transition hover:text-white">Player</a></li>
+                  <li><a href="https://tour.padel1.app" target="_blank" rel="noopener noreferrer" className="transition hover:text-white">Tour</a></li>
+                  <li><a href="https://manager.padel1.app" target="_blank" rel="noopener noreferrer" className="transition hover:text-white">Manager</a></li>
                 </ul>
               </div>
               <div>
-                <h4 className="font-semibold text-white text-sm mb-3">Links</h4>
+                <h4 className="mb-3 text-sm font-semibold text-white">Links</h4>
                 <ul className="space-y-2 text-sm">
                   <li>
-                    <a href="https://padel1.app/help/" target="_blank" rel="noopener noreferrer" className="hover:text-white transition inline-flex items-center gap-1">
-                      <HelpCircle className="w-3.5 h-3.5" /> Centro de Ajuda
+                    <a href="https://padel1.app/help/" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 transition hover:text-white">
+                      <HelpCircle className="h-3.5 w-3.5" /> Centro de Ajuda
                     </a>
                   </li>
                   <li>
-                    <a href="/" className="hover:text-white transition">Sou Jogador</a>
+                    <a href="/" className="transition hover:text-white">Sou Jogador</a>
                   </li>
                 </ul>
               </div>
               <div>
-                <h4 className="font-semibold text-white text-sm mb-3">Contacto</h4>
+                <h4 className="mb-3 text-sm font-semibold text-white">Contacto</h4>
                 <ul className="space-y-2 text-sm">
                   <li>
-                    <a href="mailto:info@boostpadel.store" className="hover:text-white transition inline-flex items-center gap-1">
-                      <Mail className="w-3.5 h-3.5" /> info@boostpadel.store
+                    <a href={`mailto:${CONTACT_EMAIL}`} className="inline-flex items-center gap-1 transition hover:text-white">
+                      <Mail className="h-3.5 w-3.5" /> {CONTACT_EMAIL}
                     </a>
                   </li>
                 </ul>
               </div>
             </div>
           </div>
-          <div className="border-t border-gray-800 pt-6 text-center text-xs text-gray-500">
+          <div className="border-t border-slate-800 pt-6 text-center text-xs text-slate-500">
             &copy; {new Date().getFullYear()} Padel One. Todos os direitos reservados.
           </div>
         </div>
