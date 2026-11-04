@@ -1,7 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { supabase } from '../lib/supabase'
 import {
-  Bot,
   Building2,
   Check,
   ChevronRight,
@@ -9,13 +8,26 @@ import {
   HelpCircle,
   LayoutDashboard,
   Mail,
-  MessageCircle,
   MonitorSmartphone,
   Smartphone,
   Trophy,
   Users,
-  Zap,
 } from 'lucide-react'
+
+const AI_MODULE_CODES = new Set(['ai_light', 'ai_full'])
+
+function stripAiCopy(text: string | null | undefined): string {
+  if (!text) return ''
+  return text
+    .replace(/\s*[—\-–]\s*reserva automática de campos/gi, '')
+    .replace(/\s*via Inteligência Artificial\.?/gi, '.')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+}
+
+function isAiFeature(feature: string): boolean {
+  return /agente\s*ia|\bai\b|inteligência artificial/i.test(feature)
+}
 
 const CONTACT_EMAIL = 'info@sportsevents.app'
 const DEMO_HREF = `mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent('Agendar Demonstração — Clubes, Resorts & Organizadores')}`
@@ -104,8 +116,6 @@ const MODULE_COLORS: Record<string, string> = {
   tournaments: 'from-emerald-400 to-cyan-400',
   manager: 'from-cyan-400 to-blue-400',
   bar: 'from-amber-400 to-orange-400',
-  ai_full: 'from-violet-400 to-fuchsia-400',
-  ai_light: 'from-purple-400 to-violet-400',
 }
 
 const DEFAULT_MODULES = [
@@ -157,38 +167,6 @@ const DEFAULT_MODULES = [
       'Integração com recompensas',
     ],
   },
-  {
-    code: 'ai_light',
-    name: 'Agente IA Light',
-    description: 'Respostas automáticas a FAQ e preços. Alerta admin em pedidos de reserva',
-    price_monthly: 9.99,
-    price_annual: 99.99,
-    target_types: ['club', 'organizer'],
-    requires_modules: [],
-    landing_features: [
-      'Respostas automáticas FAQ',
-      'Informação de preços',
-      'WhatsApp, Instagram, Facebook',
-      'Chat no website',
-      'Alerta admin para reservas',
-    ],
-  },
-  {
-    code: 'ai_full',
-    name: 'Agente IA Completo',
-    description: 'Reservas automáticas via WhatsApp, Instagram, Facebook e website (requer Manager)',
-    price_monthly: 29.99,
-    price_annual: 299.99,
-    target_types: ['club'],
-    requires_modules: ['manager'],
-    landing_features: [
-      'Reservas automáticas 24/7',
-      'WhatsApp, Instagram, Facebook',
-      'Chat no website',
-      'Consulta de disponibilidade',
-      'Confirmação automática',
-    ],
-  },
 ]
 
 const DEFAULT_PACKS = [
@@ -202,9 +180,8 @@ const DEFAULT_PACKS = [
     compare_price_monthly: 129,
     compare_price_annual: 1548,
     landing_features: [
-      'Módulo 1 — Tour + App Player Light',
-      'Módulo 3 — Agente IA Light',
-      'Módulo 4 — Gestão de Bar com QR Code',
+      'Tour + App Player Light',
+      'Gestão de Bar com QR Code',
     ],
     is_popular: false,
   },
@@ -212,16 +189,15 @@ const DEFAULT_PACKS = [
     code: 'total',
     name: 'Pack Padel One Total',
     tagline: 'Independência digital completa',
-    description: 'A solução definitiva de independência digital. Substitui por completo qualquer software concorrente e automatiza a receção a 100% via Inteligência Artificial.',
+    description: 'A solução definitiva de independência digital. Substitui por completo qualquer software concorrente e centraliza reservas, torneios e gestão do clube.',
     price_monthly: 149,
     price_annual: 1590,
     compare_price_monthly: 219,
     compare_price_annual: 2199,
     landing_features: [
-      'TODOS OS MÓDULOS (1, 2, 3 e 4)',
       'Manager + App Player completa',
+      'Tour e gestão de torneios',
       'Gestão de Bar com QR Code',
-      'Agente IA Completo — reserva automática de campos',
     ],
     is_popular: true,
   },
@@ -364,20 +340,26 @@ export default function ClubLandingPage() {
       ])
 
       if (modsRes.data && modsRes.data.length > 0) {
-        setModules(modsRes.data.map((m: PlatformModule) => ({
-          ...m,
-          price_monthly: m.price_monthly != null ? Number(m.price_monthly) : null,
-          price_annual: m.price_annual != null ? Number(m.price_annual) : null,
-        })))
+        setModules(
+          modsRes.data
+            .filter((m: PlatformModule) => !AI_MODULE_CODES.has(m.code) && !/agente\s*ia|\bai\b/i.test(m.name || ''))
+            .map((m: PlatformModule) => ({
+              ...m,
+              price_monthly: m.price_monthly != null ? Number(m.price_monthly) : null,
+              price_annual: m.price_annual != null ? Number(m.price_annual) : null,
+            })),
+        )
       }
 
       if (packsRes.data && packsRes.data.length > 0) {
         setPacks(packsRes.data.map((p: PlatformPack) => ({
           ...p,
+          description: stripAiCopy(p.description),
           price_monthly: Number(p.price_monthly),
           price_annual: Number(p.price_annual),
           compare_price_monthly: p.compare_price_monthly != null ? Number(p.compare_price_monthly) : null,
           compare_price_annual: p.compare_price_annual != null ? Number(p.compare_price_annual) : null,
+          landing_features: (p.landing_features || []).filter((f) => !isAiFeature(f)).map(stripAiCopy),
         })))
       }
     }
@@ -519,67 +501,6 @@ export default function ClubLandingPage() {
         </div>
       </section>
 
-      <section className="border-t border-slate-800 bg-[#0b1220] py-16 sm:py-20">
-        <div className="mx-auto max-w-6xl px-4">
-          <div className="mb-10 text-center">
-            <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-violet-400/30 bg-violet-400/10 px-4 py-1.5">
-              <Bot className="h-4 w-4 text-violet-300" />
-              <span className="text-sm font-medium text-violet-200">Novo</span>
-            </div>
-            <h2 className="text-3xl font-black tracking-tight text-white sm:text-4xl">AI Agent para o teu clube</h2>
-            <p className="mx-auto mt-4 max-w-2xl text-base leading-relaxed text-slate-400">
-              Um assistente inteligente que responde automaticamente a questões dos teus clientes, 24/7. Simplifica a vida do gerente e do organizador.
-            </p>
-          </div>
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-            <div className="space-y-3">
-              {[
-                { name: 'WhatsApp', desc: 'Responde automaticamente a mensagens dos clientes' },
-                { name: 'Instagram', desc: 'Responde a DMs e comentários no Instagram do clube' },
-                { name: 'Facebook', desc: 'Gere mensagens no Messenger do clube' },
-                { name: 'Website', desc: 'Chat ao vivo no site do clube' },
-              ].map((channel) => (
-                <div key={channel.name} className="flex items-start gap-3 rounded-2xl border border-slate-800 bg-slate-900/50 p-4">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-400/15 text-violet-300">
-                    <MessageCircle className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <h4 className="text-sm font-bold text-white">{channel.name}</h4>
-                    <p className="text-xs text-slate-400">{channel.desc}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="rounded-3xl border border-violet-400/20 bg-slate-900/50 p-6 sm:p-8">
-              <div className="mb-6 flex items-center gap-3">
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-violet-400 to-fuchsia-400 text-slate-950">
-                  <Bot className="h-6 w-6" />
-                </div>
-                <div>
-                  <h3 className="text-xl font-bold text-white">Padel One AI</h3>
-                  <p className="text-sm text-slate-400">O teu assistente virtual</p>
-                </div>
-              </div>
-              <ul className="space-y-3">
-                {[
-                  'Responde a perguntas sobre horários e disponibilidade',
-                  'Informa sobre preços, aulas e torneios',
-                  'Ajuda jogadores a fazer reservas',
-                  'Disponível 24 horas por dia, 7 dias por semana',
-                  'Aprende com os dados do teu clube',
-                  'Reduz o trabalho manual do gerente em 80%',
-                ].map((item) => (
-                  <li key={item} className="flex items-start gap-2 text-sm text-slate-300">
-                    <Zap className="mt-0.5 h-4 w-4 shrink-0 text-violet-300" />
-                    {item}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </div>
-        </div>
-      </section>
-
       <section className="border-t border-slate-800 py-16 sm:py-20">
         <div className="mx-auto max-w-6xl px-4">
           <SectionEyebrow>Preços</SectionEyebrow>
@@ -588,7 +509,7 @@ export default function ClubLandingPage() {
             Compra apenas o que precisas. Cada módulo pode ser ativado individualmente para o teu clube, resort ou organização.
           </p>
           <div className="mt-10 grid grid-cols-1 gap-5 md:grid-cols-2 lg:grid-cols-3">
-            {modules.map((mod) => (
+            {modules.filter((mod) => !AI_MODULE_CODES.has(mod.code) && !/agente\s*ia|\bai\b/i.test(mod.name || '')).map((mod) => (
               <article key={mod.code} className="overflow-hidden rounded-3xl border border-slate-800 bg-slate-900/50">
                 <div className={`h-1.5 bg-gradient-to-r ${MODULE_COLORS[mod.code] || 'from-slate-500 to-slate-600'}`} />
                 <div className="p-6">
@@ -696,7 +617,7 @@ export default function ClubLandingPage() {
                       )}
                     </div>
                     <ul className="mt-6 space-y-3">
-                      {(pack.landing_features || []).map((feature) => (
+                      {(pack.landing_features || []).filter((feature) => !isAiFeature(feature)).map((feature) => (
                         <li key={feature} className="flex items-start gap-2 text-sm text-slate-300">
                           <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" />
                           {feature}
