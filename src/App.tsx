@@ -199,7 +199,7 @@ function App() {
       return {
         isLiteMode: true,
         canBook: false,
-        canFindGame: false,
+        canFindGame: true,
         canLearn: false,
         canRewards: false,
       }
@@ -1502,7 +1502,7 @@ function HomeScreen({
   const [homeOpenGamesLoading, setHomeOpenGamesLoading] = useState(false)
 
   useEffect(() => {
-    if (!userId || !player?.level || isLiteMode || !canFindGame) return
+    if (!userId || !player?.level) return
     let active = true
     const load = async () => {
       setHomeOpenGamesLoading(true)
@@ -1517,7 +1517,7 @@ function HomeScreen({
     }
     load()
     return () => { active = false }
-  }, [userId, player?.level, isLiteMode, canFindGame])
+  }, [userId, player?.level])
 
   const d = dashboardData
   const name = d?.playerName || player?.name?.split(' ')[0] || t.common.player
@@ -1720,18 +1720,16 @@ function HomeScreen({
         <ActionButton icon={Target} label="Resultados" color="rose" emoji="📊" onClick={onOpenMyResults} />
         <ActionButton icon={Target} label={t.common.quickResult} color="emerald" emoji="✍️" onClick={onOpenGameResults} />
       </div>
-      {!isLiteMode && (
-        <div className="grid grid-cols-4 gap-1 sm:gap-2">
-          {canBook && <ActionButton icon={Calendar} label={t.home.book} color="lime" onClick={onOpenBooking} />}
-          <ActionButton icon={Building2} label="Clubes" color="blue" onClick={onOpenClubsList} />
-          {canFindGame && (
-            <>
-              <ActionButton icon={Gamepad2} label={t.home.findGame} color="purple" emoji="🎾" onClick={onOpenFindGame} />
-              <ActionButton icon={GraduationCap} label={t.home.learn} color="emerald" onClick={onOpenLearn} />
-            </>
-          )}
-        </div>
-      )}
+      <div className="grid grid-cols-4 gap-1 sm:gap-2">
+        {canBook && <ActionButton icon={Calendar} label={t.home.book} color="lime" onClick={onOpenBooking} />}
+        <ActionButton icon={Building2} label="Clubes" color="blue" onClick={onOpenClubsList} />
+        {canFindGame && (
+          <ActionButton icon={Gamepad2} label={t.home.findGame} color="purple" emoji="🎾" onClick={onOpenFindGame} />
+        )}
+        {canLearn && (
+          <ActionButton icon={GraduationCap} label={t.home.learn} color="emerald" onClick={onOpenLearn} />
+        )}
+      </div>
 
       {/* Profile Card - Foto + Nome + Bio */}
       <div className="card p-5">
@@ -1902,8 +1900,8 @@ function HomeScreen({
         )}
       </div>
 
-      {/* Jogos Abertos — jogos disponíveis para o nível do jogador */}
-      {canFindGame && !isLiteMode && (homeOpenGames.length > 0 || homeOpenGamesLoading) && (
+      {/* Jogos Abertos — disponíveis para o nível do jogador (abaixo de Próximos Jogos) */}
+      {canFindGame && (
         <div>
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-lg font-bold text-gray-900 flex items-center gap-2">
@@ -1917,6 +1915,19 @@ function HomeScreen({
             <div className="card p-6 text-center">
               <div className="animate-spin w-6 h-6 border-2 border-red-600 border-t-transparent rounded-full mx-auto"></div>
               <p className="text-sm text-gray-500 mt-2">A carregar jogos...</p>
+            </div>
+          ) : homeOpenGames.length === 0 ? (
+            <div className="card p-6 text-center">
+              <span className="text-4xl mb-2 block">🎾</span>
+              <p className="text-gray-700 font-medium">Sem jogos abertos para o teu nível</p>
+              <p className="text-sm text-gray-500 mt-1">Cria um jogo e alerta jogadores do teu nível</p>
+              <button
+                type="button"
+                onClick={onOpenFindGame}
+                className="mt-3 px-4 py-2 rounded-xl bg-red-600 text-white text-sm font-semibold hover:bg-red-700"
+              >
+                Criar jogo aberto
+              </button>
             </div>
           ) : (
             <div className="space-y-3">
@@ -1956,6 +1967,11 @@ function HomeScreen({
                         </span>
                         <span className="flex items-center gap-1">📊 {game.level_min.toFixed(1)}-{game.level_max.toFixed(1)}</span>
                         <span className="flex items-center gap-1">⏱️ {game.duration_minutes}min</span>
+                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                          game.court_reserved ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-600'
+                        }`}>
+                          {game.court_reserved ? 'Campo reservado' : 'Sem reserva de campo'}
+                        </span>
                         {game.court_name && (
                           <span className="flex items-center gap-1">
                             🏟️ {game.court_name}

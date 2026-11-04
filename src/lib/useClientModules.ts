@@ -23,14 +23,15 @@ export interface PlayerFeatureFlags {
   canRewards: boolean;
 }
 
-/** Gestão completa do clube (manager): reservas, criar jogos, academia. Padel global fica sempre ativo. */
+/** Gestão completa do clube (manager): reservas e academia.
+ * Jogos abertos (encontrar/criar) estão sempre disponíveis — não exigem package de reservas. */
 export function derivePlayerFeatures(mods: ClientModulesResult): PlayerFeatureFlags {
   const isLiteMode = mods.playerMode === 'lite';
   const hasManager = mods.hasManager;
   return {
     isLiteMode,
     canBook: hasManager,
-    canFindGame: hasManager,
+    canFindGame: true,
     canLearn: hasManager,
     canRewards: mods.hasBar || hasManager,
   };
