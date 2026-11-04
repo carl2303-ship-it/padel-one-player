@@ -560,7 +560,7 @@ export default function PlayerLandingPage({ onLogin, onRegister }: { onLogin: ()
                 Entrar na App / Jogar Agora 🎾
               </a>
               <a
-                href="#clubes"
+                href="/clubs"
                 className="inline-flex items-center justify-center rounded-2xl border border-slate-700 bg-slate-900/50 px-6 py-4 text-center text-base font-semibold text-white transition hover:border-cyan-300/40 hover:bg-slate-900 sm:text-lg"
               >
                 Soluções para Clubes, Resorts & Organizadores 🏢
@@ -741,8 +741,8 @@ export default function PlayerLandingPage({ onLogin, onRegister }: { onLogin: ()
                     </a>
                   </li>
                   <li>
-                    <a href="#clubes" className="inline-flex items-center gap-1 transition hover:text-white">
-                      <ChevronRight className="h-3.5 w-3.5" />                       Clubes, Resorts & Organizadores
+                    <a href="/clubs" className="inline-flex items-center gap-1 transition hover:text-white">
+                      <ChevronRight className="h-3.5 w-3.5" /> Clubes, Resorts & Organizadores
                     </a>
                   </li>
                   <li>
