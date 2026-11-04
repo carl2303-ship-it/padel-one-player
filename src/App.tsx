@@ -1507,8 +1507,8 @@ function HomeScreen({
     const load = async () => {
       setHomeOpenGamesLoading(true)
       try {
-        const { fetchOpenGamesForLevel } = await import('./lib/openGames')
-        const data = await fetchOpenGamesForLevel(player.level!, userId)
+        const { fetchHomeOpenGames } = await import('./lib/openGames')
+        const data = await fetchHomeOpenGames(player.level!, userId)
         if (active) setHomeOpenGames(data)
       } catch (err) {
         console.error('[Home] Error fetching open games for level:', err)
@@ -1517,7 +1517,7 @@ function HomeScreen({
     }
     load()
     return () => { active = false }
-  }, [userId, player?.level])
+  }, [userId, player?.level, dashboardData?.upcomingMatches?.length])
 
   const d = dashboardData
   const name = d?.playerName || player?.name?.split(' ')[0] || t.common.player
@@ -1952,6 +1952,11 @@ function HomeScreen({
                           <p className="text-sm font-semibold text-gray-900 truncate">{game.club_name}</p>
                           {game.club_city && <p className="text-[11px] text-gray-500 truncate">{game.club_city}</p>}
                         </div>
+                        {(game.creator_user_id === userId || game.players.some(p => p.user_id === userId && p.status === 'confirmed')) && (
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
+                            O teu jogo
+                          </span>
+                        )}
                         <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${spotsLeft <= 1 ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
                           {spotsLeft} {spotsLeft === 1 ? 'lugar' : 'lugares'}
                         </span>

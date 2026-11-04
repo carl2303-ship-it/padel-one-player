@@ -372,6 +372,37 @@ export async function fetchOpenGamesForLevel(playerLevel: number, playerUserId: 
   })
 }
 
+/**
+ * Home "Jogos Abertos": os meus jogos (criados/inscritos) + jogos do nível para juntar.
+ * Os meus vêm primeiro para o criador ver o jogo que acabou de abrir.
+ */
+export async function fetchHomeOpenGames(playerLevel: number, playerUserId: string): Promise<OpenGame[]> {
+  const allGames = await fetchOpenGames()
+  const levelMin = playerLevel - 1.0
+  const levelMax = playerLevel + 1.0
+
+  const mine: OpenGame[] = []
+  const available: OpenGame[] = []
+
+  for (const g of allGames) {
+    if (g.status !== 'open' && g.status !== 'full') continue
+    const isMine =
+      g.creator_user_id === playerUserId ||
+      g.players.some(p => p.user_id === playerUserId && p.status === 'confirmed')
+    if (isMine) {
+      mine.push(g)
+      continue
+    }
+    if (g.status !== 'open') continue
+    if (g.level_min > levelMax || g.level_max < levelMin) continue
+    available.push(g)
+  }
+
+  mine.sort((a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime())
+  available.sort((a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime())
+  return [...mine, ...available]
+}
+
 // ============================
 // Get member discounts for the current player across all clubs
 // ============================
@@ -1046,6 +1077,8 @@ export async function createOpenGame(params: {
 
   if (playerError) {
     console.error('[OpenGames] Error adding creator to game:', playerError)
+    await supabase.from('open_games').delete().eq('id', game.id)
+    return { success: false, error: 'Erro ao adicionar-te ao jogo: ' + (playerError.message || 'falha RLS') }
   }
 
   // Auto-register creator at this club (for future notifications)
