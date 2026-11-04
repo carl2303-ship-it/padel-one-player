@@ -1077,6 +1077,8 @@ export async function createOpenGame(params: {
 
   if (playerError) {
     console.error('[OpenGames] Error adding creator to game:', playerError)
+    await supabase.from('open_games').delete().eq('id', game.id)
+    return { success: false, error: 'Erro ao adicionar-te ao jogo: ' + (playerError.message || 'falha RLS') }
   }
 
   // Auto-register creator at this club (for future notifications)
