@@ -258,6 +258,25 @@ export default function FindGameScreen({
   const [newClubName, setNewClubName] = useState('')
   const [newClubCity, setNewClubCity] = useState('')
   const [addingClub, setAddingClub] = useState(false)
+  const [createLineup, setCreateLineup] = useState<{
+    position: number
+    id: string
+    name: string
+    avatar_url: string | null
+    level: number | null
+    phone_number: string | null
+  }[]>([])
+  const [createSelectingPosition, setCreateSelectingPosition] = useState<number | null>(null)
+  const [createPlayerQuery, setCreatePlayerQuery] = useState('')
+  const [createPlayerResults, setCreatePlayerResults] = useState<{
+    id: string
+    name: string
+    avatar_url: string | null
+    level: number | null
+    player_category: string | null
+    phone_number: string | null
+  }[]>([])
+  const [createPlayerSearching, setCreatePlayerSearching] = useState(false)
 
   useEffect(() => {
     if (!groupId) { setGroupName(null); return }
@@ -371,6 +390,40 @@ export default function FindGameScreen({
     return () => { active = false }
   }, [activeSection])
 
+  // Prefill creator as position 1 in create lineup
+  useEffect(() => {
+    if (activeSection !== 'create' || !player) return
+    setCreateLineup(prev => {
+      if (prev.some(p => p.position === 1)) return prev
+      return [{
+        position: 1,
+        id: player.id,
+        name: player.name || 'Eu',
+        avatar_url: player.avatar_url || null,
+        level: player.level || null,
+        phone_number: player.phone_number || null,
+      }]
+    })
+  }, [activeSection, player])
+
+  // Search Padel1 players while creating lineup
+  useEffect(() => {
+    if (createSelectingPosition == null) return
+    if (!createPlayerQuery || createPlayerQuery.length < 2) {
+      setCreatePlayerResults([])
+      return
+    }
+    const timeout = setTimeout(async () => {
+      setCreatePlayerSearching(true)
+      const { searchPlayerAccounts } = await import('../../lib/openGames')
+      const results = await searchPlayerAccounts(createPlayerQuery)
+      const taken = new Set(createLineup.map(p => p.id))
+      setCreatePlayerResults(results.filter(r => !taken.has(r.id)))
+      setCreatePlayerSearching(false)
+    }, 300)
+    return () => clearTimeout(timeout)
+  }, [createPlayerQuery, createSelectingPosition, createLineup])
+
   // Separate games: within level (existing) vs out of level (request)
   // Show open games + full games where user is already in
   // Also show games where user is already a player, regardless of status (except cancelled)
@@ -456,6 +509,16 @@ export default function FindGameScreen({
     return { scheduledAt, clubName }
   }
 
+  const buildCreatePlayersPayload = () =>
+    createLineup
+      .filter(p => p.id && p.position !== 1)
+      .map(p => ({
+        player_account_id: p.id,
+        position: p.position,
+        name: p.name || null,
+        phone_number: p.phone_number || null,
+      }))
+
   // Create a game from managed court slot (campo reservado via disponibilidade)
   const handleCreateGame = async () => {
     if (!createModal || !userId) return
@@ -481,6 +544,7 @@ export default function FindGameScreen({
       playerLevel,
       pricePerPlayer,
       groupId: groupId || undefined,
+      players: buildCreatePlayersPayload(),
     })
     
     setCreating(false)
@@ -534,6 +598,7 @@ export default function FindGameScreen({
       playerLevel,
       pricePerPlayer: 0,
       groupId: groupId || undefined,
+      players: buildCreatePlayersPayload(),
     })
     setCreating(false)
     if (result.success) {
@@ -551,10 +616,34 @@ export default function FindGameScreen({
           })
         } catch (_) { /* ignore */ }
       }
-      alert('Jogo criado! Jogadores do teu nível vão receber um alerta.')
+      alert('Jogo criado! Aparece em Jogos Abertos e os jogadores do teu nível recebem alerta.')
     } else {
       alert(result.error || 'Erro ao criar jogo')
     }
+  }
+
+  const addPlayerToCreateLineup = (p: {
+    id: string
+    name: string
+    avatar_url: string | null
+    level: number | null
+    phone_number: string | null
+  }) => {
+    if (createSelectingPosition == null) return
+    setCreateLineup(prev => {
+      const without = prev.filter(x => x.position !== createSelectingPosition && x.id !== p.id)
+      return [...without, {
+        position: createSelectingPosition,
+        id: p.id,
+        name: p.name,
+        avatar_url: p.avatar_url,
+        level: p.level,
+        phone_number: p.phone_number,
+      }].sort((a, b) => a.position - b.position)
+    })
+    setCreateSelectingPosition(null)
+    setCreatePlayerQuery('')
+    setCreatePlayerResults([])
   }
 
   const handleAddClub = async () => {
@@ -1481,6 +1570,129 @@ export default function FindGameScreen({
                 <p className="text-xs text-gray-500">
                   Nível do jogo: {(Math.max(0.5, playerLevel - 0.5)).toFixed(1)} – {(playerLevel + 0.5).toFixed(1)} (baseado no teu nível)
                 </p>
+              </div>
+
+              {/* Lineup: 4 bolinhas */}
+              <div className="card p-4 space-y-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-900">Jogadores</h3>
+                  <p className="text-xs text-gray-500">Tu ficas na posição 1. Podes adicionar jogadores Padel1 nos outros lugares.</p>
+                </div>
+                <div className="flex items-start gap-4">
+                  {[[1, 2], [3, 4]].map((positions, teamIdx) => (
+                    <div key={teamIdx} className="flex-1 space-y-2">
+                      <p className={`text-[10px] font-bold text-center ${teamIdx === 0 ? 'text-blue-600' : 'text-red-600'}`}>
+                        {teamIdx === 0 ? 'Equipa 1' : 'Equipa 2'}
+                      </p>
+                      <div className="flex justify-center gap-3">
+                        {positions.map(pos => {
+                          const p = createLineup.find(x => x.position === pos)
+                          const isMe = p && player?.id && p.id === player.id
+                          return (
+                            <div key={pos} className="flex flex-col items-center gap-1 w-16">
+                              {p ? (
+                                <>
+                                  <div className={`relative w-12 h-12 rounded-full overflow-hidden border-2 ${teamIdx === 0 ? 'border-blue-400' : 'border-red-400'} bg-gray-100 flex items-center justify-center`}>
+                                    {p.avatar_url ? (
+                                      <img src={p.avatar_url} alt="" className="w-full h-full object-cover" />
+                                    ) : (
+                                      <span className="text-sm font-bold text-gray-600">{(p.name || '?').charAt(0).toUpperCase()}</span>
+                                    )}
+                                    {!isMe && (
+                                      <button
+                                        type="button"
+                                        onClick={() => setCreateLineup(prev => prev.filter(x => x.position !== pos))}
+                                        className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-red-500 text-white text-[10px] flex items-center justify-center"
+                                      >
+                                        ×
+                                      </button>
+                                    )}
+                                  </div>
+                                  <p className="text-[10px] font-semibold text-gray-800 truncate w-full text-center">
+                                    {isMe ? 'Tu' : (p.name || '').split(' ')[0]}
+                                  </p>
+                                  {p.level != null && (
+                                    <p className="text-[9px] text-gray-400">{Number(p.level).toFixed(1)}</p>
+                                  )}
+                                </>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setCreateSelectingPosition(pos)
+                                    setCreatePlayerQuery('')
+                                    setCreatePlayerResults([])
+                                  }}
+                                  className={`w-12 h-12 rounded-full border-2 border-dashed flex items-center justify-center ${
+                                    createSelectingPosition === pos ? 'border-green-500 bg-green-50' : 'border-gray-300 hover:border-red-400'
+                                  }`}
+                                >
+                                  <Plus className="w-5 h-5 text-gray-400" />
+                                </button>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {createSelectingPosition != null && (
+                  <div className="rounded-xl border border-green-200 bg-green-50/60 p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-semibold text-green-800">
+                        Adicionar jogador · posição {createSelectingPosition}
+                      </p>
+                      <button type="button" onClick={() => setCreateSelectingPosition(null)} className="text-gray-400 hover:text-gray-600">
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                    <div className="relative">
+                      <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="search"
+                        value={createPlayerQuery}
+                        onChange={(e) => setCreatePlayerQuery(e.target.value)}
+                        placeholder="Procurar jogador Padel1..."
+                        className="w-full pl-9 pr-3 py-2 rounded-xl border border-gray-200 text-sm bg-white"
+                        autoFocus
+                      />
+                    </div>
+                    {createPlayerSearching ? (
+                      <p className="text-xs text-gray-500 text-center py-2">A procurar...</p>
+                    ) : createPlayerResults.length > 0 ? (
+                      <div className="max-h-40 overflow-y-auto space-y-1">
+                        {createPlayerResults.map(r => (
+                          <button
+                            key={r.id}
+                            type="button"
+                            onClick={() => addPlayerToCreateLineup(r)}
+                            className="w-full flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-white text-left"
+                          >
+                            <div className="w-8 h-8 rounded-full overflow-hidden bg-gray-100 flex items-center justify-center flex-shrink-0">
+                              {r.avatar_url ? (
+                                <img src={r.avatar_url} alt="" className="w-full h-full object-cover" />
+                              ) : (
+                                <span className="text-xs font-bold text-gray-500">{(r.name || '?').charAt(0).toUpperCase()}</span>
+                              )}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-sm font-semibold text-gray-900 truncate">{r.name}</p>
+                              <p className="text-[10px] text-gray-500">
+                                {r.level != null ? `Nv. ${Number(r.level).toFixed(2)}` : '—'}
+                                {r.player_category ? ` · ${r.player_category}` : ''}
+                              </p>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    ) : createPlayerQuery.length >= 2 ? (
+                      <p className="text-xs text-gray-500 text-center py-2">Sem resultados</p>
+                    ) : null}
+                  </div>
+                )}
+
                 <button
                   type="button"
                   onClick={handleCreateFreeGame}
