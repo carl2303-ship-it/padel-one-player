@@ -1471,7 +1471,7 @@ function LevelAndRankingCards({
         onClick={onOpenRankings}
         className="rounded-xl shadow-sm overflow-hidden p-4 bg-gradient-to-br from-rose-500 to-rose-700 text-left hover:shadow-md transition-shadow"
       >
-        <p className="text-xs font-medium mb-1 text-white/80">Ranking 12 meses</p>
+        <p className="text-xs font-medium mb-1 text-white/80">Ranking Padel 1</p>
         {rankLoading ? (
           <div className="w-5 h-5 border-2 border-white/70 border-t-transparent rounded-full animate-spin mt-1" />
         ) : (
