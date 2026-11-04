@@ -626,3 +626,27 @@ export async function fetchRolling12mRankings(options?: {
 
   return entries.slice(0, limit)
 }
+
+/** Posição do jogador no ranking deslizante 12 meses (global, filtrado por género). */
+export async function fetchMyRolling12mRank(
+  userId: string,
+  options?: { gender?: 'male' | 'female' | null; organizationId?: string | null },
+): Promise<{ position: number; totalPoints: number; totalPlayers: number } | null> {
+  if (!userId) return null
+  const entries = await fetchRolling12mRankings({
+    global: !options?.organizationId,
+    organizationId: options?.organizationId || null,
+    gender: options?.gender || null,
+    limit: 500,
+  })
+  if (entries.length === 0) return null
+  const mine = entries.find((e) => e.user_id === userId)
+  if (!mine) {
+    return { position: 0, totalPoints: 0, totalPlayers: entries.length }
+  }
+  return {
+    position: mine.position,
+    totalPoints: mine.total_points,
+    totalPlayers: entries.length,
+  }
+}

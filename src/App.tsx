@@ -1395,6 +1395,100 @@ function FeatureCard({ icon: Icon, label }: { icon: any, label: string }) {
 // PaymentsScreen, RewardsScreen e RankingsScreen foram extraídos para
 // src/components/screens/ e são carregados sob demanda (React.lazy).
 
+// ==================== HOME: Nível + Ranking 12m ====================
+
+function LevelAndRankingCards({
+  player,
+  userId,
+  onOpenRankings,
+  levelLabel,
+  reliabilityLabel,
+}: {
+  player: PlayerAccount | null
+  userId: string | null
+  onOpenRankings: () => void
+  levelLabel: string
+  reliabilityLabel: string
+}) {
+  const [rank12m, setRank12m] = useState<{ position: number; totalPoints: number; totalPlayers: number } | null>(null)
+  const [rankLoading, setRankLoading] = useState(false)
+
+  useEffect(() => {
+    if (!userId) {
+      setRank12m(null)
+      return
+    }
+    let active = true
+    setRankLoading(true)
+    const gender =
+      (player?.gender as 'male' | 'female' | null | undefined) ||
+      (player?.player_category?.startsWith('M') ? 'male' : null) ||
+      (player?.player_category?.startsWith('F') ? 'female' : null) ||
+      null
+    ;(async () => {
+      try {
+        const { fetchMyRolling12mRank } = await import('./lib/rankingEngine')
+        const data = await fetchMyRolling12mRank(userId, { gender })
+        if (active) setRank12m(data)
+      } catch (err) {
+        console.error('[Home] Error fetching 12m rank:', err)
+        if (active) setRank12m(null)
+      } finally {
+        if (active) setRankLoading(false)
+      }
+    })()
+    return () => { active = false }
+  }, [userId, player?.gender, player?.player_category])
+
+  const colors = levelColors(player?.level)
+  const hasGradient = colors && colors.hex !== '#e5e7eb'
+  const bgStyle = hasGradient
+    ? { background: `linear-gradient(135deg, ${colors.hex} 0%, ${colors.hexTo} 100%)` }
+    : {}
+
+  const positionLabel =
+    rank12m && rank12m.position > 0
+      ? (rank12m.position === 1 ? '🥇' : rank12m.position === 2 ? '🥈' : rank12m.position === 3 ? '🥉' : `#${rank12m.position}`)
+      : '—'
+
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      <div
+        className={`rounded-xl shadow-sm overflow-hidden p-4 ${!hasGradient ? 'bg-gradient-to-br from-red-50 to-red-100' : ''}`}
+        style={bgStyle}
+      >
+        <p className={`text-xs font-medium mb-1 ${hasGradient ? 'text-white/80' : 'text-gray-500'}`}>{levelLabel}</p>
+        <p className={`text-3xl font-bold leading-none ${hasGradient ? 'text-white' : 'text-red-600'}`}>
+          {player?.level?.toFixed(2) || '3.00'}
+        </p>
+        <p className={`text-[11px] mt-2 flex items-center gap-1 ${hasGradient ? 'text-white/90' : 'text-gray-600'}`}>
+          <span>📊</span> {reliabilityLabel} {player?.level_reliability_percent?.toFixed(0) ?? '85'}%
+        </p>
+      </div>
+
+      <button
+        type="button"
+        onClick={onOpenRankings}
+        className="rounded-xl shadow-sm overflow-hidden p-4 bg-gradient-to-br from-rose-500 to-rose-700 text-left hover:shadow-md transition-shadow"
+      >
+        <p className="text-xs font-medium mb-1 text-white/80">Ranking 12 meses</p>
+        {rankLoading ? (
+          <div className="w-5 h-5 border-2 border-white/70 border-t-transparent rounded-full animate-spin mt-1" />
+        ) : (
+          <>
+            <p className="text-3xl font-bold leading-none text-white">{positionLabel}</p>
+            <p className="text-[11px] mt-2 text-white/90">
+              {rank12m && rank12m.position > 0
+                ? `${Math.round(rank12m.totalPoints)} pts · ${rank12m.totalPlayers} jogadores`
+                : 'Sem pontos ainda'}
+            </p>
+          </>
+        )}
+      </button>
+    </div>
+  )
+}
+
 // ==================== HOME SCREEN ====================
 
 function HomeScreen({
@@ -1713,22 +1807,13 @@ function HomeScreen({
         </div>
       )}
 
-      {/* Quick Actions — 4 principais sempre numa linha */}
-      <div className="grid grid-cols-4 gap-1 sm:gap-2">
-        <ActionButton icon={TrendingUp} label={t.home.rankings} color="rose" onClick={onOpenRankings} />
+      {/* Quick Actions — 5 numa linha */}
+      <div className="grid grid-cols-5 gap-1 sm:gap-2">
         <ActionButton icon={Trophy} label={t.home.tournaments} color="amber" onClick={onOpenCompete} />
+        <ActionButton icon={Gamepad2} label={t.home.findGame} color="purple" emoji="🎾" onClick={onOpenFindGame} />
         <ActionButton icon={Target} label="Resultados" color="rose" emoji="📊" onClick={onOpenMyResults} />
         <ActionButton icon={Target} label={t.common.quickResult} color="emerald" emoji="✍️" onClick={onOpenGameResults} />
-      </div>
-      <div className="grid grid-cols-4 gap-1 sm:gap-2">
-        {canBook && <ActionButton icon={Calendar} label={t.home.book} color="lime" onClick={onOpenBooking} />}
-        <ActionButton icon={Building2} label="Clubes" color="blue" onClick={onOpenClubsList} />
-        {canFindGame && (
-          <ActionButton icon={Gamepad2} label={t.home.findGame} color="purple" emoji="🎾" onClick={onOpenFindGame} />
-        )}
-        {canLearn && (
-          <ActionButton icon={GraduationCap} label={t.home.learn} color="emerald" onClick={onOpenLearn} />
-        )}
+        <ActionButton icon={TrendingUp} label={t.home.rankings} color="rose" onClick={onOpenRankings} />
       </div>
 
       {/* Profile Card - Foto + Nome + Bio */}
@@ -1758,32 +1843,14 @@ function HomeScreen({
         </div>
       </div>
 
-      {/* Nível + Fiabilidade + Categoria */}
-      {(() => {
-        const colors = levelColors(player?.level)
-        const hasGradient = colors && colors.hex !== '#e5e7eb'
-        const bgStyle = hasGradient 
-          ? { background: `linear-gradient(135deg, ${colors.hex} 0%, ${colors.hexTo} 100%)` }
-          : {}
-
-        return (
-          <div 
-            className={`rounded-xl shadow-sm overflow-hidden p-6 ${!hasGradient ? 'bg-gradient-to-br from-red-50 to-red-100' : ''}`}
-            style={bgStyle}
-          >
-            <div className="flex items-center justify-between">
-              <div className="flex-1">
-                <p className={`text-5xl font-bold ${hasGradient ? 'text-white' : 'text-red-600'}`}>
-                  {t.home.level} {player?.level?.toFixed(2) || '3.00'}
-                </p>
-                <p className={`text-sm mt-2 flex items-center gap-1.5 ${hasGradient ? 'text-white/90' : 'text-gray-600'}`}>
-                  <span>📊</span> {t.home.reliability} {player?.level_reliability_percent?.toFixed(0) ?? '85'}%
-                </p>
-              </div>
-            </div>
-          </div>
-        )
-      })()}
+      {/* Nível (estreito) + Ranking 12 meses lado a lado */}
+      <LevelAndRankingCards
+        player={player}
+        userId={userId}
+        onOpenRankings={onOpenRankings}
+        levelLabel={t.home.level}
+        reliabilityLabel={t.home.reliability}
+      />
 
       {(isLiteMode || !canFindGame) && (
         <button
