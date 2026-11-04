@@ -91,7 +91,7 @@ function HeroAppPreview() {
             <p className="text-[11px] font-semibold text-white">Próximo jogo</p>
             <span className="rounded-md bg-cyan-400/15 px-1.5 py-0.5 text-[9px] font-bold text-cyan-300">Hoje 18:30</span>
           </div>
-          <p className="text-[10px] text-slate-400">Albufeira Padel · Campo 2</p>
+          <p className="text-[10px] text-slate-400">Clube Parceiro · Campo 2</p>
           <div className="mt-2 flex -space-x-2">
             {['A', 'B', 'C', '?'].map((letter, index) => (
               <div
@@ -127,7 +127,7 @@ function EloProfileMock() {
         </div>
         <div>
           <p className="text-sm font-bold text-white">Rui Mendes</p>
-          <p className="text-xs text-slate-400">Albufeira · Fiabilidade 92%</p>
+          <p className="text-xs text-slate-400">Clube parceiro · Fiabilidade 92%</p>
         </div>
         <span className="ml-auto rounded-lg bg-emerald-400/15 px-2.5 py-1 text-xs font-black text-emerald-300 ring-1 ring-emerald-400/30">
           M4
@@ -190,7 +190,7 @@ function PushNotificationMock() {
       <div className="mt-3 grid grid-cols-2 gap-2 text-[10px]">
         <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-2">
           <p className="font-semibold text-white">Matchmaking</p>
-          <p className="mt-1 text-slate-400">Nível idêntico no Algarve</p>
+          <p className="mt-1 text-slate-400">Nível idêntico na tua zona</p>
         </div>
         <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-2">
           <p className="font-semibold text-white">Sem WhatsApp</p>
@@ -225,7 +225,7 @@ function TournamentBoardMock() {
           <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-slate-500">Classificação</p>
           {[
             ['1.', 'Team Nova', '18'],
-            ['2.', 'Algarve Duo', '15'],
+            ['2.', 'Court Duo', '15'],
             ['3.', 'Court Kings', '12'],
           ].map(([pos, name, pts]) => (
             <div key={name} className="mb-1.5 flex items-center justify-between text-[11px] last:mb-0">
@@ -318,7 +318,7 @@ function ClubModuleVisual({ variant }: { variant: 'manager' | 'courts' | 'tourna
     <div className="rounded-2xl border border-slate-800 bg-slate-950/80 p-4">
       <div className="mb-3 flex items-center gap-2">
         <Users className="h-4 w-4 text-emerald-300" />
-        <p className="text-xs font-bold text-white">Rede ativa · Algarve</p>
+        <p className="text-xs font-bold text-white">Rede ativa · Global</p>
       </div>
       <div className="flex -space-x-2">
         {['JM', 'AL', 'CR', 'TS', 'MK', '+'].map((initials, index) => (
@@ -351,7 +351,7 @@ const playerSteps = [
     step: 'Passo 2',
     title: 'Encontrar Jogo & Matchmaking Automático',
     description:
-      'Procura parceiros e adversários de nível idêntico na região do Algarve sem grupos de WhatsApp. Quando falta um jogador, a PWA envia um alerta instantâneo para o telemóvel.',
+      'Procura parceiros e adversários de nível idêntico na tua zona sem grupos de WhatsApp. Quando falta um jogador, a PWA envia um alerta instantâneo para o telemóvel.',
     visual: <PushNotificationMock />,
   },
   {
@@ -383,17 +383,17 @@ const clubModules = [
   {
     icon: Trophy,
     title: 'Organização Autónoma de Torneios e Ligas',
-    subtitle: 'Quadros e horários automáticos',
+    subtitle: 'Para clubes e organizadores',
     description:
-      'Criação automática de grupos de fase de grupos, quadros eliminatórios, distribuição de horários por campo e atualização dinâmica dos resultados.',
+      'Criação automática de grupos de fase de grupos, quadros eliminatórios, distribuição de horários por campo e atualização dinâmica dos resultados — ideal para clubes, resorts e organizadores independentes.',
     visual: 'tournaments' as const,
   },
   {
     icon: Users,
-    title: 'Comunidade Ativa do Algarve',
+    title: 'Comunidade Ativa de Jogadores',
     subtitle: 'Rede de jogadores registados',
     description:
-      'Acesso direto a uma rede de centenas de jogadores registados e ativos na região para encher campos em horários de menor ocupação.',
+      'Acesso direto a uma rede de centenas de jogadores registados e ativos para encher campos em horários de menor ocupação, em qualquer região.',
     visual: 'community' as const,
   },
 ]
@@ -540,10 +540,10 @@ export default function PlayerLandingPage({ onLogin, onRegister }: { onLogin: ()
           <div>
             <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-emerald-400/30 bg-emerald-400/10 px-4 py-1.5">
               <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-300" />
-              <span className="text-sm font-medium text-emerald-200">Padel One · Algarve</span>
+              <span className="text-sm font-medium text-emerald-200">Padel One · Em todo o mundo</span>
             </div>
             <h1 className="max-w-4xl text-4xl font-black leading-[1.08] tracking-tight text-white sm:text-5xl lg:text-6xl">
-              <span className="block">A Nova Era do Padel no Algarve:</span>
+              <span className="block">A Nova Era do Padel:</span>
               <span className="mt-2 block bg-gradient-to-r from-emerald-300 to-cyan-300 bg-clip-text text-transparent">
                 Sem WhatsApp, Sem Complicações.
               </span>
@@ -563,7 +563,7 @@ export default function PlayerLandingPage({ onLogin, onRegister }: { onLogin: ()
                 href="#clubes"
                 className="inline-flex items-center justify-center rounded-2xl border border-slate-700 bg-slate-900/50 px-6 py-4 text-center text-base font-semibold text-white transition hover:border-cyan-300/40 hover:bg-slate-900 sm:text-lg"
               >
-                Soluções para Clubes & Resorts 🏢
+                Soluções para Clubes, Resorts & Organizadores 🏢
               </a>
             </div>
           </div>
@@ -638,12 +638,12 @@ export default function PlayerLandingPage({ onLogin, onRegister }: { onLogin: ()
 
       <section id="clubes" className="scroll-mt-20 border-t border-slate-800 bg-[#0b1220] py-16 sm:py-20">
         <div className="mx-auto max-w-6xl px-4">
-          <SectionEyebrow tone="cyan">Clubes & Resorts</SectionEyebrow>
+          <SectionEyebrow tone="cyan">Clubes, Resorts & Organizadores</SectionEyebrow>
           <h2 className="mt-3 max-w-3xl text-3xl font-black tracking-tight text-white sm:text-4xl">
             Soluções Padel1 Manager & Smart Courts
           </h2>
           <p className="mt-4 max-w-2xl text-base leading-relaxed text-slate-400">
-            Quatro módulos para eliminar o caos operacional e encher os campos com a comunidade do Algarve.
+            Quatro módulos para eliminar o caos operacional de clubes, resorts e organizadores — e encher os campos com a comunidade de jogadores.
           </p>
 
           <div className="mt-12 grid grid-cols-1 gap-5 lg:grid-cols-2">
@@ -673,13 +673,13 @@ export default function PlayerLandingPage({ onLogin, onRegister }: { onLogin: ()
           <div className="mt-12 rounded-3xl border border-slate-800 bg-slate-900/50 p-6 sm:p-8">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <h3 className="text-xl font-black text-white">Pronto para digitalizar o teu clube?</h3>
+                <h3 className="text-xl font-black text-white">Pronto para digitalizar o teu clube, resort ou organização?</h3>
                 <p className="mt-2 max-w-xl text-sm leading-relaxed text-slate-400">
                   Escreve para{' '}
                   <a href="mailto:info@sportsevents.app" className="font-medium text-cyan-300 underline-offset-2 hover:underline">
                     info@sportsevents.app
                   </a>
-                  {' '}e marcamos uma demonstração do Padel One para o teu clube.
+                  {' '}e marcamos uma demonstração do Padel One.
                 </p>
               </div>
               <a
@@ -742,7 +742,7 @@ export default function PlayerLandingPage({ onLogin, onRegister }: { onLogin: ()
                   </li>
                   <li>
                     <a href="#clubes" className="inline-flex items-center gap-1 transition hover:text-white">
-                      <ChevronRight className="h-3.5 w-3.5" /> Soluções para Clubes & Resorts
+                      <ChevronRight className="h-3.5 w-3.5" />                       Clubes, Resorts & Organizadores
                     </a>
                   </li>
                   <li>
