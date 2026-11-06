@@ -820,7 +820,8 @@ export async function applyTournamentPodiumBonuses(
     position: number,
   ) => {
     const acct = accountByPlayer.get(playerId)
-    if (!acct?.user_id) return null
+    // ELO de pódio aplica-se mesmo sem auth user_id; ranking 12m é que precisa dele
+    if (!acct?.id) return null
 
     // Idempotência por jogador+torneio+delta de pódio
     const { data: already } = await supabase
@@ -861,7 +862,7 @@ export async function applyTournamentPodiumBonuses(
     })
 
     // Pontos ranking 12m conforme tier do torneio
-    if (organizationId) {
+    if (organizationId && acct.user_id) {
       await awardTournamentPlacementPoints({
         userId: acct.user_id,
         organizationId,
