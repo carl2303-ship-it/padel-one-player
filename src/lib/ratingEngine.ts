@@ -543,11 +543,20 @@ export async function processMatchRating(
       console.error('[RatingEngine] Error marking match as processed:', matchId, markError)
     }
 
-    // Encerramento: final de torneio → bónus de pódio + pontos ranking 12m
-    const round = String(match.round || '').toLowerCase()
-    if (isTournament && (round === 'final' || round === 'mixed_final')) {
+    // Encerramento: final de knockout OU último jogo rated de formatos sem final
+    // (round_robin / americano) → bónus de pódio + pontos ranking 12m
+    if (isTournament) {
       try {
-        await applyTournamentPodiumBonuses(match.tournament_id as string, match.category_id as string | null)
+        const shouldApply = await shouldApplyPodiumAfterMatch(
+          match.tournament_id as string,
+          String(match.round || ''),
+        )
+        if (shouldApply) {
+          await applyTournamentPodiumBonuses(
+            match.tournament_id as string,
+            match.category_id as string | null,
+          )
+        }
       } catch (err) {
         console.error('[RatingEngine] Podium bonus failed for tournament:', match.tournament_id, err)
       }
@@ -555,6 +564,48 @@ export async function processMatchRating(
   }
 
   return result
+}
+
+/**
+ * Decide se devemos tentar o bónus de pódio após processar este jogo.
+ * - Knockout: ao processar a final / mixed_final
+ * - Round-robin / sem jogos "final": quando já não há jogos completed por ratear
+ *   (idempotente — applyTournamentPodiumBonuses não duplica)
+ */
+async function shouldApplyPodiumAfterMatch(
+  tournamentId: string,
+  round: string,
+): Promise<boolean> {
+  const r = round.toLowerCase()
+  if (r === 'final' || r === 'mixed_final') return true
+
+  const { count: pendingCount, error: pendingErr } = await supabase
+    .from('matches')
+    .select('id', { count: 'exact', head: true })
+    .eq('tournament_id', tournamentId)
+    .eq('status', 'completed')
+    .or('rating_processed.is.null,rating_processed.eq.false')
+
+  if (pendingErr) {
+    console.error('[RatingEngine] pending matches check failed:', pendingErr)
+    return false
+  }
+  if ((pendingCount ?? 0) > 0) return false
+
+  // Ainda há bracket com final? Nesse caso o pódio dispara na final.
+  const { data: finals, error: finalsErr } = await supabase
+    .from('matches')
+    .select('id')
+    .eq('tournament_id', tournamentId)
+    .in('round', ['final', 'mixed_final'])
+    .limit(1)
+
+  if (finalsErr) {
+    console.error('[RatingEngine] finals check failed:', finalsErr)
+    return false
+  }
+
+  return !finals || finals.length === 0
 }
 
 /**
@@ -878,7 +929,11 @@ export async function processAllUnratedMatches(
     return { processed: 0, skipped: 0, errors: 1, total: 0 }
   }
 
+  const tournamentIds = new Set<string>()
+
   if (!matches || matches.length === 0) {
+    // Mesmo sem jogos por ratear: recuperar pódios em falta (ex.: round-robin já rated)
+    await applyMissingPodiumBonusesForRecentTournaments(14)
     return { processed: 0, skipped: 0, errors: 0, total: 0 }
   }
 
@@ -892,6 +947,7 @@ export async function processAllUnratedMatches(
 
   for (let i = 0; i < matches.length; i++) {
     const match = matches[i]
+    if (match.tournament_id) tournamentIds.add(match.tournament_id as string)
     try {
       const result = await processMatchRating(match.id, playerCache)
       if (!result) {
@@ -911,10 +967,64 @@ export async function processAllUnratedMatches(
     }
   }
 
+  // Segurança: torneios round-robin podem ficar sem pódio se o status
+  // "completed" chegar depois de todos os jogos já estarem rated.
+  for (const tid of tournamentIds) {
+    try {
+      await applyTournamentPodiumBonuses(tid)
+    } catch (err) {
+      console.error('[RatingEngine] Podium sweep failed:', tid, err)
+    }
+  }
+  await applyMissingPodiumBonusesForRecentTournaments(14)
+
   const uniquePlayers = playerCache.size
   const maxMatches = Math.max(0, ...Array.from(playerCache.values()).map(p => p.matchCount))
   const summary = `CONCLUÍDO: ${processed} processados, ${skipped} saltados, ${errors} erros de ${matches.length} total | ${uniquePlayers} jogadores atualizados (max ${maxMatches} jogos rated)`
   onProgress?.(matches.length, matches.length, summary)
 
   return { processed, skipped, errors, total: matches.length }
+}
+
+/**
+ * Aplica bónus de pódio a torneios completed recentes que ainda não têm
+ * entradas de pódio no histórico (ex.: Social round-robin sem jogo "final").
+ * Idempotente.
+ */
+export async function applyMissingPodiumBonusesForRecentTournaments(
+  sinceDays = 14,
+): Promise<{ checked: number; applied: number }> {
+  const since = new Date(Date.now() - sinceDays * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  const { data: tournaments, error } = await supabase
+    .from('tournaments')
+    .select('id, name, status, end_date')
+    .eq('status', 'completed')
+    .gte('end_date', since)
+    .limit(100)
+
+  if (error || !tournaments?.length) {
+    if (error) console.error('[RatingEngine] Missing podium sweep query failed:', error)
+    return { checked: 0, applied: 0 }
+  }
+
+  let applied = 0
+  for (const t of tournaments) {
+    const { data: already } = await supabase
+      .from('player_level_history')
+      .select('id')
+      .eq('source_id', t.id)
+      .in('delta', [PODIUM_BONUS_CHAMPION, PODIUM_BONUS_FINALIST, 0.1, 0.05])
+      .limit(1)
+
+    if (already && already.length > 0) continue
+
+    try {
+      const result = await applyTournamentPodiumBonuses(t.id)
+      if (result.applied) applied++
+    } catch (err) {
+      console.error('[RatingEngine] Missing podium apply failed:', t.id, err)
+    }
+  }
+
+  return { checked: tournaments.length, applied }
 }
