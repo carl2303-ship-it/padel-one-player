@@ -22,6 +22,7 @@ import { supabase } from './supabase'
 import { reverseRatingForSource } from './levelHistory'
 import {
   awardTournamentPlacementPoints,
+  awardTournamentPointsForTournament,
   resolveTournamentTier,
   type TournamentTier,
 } from './rankingEngine'
@@ -552,10 +553,14 @@ export async function processMatchRating(
           String(match.round || ''),
         )
         if (shouldApply) {
-          await applyTournamentPodiumBonuses(
-            match.tournament_id as string,
-            match.category_id as string | null,
-          )
+          const tid = match.tournament_id as string
+          await applyTournamentPodiumBonuses(tid, match.category_id as string | null)
+          // Pontos ranking 12m para TODAS as posições (não só 1º/2º do pódio ELO)
+          try {
+            await awardTournamentPointsForTournament(tid)
+          } catch (rankErr) {
+            console.error('[RatingEngine] Ranking 12m award failed:', tid, rankErr)
+          }
         }
       } catch (err) {
         console.error('[RatingEngine] Podium bonus failed for tournament:', match.tournament_id, err)
@@ -933,8 +938,9 @@ export async function processAllUnratedMatches(
   const tournamentIds = new Set<string>()
 
   if (!matches || matches.length === 0) {
-    // Mesmo sem jogos por ratear: recuperar pódios em falta (ex.: round-robin já rated)
+    // Mesmo sem jogos por ratear: recuperar pódios / ranking 12m em falta
     await applyMissingPodiumBonusesForRecentTournaments(14)
+    await awardMissingRankingPointsForRecentTournaments(45)
     return { processed: 0, skipped: 0, errors: 0, total: 0 }
   }
 
@@ -973,11 +979,13 @@ export async function processAllUnratedMatches(
   for (const tid of tournamentIds) {
     try {
       await applyTournamentPodiumBonuses(tid)
+      await awardTournamentPointsForTournament(tid)
     } catch (err) {
-      console.error('[RatingEngine] Podium sweep failed:', tid, err)
+      console.error('[RatingEngine] Podium/ranking sweep failed:', tid, err)
     }
   }
   await applyMissingPodiumBonusesForRecentTournaments(14)
+  await awardMissingRankingPointsForRecentTournaments(45)
 
   const uniquePlayers = playerCache.size
   const maxMatches = Math.max(0, ...Array.from(playerCache.values()).map(p => p.matchCount))
@@ -1028,4 +1036,42 @@ export async function applyMissingPodiumBonusesForRecentTournaments(
   }
 
   return { checked: tournaments.length, applied }
+}
+
+/**
+ * Atribui pontos do ranking 12m a torneios completed recentes
+ * (todas as final_position). Idempotente via awardTournamentPointsForTournament.
+ */
+export async function awardMissingRankingPointsForRecentTournaments(
+  sinceDays = 45,
+): Promise<{ checked: number; awardedTournaments: number; awardedRows: number }> {
+  const since = new Date(Date.now() - sinceDays * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  const { data: tournaments, error } = await supabase
+    .from('tournaments')
+    .select('id, name, status, end_date, club_id')
+    .eq('status', 'completed')
+    .gte('end_date', since)
+    .not('club_id', 'is', null)
+    .limit(200)
+
+  if (error || !tournaments?.length) {
+    if (error) console.error('[RatingEngine] Missing ranking sweep query failed:', error)
+    return { checked: 0, awardedTournaments: 0, awardedRows: 0 }
+  }
+
+  let awardedTournaments = 0
+  let awardedRows = 0
+  for (const t of tournaments) {
+    try {
+      const result = await awardTournamentPointsForTournament(t.id)
+      if (result.awarded > 0) {
+        awardedTournaments++
+        awardedRows += result.awarded
+      }
+    } catch (err) {
+      console.error('[RatingEngine] Missing ranking apply failed:', t.id, err)
+    }
+  }
+
+  return { checked: tournaments.length, awardedTournaments, awardedRows }
 }
