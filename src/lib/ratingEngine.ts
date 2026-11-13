@@ -546,11 +546,15 @@ export async function processMatchRating(
     // Encerramento: final de torneio → bónus de pódio + pontos ranking 12m
     const round = String(match.round || '').toLowerCase()
     if (isTournament && (round === 'final' || round === 'mixed_final')) {
+      console.log(`[RatingEngine] Final match detected (round: ${round}), triggering podium bonuses for tournament ${match.tournament_id}`)
       try {
-        await applyTournamentPodiumBonuses(match.tournament_id as string, match.category_id as string | null)
+        const bonusResult = await applyTournamentPodiumBonuses(match.tournament_id as string, match.category_id as string | null)
+        console.log(`[RatingEngine] Podium bonus result:`, JSON.stringify(bonusResult))
       } catch (err) {
         console.error('[RatingEngine] Podium bonus failed for tournament:', match.tournament_id, err)
       }
+    } else if (isTournament) {
+      console.log(`[RatingEngine] Tournament match processed but not a final (round: ${round})`)
     }
   }
 
@@ -609,6 +613,7 @@ export async function applyTournamentPodiumBonuses(
   tournamentId: string,
   categoryId?: string | null,
 ): Promise<PodiumBonusResult> {
+  console.log(`[RatingEngine] applyTournamentPodiumBonuses called for tournament ${tournamentId}, category ${categoryId || 'all'}`)
   const empty: PodiumBonusResult = { applied: false, champions: [], finalists: [] }
 
   const { data: tournament } = await supabase
@@ -616,6 +621,13 @@ export async function applyTournamentPodiumBonuses(
     .select('id, club_id, name, format, round_robin_type')
     .eq('id', tournamentId)
     .maybeSingle()
+
+  if (!tournament) {
+    console.warn(`[RatingEngine] Tournament ${tournamentId} not found`)
+    return { ...empty, message: 'Torneio não encontrado' }
+  }
+
+  console.log(`[RatingEngine] Tournament found: ${tournament.name} (format: ${tournament.format})`)
 
   // No ecossistema Padel ONE, organization_id do ranking 12m = club_id do torneio
   const organizationId = (tournament?.club_id as string | null) || null
@@ -668,6 +680,7 @@ export async function applyTournamentPodiumBonuses(
 
   // Fallback: resultado da final
   if (championPlayerIds.length === 0) {
+    console.log(`[RatingEngine] No final_position found, using fallback: looking for final match`)
     let finalQuery = supabase
       .from('matches')
       .select(`
@@ -689,6 +702,11 @@ export async function applyTournamentPodiumBonuses(
 
     const { data: finals } = await finalQuery
     const finalMatch = finals?.[0]
+    if (finalMatch) {
+      console.log(`[RatingEngine] Final match found: ${finalMatch.id} (round: ${finalMatch.round})`)
+    } else {
+      console.warn(`[RatingEngine] No final match found for tournament ${tournamentId} (category: ${categoryId || 'all'})`)
+    }
     if (finalMatch) {
       const s1 = (finalMatch.team1_score_set1 ?? 0) > (finalMatch.team2_score_set1 ?? 0) ? 1 : 0
       const s2 = (finalMatch.team1_score_set2 ?? 0) > (finalMatch.team2_score_set2 ?? 0) ? 1 : 0
@@ -723,7 +741,12 @@ export async function applyTournamentPodiumBonuses(
   championPlayerIds = [...new Set(championPlayerIds)]
   finalistPlayerIds = [...new Set(finalistPlayerIds)].filter((id) => !championPlayerIds.includes(id))
 
+  console.log(`[RatingEngine] Podium resolution: ${championPlayerIds.length} champion(s), ${finalistPlayerIds.length} finalist(s)`)
+  console.log(`[RatingEngine] Champion player IDs: ${championPlayerIds.join(', ') || 'none'}`)
+  console.log(`[RatingEngine] Finalist player IDs: ${finalistPlayerIds.join(', ') || 'none'}`)
+
   if (championPlayerIds.length === 0 && finalistPlayerIds.length === 0) {
+    console.warn(`[RatingEngine] Could not determine champions/finalists for tournament ${tournamentId}`)
     return { ...empty, message: 'Não foi possível determinar campeões/finalistas' }
   }
 
@@ -733,13 +756,36 @@ export async function applyTournamentPodiumBonuses(
     .select('id, name, user_id, player_account_id, phone_number')
     .in('id', allPlayerIds)
 
+  console.log(`[RatingEngine] Looking for ${allPlayerIds.length} player(s) in 'players' table, found ${playersData?.length || 0}`)
+
   if (!playersData || playersData.length === 0) {
+    console.warn(`[RatingEngine] No players found in 'players' table for IDs: ${allPlayerIds.join(', ')}`)
     return { ...empty, message: 'Jogadores do pódio não encontrados' }
   }
 
+  for (const p of playersData) {
+    console.log(`[RatingEngine] Player found: ${p.name} (id: ${p.id}, player_account_id: ${(p as any).player_account_id || 'null'}, user_id: ${p.user_id || 'null'}, phone: ${p.phone_number || 'null'})`)
+  }
+
   const accountByPlayer = new Map<string, any>()
+  const normalizePhoneDigits = (phone: string) => {
+    let cleaned = phone.replace(/[\s\-\(\)\.]/g, '')
+    let hadPrefix = false
+    if (cleaned.startsWith('+00')) { cleaned = cleaned.slice(3); hadPrefix = true }
+    else if (cleaned.startsWith('+')) { cleaned = cleaned.slice(1); hadPrefix = true }
+    else if (cleaned.startsWith('00')) { cleaned = cleaned.slice(2); hadPrefix = true }
+    if (hadPrefix) {
+      cleaned = cleaned.replace(/^351(?=\d{9})/, '')
+    } else {
+      cleaned = cleaned.replace(/^351(?=[29]\d{8}$)/, '')
+    }
+    return cleaned
+  }
+
   for (const p of playersData) {
     let account: any = null
+
+    // 1) Direct FK — player_account_id
     if ((p as any).player_account_id) {
       const { data } = await supabase
         .from('player_accounts')
@@ -748,6 +794,8 @@ export async function applyTournamentPodiumBonuses(
         .maybeSingle()
       account = data
     }
+
+    // 2) Fallback: user_id
     if (!account && p.user_id) {
       const { data } = await supabase
         .from('player_accounts')
@@ -756,8 +804,35 @@ export async function applyTournamentPodiumBonuses(
         .maybeSingle()
       account = data
     }
-    if (account) accountByPlayer.set(p.id, account)
+
+    // 3) Fallback: phone_number (same logic as processMatchRating)
+    if (!account && p.phone_number) {
+      const normalized = normalizePhoneDigits(p.phone_number)
+      const { data } = await supabase
+        .from('player_accounts')
+        .select('id, user_id, name, level, rated_matches')
+        .eq('phone_number', normalized)
+        .maybeSingle()
+      if (data) account = data
+      if (!account && normalized !== p.phone_number) {
+        const { data: data2 } = await supabase
+          .from('player_accounts')
+          .select('id, user_id, name, level, rated_matches')
+          .eq('phone_number', p.phone_number)
+          .maybeSingle()
+        if (data2) account = data2
+      }
+    }
+
+    if (account) {
+      accountByPlayer.set(p.id, account)
+      console.log(`[RatingEngine] Player ${p.name || p.id} -> player_account ${account.id} (${account.name})`)
+    } else {
+      console.warn(`[RatingEngine] No player_account found for player ${p.name || p.id}`)
+    }
   }
+
+  console.log(`[RatingEngine] Resolved ${accountByPlayer.size} player_account(s) out of ${playersData.length} player(s)`)
 
   const champions: PodiumBonusResult['champions'] = []
   const finalists: PodiumBonusResult['finalists'] = []
@@ -769,7 +844,10 @@ export async function applyTournamentPodiumBonuses(
     position: number,
   ) => {
     const acct = accountByPlayer.get(playerId)
-    if (!acct?.user_id) return null
+    if (!acct) {
+      console.warn(`[RatingEngine] Podium bonus skipped for player ${playerId}: no player_account found`)
+      return null
+    }
 
     // Idempotência por jogador+torneio+delta de pódio
     const { data: already } = await supabase
@@ -781,6 +859,7 @@ export async function applyTournamentPodiumBonuses(
       .limit(1)
 
     if (already && already.length > 0) {
+      console.log(`[RatingEngine] Podium bonus already applied for player_account ${acct.id} in tournament ${tournamentId}`)
       return null
     }
 
@@ -799,6 +878,8 @@ export async function applyTournamentPodiumBonuses(
       return null
     }
 
+    console.log(`[RatingEngine] Podium bonus applied: ${acct.name || acct.id} +${bonus} (${reason})`)
+
     await supabase.from('player_level_history').insert({
       player_account_id: acct.id,
       level_before: parseFloat(levelBefore.toFixed(2)),
@@ -809,8 +890,8 @@ export async function applyTournamentPodiumBonuses(
       source_id: tournamentId,
     })
 
-    // Pontos ranking 12m conforme tier do torneio
-    if (organizationId) {
+    // Pontos ranking 12m conforme tier do torneio (requer user_id)
+    if (organizationId && acct.user_id) {
       await awardTournamentPlacementPoints({
         userId: acct.user_id,
         organizationId,
