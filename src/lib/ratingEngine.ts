@@ -543,18 +543,32 @@ export async function processMatchRating(
       console.error('[RatingEngine] Error marking match as processed:', matchId, markError)
     }
 
-    // Encerramento: final de torneio → bónus de pódio + pontos ranking 12m
+    // Encerramento: bónus de pódio quando há final_position definido ou match de final
     const round = String(match.round || '').toLowerCase()
-    if (isTournament && (round === 'final' || round === 'mixed_final')) {
-      console.log(`[RatingEngine] Final match detected (round: ${round}), triggering podium bonuses for tournament ${match.tournament_id}`)
-      try {
-        const bonusResult = await applyTournamentPodiumBonuses(match.tournament_id as string, match.category_id as string | null)
-        console.log(`[RatingEngine] Podium bonus result:`, JSON.stringify(bonusResult))
-      } catch (err) {
-        console.error('[RatingEngine] Podium bonus failed for tournament:', match.tournament_id, err)
+    if (isTournament) {
+      const isFinalMatch = round === 'final' || round === 'mixed_final'
+      
+      // Verificar se o torneio tem equipas com final_position definido (1º e 2º lugar)
+      const { data: podiumTeams } = await supabase
+        .from('teams')
+        .select('id, final_position')
+        .eq('tournament_id', match.tournament_id)
+        .in('final_position', [1, 2])
+        .limit(2)
+      
+      const hasPodiumPositions = podiumTeams && podiumTeams.length >= 2
+      
+      if (isFinalMatch || hasPodiumPositions) {
+        console.log(`[RatingEngine] Triggering podium bonuses for tournament ${match.tournament_id} (isFinalMatch: ${isFinalMatch}, hasPodiumPositions: ${hasPodiumPositions})`)
+        try {
+          const bonusResult = await applyTournamentPodiumBonuses(match.tournament_id as string, match.category_id as string | null)
+          console.log(`[RatingEngine] Podium bonus result:`, JSON.stringify(bonusResult))
+        } catch (err) {
+          console.error('[RatingEngine] Podium bonus failed for tournament:', match.tournament_id, err)
+        }
+      } else {
+        console.log(`[RatingEngine] Tournament match processed, no podium trigger yet (round: ${round}, podiumTeams: ${podiumTeams?.length || 0})`)
       }
-    } else if (isTournament) {
-      console.log(`[RatingEngine] Tournament match processed but not a final (round: ${round})`)
     }
   }
 
