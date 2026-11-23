@@ -906,6 +906,7 @@ function App() {
             onOpenClubsList={() => setCurrentScreen('clubs-list')}
             onOpenClubDetail={(clubId: string) => { setSelectedClubId(clubId); setCurrentScreen('club-detail') }}
             onOpenRankings={() => setCurrentScreen('rankings')}
+            onOpenGameResults={() => setCurrentScreen('game-results')}
             isLiteMode={isLiteMode}
             canBook={canBook}
             canFindGame={canFindGame}
@@ -1511,6 +1512,7 @@ function HomeScreen({
   onOpenClubsList,
   onOpenClubDetail,
   onOpenRankings,
+  onOpenGameResults,
   isLiteMode = false,
   canBook = true,
   canFindGame = true,
@@ -1537,6 +1539,7 @@ function HomeScreen({
   onOpenClubsList: () => void
   onOpenClubDetail: (clubId: string) => void
   onOpenRankings: () => void
+  onOpenGameResults: () => void
   isLiteMode?: boolean
   canBook?: boolean
   canFindGame?: boolean
@@ -1804,11 +1807,12 @@ function HomeScreen({
         </div>
       )}
 
-      {/* Quick Actions — 5 numa linha (Store após Rankings) */}
-      <div className="grid grid-cols-5 gap-1 sm:gap-2">
+      {/* Quick Actions — Resultado Rápido + Store após Rankings */}
+      <div className="grid grid-cols-6 gap-1 sm:gap-2">
         <ActionButton icon={Trophy} label={t.home.tournaments} color="amber" onClick={onOpenCompete} />
         <ActionButton icon={Gamepad2} label={t.home.findGame} color="purple" emoji="🎾" onClick={onOpenFindGame} />
         <ActionButton icon={Target} label="Resultados" color="rose" emoji="📊" onClick={onOpenMyResults} />
+        <ActionButton icon={Target} label={t.common.quickResult} color="emerald" emoji="✍️" onClick={onOpenGameResults} />
         <ActionButton icon={TrendingUp} label={t.home.rankings} color="rose" onClick={onOpenRankings} />
         <ActionButton
           label={t.home.store}
