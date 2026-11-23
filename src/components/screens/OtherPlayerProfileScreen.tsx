@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Target, Building2, Users, ChevronLeft } from 'lucide-react'
+import { Target, Building2, Users, ChevronLeft, MessageCircle } from 'lucide-react'
 import { useI18n } from '../../lib/i18nContext'
 import { supabase } from '../../lib/supabase'
 import {
@@ -22,6 +22,7 @@ export default function OtherPlayerProfileScreen({
   onBack,
   onOpenFollowsList,
   onOpenPlayerProfile,
+  onOpenDirectMessage,
 }: {
   targetUserId: string
   preferredAccountId?: string | null
@@ -30,6 +31,7 @@ export default function OtherPlayerProfileScreen({
   onBack: () => void
   onOpenFollowsList: (userId: string) => void
   onOpenPlayerProfile: (userId: string, opts?: { accountId?: string | null; nameHint?: string | null }) => void
+  onOpenDirectMessage: (otherUserId: string) => void
 }) {
   const { t } = useI18n()
   const [profile, setProfile] = useState<PlayerProfile | null>(null)
@@ -194,17 +196,29 @@ export default function OtherPlayerProfileScreen({
             <h2 className="font-bold text-xl text-gray-900">{profile.name}</h2>
             {profile.location && <p className="text-xs text-gray-500 mt-0.5">{profile.location}</p>}
             {profile.bio && <p className="text-sm text-gray-600 mt-1 leading-relaxed">{profile.bio.length > 160 ? profile.bio.substring(0, 160) + '...' : profile.bio}</p>}
-            {/* Follow button */}
-            <button
-              onClick={handleToggleFollow}
-              className={`mt-3 px-5 py-2 text-sm font-semibold rounded-lg transition-colors ${
-                isFollowing
-                  ? 'border border-orange-300 text-orange-600 hover:bg-orange-50'
-                  : 'bg-orange-500 text-white hover:bg-orange-600'
-              }`}
-            >
-              {isFollowing ? 'A seguir' : 'Seguir'}
-            </button>
+            {/* Follow + Mensagem */}
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                onClick={handleToggleFollow}
+                className={`px-5 py-2 text-sm font-semibold rounded-lg transition-colors ${
+                  isFollowing
+                    ? 'border border-orange-300 text-orange-600 hover:bg-orange-50'
+                    : 'bg-orange-500 text-white hover:bg-orange-600'
+                }`}
+              >
+                {isFollowing ? 'A seguir' : 'Seguir'}
+              </button>
+              {targetUserId !== myUserId && (
+                <button
+                  type="button"
+                  onClick={() => onOpenDirectMessage(targetUserId)}
+                  className="px-4 py-2 text-sm font-semibold rounded-lg border border-red-200 text-red-600 hover:bg-red-50 transition-colors inline-flex items-center gap-1.5"
+                >
+                  <MessageCircle className="w-4 h-4" />
+                  Mensagem
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>

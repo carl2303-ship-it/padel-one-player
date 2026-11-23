@@ -29,6 +29,8 @@ const GamesScreen = lazy(() => import('./components/screens/GamesScreen'))
 const CommunityScreen = lazy(() => import('./components/screens/CommunityScreen'))
 const GroupDetailScreen = lazy(() => import('./components/screens/GroupDetailScreen'))
 const FollowsListScreen = lazy(() => import('./components/screens/FollowsListScreen'))
+const MessagesInboxScreen = lazy(() => import('./components/screens/MessagesInboxScreen'))
+const DirectChatScreen = lazy(() => import('./components/screens/DirectChatScreen'))
 const OtherPlayerProfileScreen = lazy(() => import('./components/screens/OtherPlayerProfileScreen'))
 const ProfileViewScreen = lazy(() => import('./components/screens/ProfileViewScreen'))
 const ProfileEditScreen = lazy(() => import('./components/screens/ProfileEditScreen'))
@@ -139,7 +141,7 @@ import {
   OpenGameCard,
 } from './components/shared/matchUi'
 
-type Screen = 'home' | 'games' | 'profile-view' | 'profile-edit' | 'club' | 'club-detail' | 'clubs-list' | 'compete' | 'my-results' | 'community' | 'player-profile' | 'follows-list' | 'learn' | 'find-game' | 'game-results' | 'rewards' | 'booking' | 'payments' | 'group-detail' | 'rankings'
+type Screen = 'home' | 'games' | 'profile-view' | 'profile-edit' | 'club' | 'club-detail' | 'clubs-list' | 'compete' | 'my-results' | 'community' | 'player-profile' | 'follows-list' | 'messages' | 'direct-chat' | 'learn' | 'find-game' | 'game-results' | 'rewards' | 'booking' | 'payments' | 'group-detail' | 'rankings'
 
 function App() {
   const { t, language, setLanguage, languageNames, languageFlags } = useI18n()
@@ -152,7 +154,10 @@ function App() {
   const [selectedPlayerAccountId, setSelectedPlayerAccountId] = useState<string | null>(null)
   const [selectedPlayerNameHint, setSelectedPlayerNameHint] = useState<string | null>(null)
   const [followsListUserId, setFollowsListUserId] = useState<string | null>(null) // For FollowsListScreen
+  const [followsListBackScreen, setFollowsListBackScreen] = useState<Screen>('player-profile')
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null)
+  const [dmConversationId, setDmConversationId] = useState<string | null>(null)
+  const [dmOtherUserId, setDmOtherUserId] = useState<string | null>(null)
   const [createGameForGroupId, setCreateGameForGroupId] = useState<string | null>(null)
   const [selectedClubId, setSelectedClubId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
@@ -886,7 +891,11 @@ function App() {
               if (tab) setGamesInitialTab(tab)
               setCurrentScreen('games')
             }}
-            onOpenFollowsList={(uid: string) => { setFollowsListUserId(uid); setCurrentScreen('follows-list') }}
+            onOpenFollowsList={(uid: string) => {
+              setFollowsListUserId(uid)
+              setFollowsListBackScreen('home')
+              setCurrentScreen('follows-list')
+            }}
             onOpenPlayerProfile={(uid: string, opts) => openPlayerProfile(uid, opts)}
             onOpenFindGame={() => setCurrentScreen('find-game')}
             onOpenRewards={() => setCurrentScreen('rewards')}
@@ -1098,7 +1107,11 @@ function App() {
                 if (tab) setGamesInitialTab(tab)
                 setCurrentScreen('games')
               }}
-              onOpenFollowsList={(uid: string) => { setFollowsListUserId(uid); setCurrentScreen('follows-list') }}
+              onOpenFollowsList={(uid: string) => {
+                setFollowsListUserId(uid)
+                setFollowsListBackScreen('profile-view')
+                setCurrentScreen('follows-list')
+              }}
               onOpenPlayerProfile={(uid: string, opts) => openPlayerProfile(uid, opts)}
             />
           </Suspense>
@@ -1133,7 +1146,22 @@ function App() {
         )}
         {currentScreen === 'community' && player?.user_id && (
           <Suspense fallback={<ScreenLoadingFallback />}>
-            <CommunityScreen userId={player.user_id} playerAccountId={player.id} playerAvatar={player.avatar_url} playerName={player.name} onOpenPlayerProfile={(uid, opts) => openPlayerProfile(uid, opts)} onOpenGroup={(groupId: string) => { setSelectedGroupId(groupId); setCurrentScreen('group-detail') }} />
+            <CommunityScreen
+              userId={player.user_id}
+              playerAccountId={player.id}
+              playerAvatar={player.avatar_url}
+              playerName={player.name}
+              onOpenPlayerProfile={(uid, opts) => openPlayerProfile(uid, opts)}
+              onOpenGroup={(groupId: string) => { setSelectedGroupId(groupId); setCurrentScreen('group-detail') }}
+              onOpenMessages={() => setCurrentScreen('messages')}
+              onOpenMyFollows={() => {
+                const uid = player.user_id
+                if (!uid) return
+                setFollowsListUserId(uid)
+                setFollowsListBackScreen('community')
+                setCurrentScreen('follows-list')
+              }}
+            />
           </Suspense>
         )}
         {currentScreen === 'group-detail' && selectedGroupId && player?.user_id && (
@@ -1159,8 +1187,25 @@ function App() {
               preferredName={selectedPlayerNameHint}
               myUserId={player.user_id}
               onBack={() => setCurrentScreen('community')}
-              onOpenFollowsList={(uid: string) => { setFollowsListUserId(uid); setCurrentScreen('follows-list') }}
+              onOpenFollowsList={(uid: string) => {
+                setFollowsListUserId(uid)
+                setFollowsListBackScreen('player-profile')
+                setCurrentScreen('follows-list')
+              }}
               onOpenPlayerProfile={(uid: string, opts) => openPlayerProfile(uid, opts)}
+              onOpenDirectMessage={async (otherUserId: string) => {
+                const myUid = player.user_id
+                if (!myUid) return
+                const { getOrCreateConversation } = await import('./lib/directMessages')
+                const result = await getOrCreateConversation(myUid, otherUserId)
+                if (result.success && result.conversationId) {
+                  setDmConversationId(result.conversationId)
+                  setDmOtherUserId(otherUserId)
+                  setCurrentScreen('direct-chat')
+                } else {
+                  alert(result.error || 'Não foi possível abrir a conversa')
+                }
+              }}
             />
           </Suspense>
         )}
@@ -1169,8 +1214,31 @@ function App() {
             <FollowsListScreen
               targetUserId={followsListUserId}
               myUserId={player.user_id}
-              onBack={() => setCurrentScreen('player-profile')}
+              onBack={() => setCurrentScreen(followsListBackScreen)}
               onOpenPlayerProfile={(uid: string, opts) => openPlayerProfile(uid, opts)}
+            />
+          </Suspense>
+        )}
+        {currentScreen === 'messages' && player?.user_id && (
+          <Suspense fallback={<ScreenLoadingFallback />}>
+            <MessagesInboxScreen
+              userId={player.user_id}
+              onBack={() => setCurrentScreen('community')}
+              onOpenChat={(conversationId, otherUserId) => {
+                setDmConversationId(conversationId)
+                setDmOtherUserId(otherUserId)
+                setCurrentScreen('direct-chat')
+              }}
+            />
+          </Suspense>
+        )}
+        {currentScreen === 'direct-chat' && dmConversationId && dmOtherUserId && player?.user_id && (
+          <Suspense fallback={<ScreenLoadingFallback />}>
+            <DirectChatScreen
+              conversationId={dmConversationId}
+              myUserId={player.user_id}
+              otherUserId={dmOtherUserId}
+              onBack={() => setCurrentScreen('messages')}
             />
           </Suspense>
         )}

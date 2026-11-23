@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
-import { ChevronRight, Search, Plus, Users, X, Heart, Image, Video, Send, Trash2 } from 'lucide-react'
+import { ChevronRight, Search, Plus, Users, X, Heart, Image, Video, Send, Trash2, MessageCircle, UserCheck } from 'lucide-react'
 import { useI18n } from '../../lib/i18nContext'
 import { isLikelyTeamLabel } from '../../lib/matchPlayerNames'
 import {
@@ -30,7 +30,25 @@ import {
   type GroupInvite,
 } from '../../lib/communityGroups'
 import { GameCardPlaytomic, type PlayerMatchForCard } from '../shared/matchUi'
-export default function CommunityScreen({ userId, playerAccountId: _playerAccountId, playerAvatar, playerName, onOpenPlayerProfile, onOpenGroup }: { userId: string; playerAccountId: string; playerAvatar?: string | null; playerName?: string; onOpenPlayerProfile: (userId: string, opts?: { accountId?: string | null; nameHint?: string | null }) => void; onOpenGroup: (groupId: string) => void }) {
+export default function CommunityScreen({
+  userId,
+  playerAccountId: _playerAccountId,
+  playerAvatar,
+  playerName,
+  onOpenPlayerProfile,
+  onOpenGroup,
+  onOpenMessages,
+  onOpenMyFollows,
+}: {
+  userId: string
+  playerAccountId: string
+  playerAvatar?: string | null
+  playerName?: string
+  onOpenPlayerProfile: (userId: string, opts?: { accountId?: string | null; nameHint?: string | null }) => void
+  onOpenGroup: (groupId: string) => void
+  onOpenMessages: () => void
+  onOpenMyFollows: () => void
+}) {
   void _playerAccountId
   const { t } = useI18n()
   // Feed state
@@ -246,6 +264,36 @@ export default function CommunityScreen({ userId, playerAccountId: _playerAccoun
           <Users className="w-7 h-7 text-red-600" />
           Comunidade
         </h1>
+      </div>
+
+      {/* Atalhos: mensagens + a seguir/seguidores */}
+      <div className="grid grid-cols-2 gap-2 mb-4">
+        <button
+          type="button"
+          onClick={onOpenMessages}
+          className="flex items-center gap-2 bg-white border border-gray-100 rounded-xl px-3 py-2.5 shadow-sm hover:shadow-md transition-shadow text-left"
+        >
+          <div className="w-9 h-9 rounded-full bg-red-50 text-red-600 flex items-center justify-center flex-shrink-0">
+            <MessageCircle className="w-5 h-5" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-gray-900">Mensagens</p>
+            <p className="text-[11px] text-gray-400 truncate">Conversas privadas</p>
+          </div>
+        </button>
+        <button
+          type="button"
+          onClick={onOpenMyFollows}
+          className="flex items-center gap-2 bg-white border border-gray-100 rounded-xl px-3 py-2.5 shadow-sm hover:shadow-md transition-shadow text-left"
+        >
+          <div className="w-9 h-9 rounded-full bg-orange-50 text-orange-600 flex items-center justify-center flex-shrink-0">
+            <UserCheck className="w-5 h-5" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-gray-900">A seguir</p>
+            <p className="text-[11px] text-gray-400 truncate">E seguidores</p>
+          </div>
+        </button>
       </div>
 
       {/* Search bar */}
