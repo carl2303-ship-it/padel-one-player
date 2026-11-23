@@ -906,7 +906,6 @@ function App() {
             onOpenClubsList={() => setCurrentScreen('clubs-list')}
             onOpenClubDetail={(clubId: string) => { setSelectedClubId(clubId); setCurrentScreen('club-detail') }}
             onOpenRankings={() => setCurrentScreen('rankings')}
-            onOpenGameResults={() => setCurrentScreen('game-results')}
             isLiteMode={isLiteMode}
             canBook={canBook}
             canFindGame={canFindGame}
@@ -1512,7 +1511,6 @@ function HomeScreen({
   onOpenClubsList,
   onOpenClubDetail,
   onOpenRankings,
-  onOpenGameResults,
   isLiteMode = false,
   canBook = true,
   canFindGame = true,
@@ -1539,7 +1537,6 @@ function HomeScreen({
   onOpenClubsList: () => void
   onOpenClubDetail: (clubId: string) => void
   onOpenRankings: () => void
-  onOpenGameResults: () => void
   isLiteMode?: boolean
   canBook?: boolean
   canFindGame?: boolean
@@ -1807,13 +1804,18 @@ function HomeScreen({
         </div>
       )}
 
-      {/* Quick Actions — 5 numa linha */}
+      {/* Quick Actions — 5 numa linha (Store após Rankings) */}
       <div className="grid grid-cols-5 gap-1 sm:gap-2">
         <ActionButton icon={Trophy} label={t.home.tournaments} color="amber" onClick={onOpenCompete} />
         <ActionButton icon={Gamepad2} label={t.home.findGame} color="purple" emoji="🎾" onClick={onOpenFindGame} />
         <ActionButton icon={Target} label="Resultados" color="rose" emoji="📊" onClick={onOpenMyResults} />
-        <ActionButton icon={Target} label={t.common.quickResult} color="emerald" emoji="✍️" onClick={onOpenGameResults} />
         <ActionButton icon={TrendingUp} label={t.home.rankings} color="rose" onClick={onOpenRankings} />
+        <ActionButton
+          label={t.home.store}
+          color="navy"
+          imageSrc="/se-app-icon.jpg"
+          onClick={() => window.open('https://store.padel1.app/', '_blank', 'noopener,noreferrer')}
+        />
       </div>
 
       {/* Profile Card - Foto + Nome + Bio */}
@@ -1851,18 +1853,6 @@ function HomeScreen({
         levelLabel={t.home.level}
         reliabilityLabel={t.home.reliability}
       />
-
-      {(isLiteMode || !canFindGame) && (
-        <button
-          onClick={onOpenGameResults}
-          className="w-full p-4 rounded-2xl bg-gradient-to-r from-green-600 to-emerald-600 text-white shadow-md hover:shadow-lg transition-shadow text-left"
-        >
-          <p className="font-bold text-base flex items-center gap-2">
-            <span>📊</span> {t.common.quickResultTitle}
-          </p>
-          <p className="text-sm text-white/90 mt-1">{t.common.quickResultDesc}</p>
-        </button>
-      )}
 
       {/* Estatísticas - Jogos, Vitórias, %, A seguir, Seguidores */}
       <div className="grid grid-cols-5 gap-2">
@@ -1922,6 +1912,34 @@ function HomeScreen({
         </button>
       </div>
       )}
+
+      {/* Banner Store — SportsEvents (cyan/amarelo em navy) */}
+      <a
+        href="https://store.padel1.app/"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="block w-full rounded-2xl overflow-hidden shadow-md hover:shadow-lg transition-shadow focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+        style={{
+          background: 'linear-gradient(135deg, #0B1B2B 0%, #0E2A3F 55%, #123A52 100%)',
+        }}
+      >
+        <div className="flex items-center gap-3 p-4 sm:p-5">
+          <img
+            src="/se-app-icon.jpg"
+            alt="SportsEvents"
+            className="w-12 h-12 rounded-xl flex-shrink-0 shadow-sm ring-1 ring-white/10"
+          />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm sm:text-base font-semibold leading-snug text-cyan-300">
+              {t.home.storeBannerText}
+            </p>
+            <span className="inline-flex items-center gap-1 mt-2 text-xs font-bold uppercase tracking-wide text-[#0B1B2B] bg-[#F5C518] px-2.5 py-1 rounded-md">
+              {t.home.storeBannerCta}
+              <ExternalLink className="w-3 h-3" />
+            </span>
+          </div>
+        </div>
+      </a>
 
       {/* Próximos Jogos – lista horizontal ao estilo Playtomic */}
       <div>

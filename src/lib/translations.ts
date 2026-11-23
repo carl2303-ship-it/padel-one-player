@@ -145,6 +145,9 @@ export const translations = {
       tournamentInvitesHint: 'Foste convidado para torneios exclusivos!',
       view: 'Ver',
       rankings: 'Rankings',
+      store: 'Store',
+      storeBannerText: 'Leva o teu Padel para o próximo Nível com a Store.padel1.app!',
+      storeBannerCta: 'Visita Aqui!',
     },
     rankings: {
       title: 'Rankings',
@@ -1079,6 +1082,9 @@ export const translations = {
       tournamentInvitesHint: 'You have been invited to exclusive tournaments!',
       view: 'View',
       rankings: 'Rankings',
+      store: 'Store',
+      storeBannerText: 'Take your Padel to the next Level with Store.padel1.app!',
+      storeBannerCta: 'Visit Here!',
     },
     rankings: {
       title: 'Rankings',
@@ -1998,6 +2004,9 @@ export const translations = {
       tournamentInvitesHint: '¡Has sido invitado a torneos exclusivos!',
       view: 'Ver',
       rankings: 'Rankings',
+      store: 'Store',
+      storeBannerText: '¡Lleva tu Pádel al siguiente Nivel con Store.padel1.app!',
+      storeBannerCta: '¡Visita Aquí!',
     },
     rankings: {
       title: 'Rankings',
@@ -2917,6 +2926,9 @@ export const translations = {
       tournamentInvitesHint: 'Vous avez été invité à des tournois exclusifs !',
       view: 'Voir',
       rankings: 'Classements',
+      store: 'Store',
+      storeBannerText: 'Pousse ton Padel au niveau supérieur avec Store.padel1.app !',
+      storeBannerCta: 'Visite Ici !',
     },
     rankings: {
       title: 'Classements',

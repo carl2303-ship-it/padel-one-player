@@ -87,12 +87,13 @@ export function OpenGameResultScores({ result }: { result: import('../../lib/ope
   )
 }
 
-export function ActionButton({ icon: Icon, label, color, onClick, emoji }: {
-  icon: any
+export function ActionButton({ icon: Icon, label, color, onClick, emoji, imageSrc }: {
+  icon?: any
   label: string
-  color: 'lime' | 'blue' | 'amber' | 'purple' | 'emerald' | 'rose'
+  color: 'lime' | 'blue' | 'amber' | 'purple' | 'emerald' | 'rose' | 'navy'
   onClick?: () => void
   emoji?: string
+  imageSrc?: string
 }) {
   const colorClasses = {
     lime: 'bg-lime-400',
@@ -101,11 +102,18 @@ export function ActionButton({ icon: Icon, label, color, onClick, emoji }: {
     purple: 'bg-purple-400',
     emerald: 'bg-emerald-400',
     rose: 'bg-rose-400',
+    navy: 'bg-[#0B1B2B]',
   }
   return (
     <button type="button" onClick={onClick} className="action-btn">
-      <div className={`action-btn-icon ${colorClasses[color]} flex items-center justify-center`}>
-        {emoji ? <span className="text-2xl">{emoji}</span> : <Icon className="w-6 h-6 text-white" />}
+      <div className={`action-btn-icon ${colorClasses[color]} flex items-center justify-center overflow-hidden`}>
+        {imageSrc ? (
+          <img src={imageSrc} alt="" className="w-full h-full object-cover" />
+        ) : emoji ? (
+          <span className="text-2xl">{emoji}</span>
+        ) : Icon ? (
+          <Icon className="w-6 h-6 text-white" />
+        ) : null}
       </div>
       <span className="text-[10px] sm:text-xs font-medium text-gray-700 text-center leading-tight line-clamp-2">{label}</span>
     </button>
