@@ -9,6 +9,7 @@ import { getTranslations } from './translations'
 import { cleanPlayerDisplayName } from './matchPlayerNames'
 import { calculateNewRatings, calculateReliability, calculateProtectedReliability } from './ratingEngine'
 import { reverseRatingForSource } from './levelHistory'
+import { fetchClientModules } from './useClientModules'
 
 const DEFAULT_TZ = 'Europe/Lisbon'
 
@@ -430,7 +431,10 @@ export async function getPlayerMemberDiscounts(): Promise<Map<string, number>> {
 // ============================
 
 export async function fetchClubsWithAvailability(): Promise<ClubWithAvailability[]> {
-  // 1. Fetch all active managed clubs (only clubs with an owner can have bookings)
+  // 1. Active clubs with an owner. Court-slot booking requires the **manager**
+  // module (gestão integral). Clubs with only tournaments/bar (e.g. APC) must
+  // not appear — is_managed/owner_id alone is not enough (APC has courts rows
+  // but manager module disabled).
   const { data: clubs, error: clubsError } = await supabase
     .from('clubs')
     .select('id, owner_id, name, logo_url, photo_url_1, photo_url_2, city, address, payment_method, active_schedule, is_managed')
@@ -446,8 +450,15 @@ export async function fetchClubsWithAvailability(): Promise<ClubWithAvailability
   const memberDiscounts = await getPlayerMemberDiscounts()
 
   const result: ClubWithAvailability[] = []
-  
-  const managedClubs = clubs.filter(c => c.owner_id)
+
+  const ownedClubs = clubs.filter(c => c.owner_id)
+  const moduleFlags = await Promise.all(
+    ownedClubs.map(async (club) => ({
+      club,
+      hasManager: (await fetchClientModules('club', club.id)).hasManager,
+    })),
+  )
+  const managedClubs = moduleFlags.filter((x) => x.hasManager).map((x) => x.club)
 
   for (const club of managedClubs) {
     // 2. Fetch courts for this club (including per-court slot config)
@@ -827,6 +838,12 @@ async function createCourtBookingForGame(gameId: string): Promise<{
 
   if (!game?.court_id) {
     return { success: false, error: 'Jogo ou campo não encontrado' }
+  }
+
+  // HUB-98: never create court_bookings for tournaments-only clubs (no manager module).
+  const clubModules = await fetchClientModules('club', game.club_id)
+  if (!clubModules.hasManager) {
+    return { success: false, error: 'club_not_full_managed' }
   }
 
   const available = await isCourtAvailableForGame(game)

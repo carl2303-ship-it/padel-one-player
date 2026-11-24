@@ -1503,7 +1503,7 @@ export default function FindGameScreen({
                 </div>
                 <p className="text-xs text-gray-500">
                   {createCourtReserved
-                    ? 'Os jogadores já têm (ou vão ter) campo reservado. Se o clube tiver gestão de reservas, podes escolher um horário livre abaixo.'
+                    ? 'Os jogadores já têm (ou vão ter) campo reservado fora da app. Horários livres só aparecem para clubes com gestão integral (módulo manager).'
                     : 'Jogo social sem reserva de campo no clube — ideal para qualquer clube.'}
                 </p>
               </div>
@@ -1703,12 +1703,12 @@ export default function FindGameScreen({
                 </button>
               </div>
 
-              {/* Optional: managed club slots when reserved */}
+              {/* Optional: slots only for clubs with manager module (full-managed) */}
               {createCourtReserved && clubsAvailability.length > 0 && (
                 <div className="space-y-3">
                   <div>
-                    <h3 className="text-sm font-semibold text-gray-900">Ou escolhe um horário livre (clubes com reservas)</h3>
-                    <p className="text-xs text-gray-500">Reservar campo no clube via disponibilidade</p>
+                    <h3 className="text-sm font-semibold text-gray-900">Ou escolhe um horário livre (clubes com gestão integral)</h3>
+                    <p className="text-xs text-gray-500">Só clubes com módulo manager — reserva de campo na app</p>
                   </div>
                   {clubsAvailability
                     .filter(club => !createSelectedClub || club.id === createSelectedClub.id)
