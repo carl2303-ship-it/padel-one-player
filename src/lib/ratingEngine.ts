@@ -957,10 +957,13 @@ export async function processAllUnratedMatches(
 ): Promise<{ processed: number; skipped: number; errors: number; total: number }> {
   let query = supabase
     .from('matches')
-    .select('id, scheduled_time, tournament_id')
+    .select('id, scheduled_time, match_number, tournament_id')
     .eq('status', 'completed')
     .or('rating_processed.is.null,rating_processed.eq.false')
+    // Stable chronology: same-slot matches (e.g. 20:18×3) must not shuffle
     .order('scheduled_time', { ascending: true })
+    .order('match_number', { ascending: true })
+    .order('id', { ascending: true })
 
   if (since) {
     query = query.gte('scheduled_time', since)
