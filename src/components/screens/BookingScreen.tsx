@@ -645,6 +645,36 @@ export default function BookingScreen({
             </div>
           </div>
 
+          {/* Game Type */}
+          <div>
+            <label className="text-sm font-semibold text-gray-700 mb-2 block">🎯 {t.common.gameType}</label>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setGameType('friendly')}
+                className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
+                  gameType === 'friendly' ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                🤝 {t.games.friendly}
+              </button>
+              <button
+                type="button"
+                onClick={() => setGameType('competitive')}
+                className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
+                  gameType === 'competitive' ? 'bg-amber-500 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                🏆 {t.games.competitive}
+              </button>
+            </div>
+            <p className="text-xs text-gray-500 mt-1.5">
+              {gameType === 'competitive'
+                ? 'Competitivo conta para o teu nível.'
+                : 'Amigável não altera o nível.'}
+            </p>
+          </div>
+
           {/* Gender */}
           <div>
             <label className="text-sm font-semibold text-gray-700 mb-2 block">👤 {t.booking.gender}</label>

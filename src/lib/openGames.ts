@@ -1032,7 +1032,7 @@ export async function createOpenGame(params: {
       court_reserved: courtReserved,
       scheduled_at: scheduledAtISO,
       duration_minutes: params.durationMinutes,
-      game_type: 'competitive',
+      game_type: params.gameType,
       gender: params.gender,
       level_min: levelMin,
       level_max: levelMax,
@@ -2389,7 +2389,21 @@ export async function disputeGameResult(gameId: string): Promise<{ success: bool
 // ============================
 
 async function processOpenGameRating(gameId: string): Promise<void> {
-  
+  // Friendly games do not affect level — only competitive.
+  const { data: gameMeta } = await supabase
+    .from('open_games')
+    .select('game_type')
+    .eq('id', gameId)
+    .maybeSingle()
+  if (gameMeta?.game_type && gameMeta.game_type !== 'competitive') {
+    await supabase
+      .from('open_game_results')
+      .update({ rating_processed: true, updated_at: new Date().toISOString() })
+      .eq('game_id', gameId)
+      .eq('status', 'confirmed')
+    return
+  }
+
   // 1. Get the confirmed result
   const { data: result, error: resultError } = await supabase
     .from('open_game_results')

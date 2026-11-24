@@ -1572,6 +1572,38 @@ export default function FindGameScreen({
                 </p>
               </div>
 
+              {/* Tipo de jogo — Competitivo conta para o nível */}
+              <div className="card p-4 space-y-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-900">{t.common.gameType || 'Tipo de jogo'}</h3>
+                  <p className="text-xs text-gray-500">
+                    {createGameType === 'competitive'
+                      ? 'Competitivo conta para o teu nível.'
+                      : 'Amigável não altera o nível.'}
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCreateGameType('friendly')}
+                    className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
+                      createGameType === 'friendly' ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                  >
+                    🤝 {t.games.friendly}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCreateGameType('competitive')}
+                    className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
+                      createGameType === 'competitive' ? 'bg-amber-500 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                  >
+                    🏆 {t.games.competitive}
+                  </button>
+                </div>
+              </div>
+
               {/* Lineup: 4 bolinhas */}
               <div className="card p-4 space-y-3">
                 <div>
@@ -2727,6 +2759,36 @@ export default function FindGameScreen({
                     </button>
                   ))}
                 </div>
+              </div>
+
+              {/* Game Type */}
+              <div>
+                <label className="text-sm font-semibold text-gray-700 mb-2 block">{t.common.gameType || 'Tipo de jogo'}</label>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCreateGameType('friendly')}
+                    className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
+                      createGameType === 'friendly' ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                  >
+                    🤝 {t.games.friendly}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCreateGameType('competitive')}
+                    className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
+                      createGameType === 'competitive' ? 'bg-amber-500 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                  >
+                    🏆 {t.games.competitive}
+                  </button>
+                </div>
+                <p className="text-xs text-gray-500 mt-1.5">
+                  {createGameType === 'competitive'
+                    ? 'Competitivo conta para o teu nível.'
+                    : 'Amigável não altera o nível.'}
+                </p>
               </div>
 
               {/* Gender */}
