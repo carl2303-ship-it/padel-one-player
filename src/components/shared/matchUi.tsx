@@ -152,17 +152,32 @@ export function parseSetScores(setStr: string): [string, string] | null {
   return a != null && b != null ? [a, b] : null
 }
 
+/**
+ * Identidade para avatar / “sou eu neste card”.
+ * STRICT: nunca usar só o primeiro nome — "Carlos Franco" ≠ "Carlos Coelho"
+ * nem ≠ "Carlos/Padel1/SportsEvents" (primary "Carlos").
+ * Match parcial permissivo (`startsWith`) causava avatar do user logado
+ * noutras bolinhas "Carlos …".
+ */
 export function isCurrentPlayer(playerName: string, currentName?: string): boolean {
   if (!currentName) return false
-  const p = (playerName || '').trim().toLowerCase()
-  const c = (currentName || '').trim().toLowerCase()
+  const primary = (s: string) => (s || '').trim().toLowerCase().split(/\s*\/\s*/)[0].trim()
+  const p = primary(playerName)
+  const c = primary(currentName)
   if (!p || !c) return false
   if (p === c) return true
-  const pPrimary = p.split(/\s*\/\s*/)[0]
-  const cPrimary = c.split(/\s*\/\s*/)[0]
-  if (pPrimary === cPrimary) return true
-  // Match parcial: "Guilherme" vs "Guilherme Silva" ou vice-versa
-  return p.startsWith(c) || c.startsWith(p) || pPrimary.startsWith(cPrimary) || cPrimary.startsWith(pPrimary)
+
+  const pParts = p.split(/\s+/).filter(Boolean)
+  const cParts = c.split(/\s+/).filter(Boolean)
+
+  // Ambos com apelido: primeiro + último iguais (ex. "Guilherme Silva" ≈ "Guilherme A. Silva")
+  if (pParts.length >= 2 && cParts.length >= 2) {
+    return pParts[0] === cParts[0] && pParts[pParts.length - 1] === cParts[cParts.length - 1]
+  }
+
+  // Um lado só tem um token: só aceitar se for o nome COMPLETO do outro (não prefixo de "Carlos X")
+  // Ex.: "Guilherme" ≈ "Guilherme" — NÃO "Carlos" ≈ "Carlos Franco"
+  return false
 }
 
 export function PlayerCircle({ name, bgClass, textClass, avatarUrl, currentPlayerName, onClick }: {
@@ -424,6 +439,8 @@ export function GameCardPlaytomic({
     const cached = !isPlaceholder ? getCachedPlayerData(name) : null
     const level = cached?.level ?? undefined
     const colors = levelColors(level)
+    // Avatar: (1) dado do match (2) cache do NOME exacto (3) foto da sessão só se for a mesma pessoa.
+    // Nunca herdar currentPlayerAvatar por fuzzy "Carlos*".
     const avatarUrl =
       matchAvatar ||
       cached?.avatar_url ||

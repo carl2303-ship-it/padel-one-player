@@ -122,8 +122,9 @@ export function getCachedPlayerData(name: string): CachedPlayerData | null {
     }
   }
 
-  // 4. Primeiro nome (se resultado único)
-  if (parts.length >= 1) {
+  // 4. Primeiro nome (se resultado único) — SÓ se a query for um único token.
+  // Nunca mapear "Carlos Franco" → outro "Carlos …" (avatar errado).
+  if (parts.length === 1) {
     const first = parts[0]
     if (first.length < 3) return null
     const matches: CachedPlayerData[] = []
