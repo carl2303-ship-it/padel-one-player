@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { Building2, Check, ChevronLeft, Lock, Plus, RefreshCw, Search, X } from 'lucide-react'
 import { useI18n } from '../../lib/i18nContext'
 import { supabase, type PlayerAccount } from '../../lib/supabase'
@@ -2024,11 +2025,16 @@ export default function FindGameScreen({
         </div>
       )}
 
-      {/* === MODAL: Introduzir Resultado === */}
-      {resultModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setResultModal(null)}>
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-fade-in" onClick={e => e.stopPropagation()}>
-            <div className="p-4 border-b border-gray-100 flex items-center justify-between">
+      {/* === MODAL: Introduzir Resultado ===
+          Portal to body: parent animate-fade-in uses transform, which breaks position:fixed
+          and centers the modal in page content (too low on mobile). */}
+      {resultModal && createPortal(
+        <div
+          className="fixed inset-0 z-[100] flex items-start sm:items-center justify-center bg-black/50 p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] overflow-y-auto"
+          onClick={() => setResultModal(null)}
+        >
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl animate-fade-in max-h-[calc(100dvh-2rem)] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="p-4 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white z-10">
               <h3 className="font-bold text-lg text-gray-900">📊 Introduzir resultado</h3>
               <button onClick={() => setResultModal(null)} className="p-1">
                 <X className="w-5 h-5 text-gray-500" />
@@ -2171,15 +2177,19 @@ export default function FindGameScreen({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* === MODAL: Resultado Rápido (3 passos) === */}
-      {quickResultModal && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 p-4 overflow-y-auto" onClick={() => setQuickResultModal(false)}>
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-fade-in my-4" onClick={e => e.stopPropagation()}>
+      {quickResultModal && createPortal(
+        <div
+          className="fixed inset-0 z-[100] flex items-start justify-center bg-black/50 p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] overflow-y-auto"
+          onClick={() => setQuickResultModal(false)}
+        >
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-fade-in my-2 sm:my-4" onClick={e => e.stopPropagation()}>
             {/* Header */}
-            <div className="p-4 border-b border-gray-100 flex items-center justify-between">
+            <div className="p-4 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white z-10">
               <div>
                 <h3 className="font-bold text-lg text-gray-900">{t.common.quickResultTitle}</h3>
                 <p className="text-xs text-gray-500">{t.common.step} {qrStep}/3</p>
@@ -2561,14 +2571,18 @@ export default function FindGameScreen({
               )}
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* === MODAL: Disputar Resultado === */}
-      {confirmModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setConfirmModal(null)}>
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-fade-in" onClick={e => e.stopPropagation()}>
-            <div className="p-4 border-b border-gray-100 flex items-center justify-between">
+      {confirmModal && createPortal(
+        <div
+          className="fixed inset-0 z-[100] flex items-start sm:items-center justify-center bg-black/50 p-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] overflow-y-auto"
+          onClick={() => setConfirmModal(null)}
+        >
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl animate-fade-in max-h-[calc(100dvh-2rem)] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="p-4 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white z-10">
               <h3 className="font-bold text-lg text-gray-900">📊 {t.results.disputeResult}</h3>
               <button onClick={() => setConfirmModal(null)} className="p-1">
                 <X className="w-5 h-5 text-gray-500" />
@@ -2677,7 +2691,8 @@ export default function FindGameScreen({
               })()}
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* === MODAL: Criar Jogo === */}
