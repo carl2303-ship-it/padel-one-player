@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowLeft, Camera, Trash2, X } from 'lucide-react'
+import { ArrowLeft, Bell, Camera, Trash2, X } from 'lucide-react'
 import {
   MARKETPLACE_CATEGORIES,
   MARKETPLACE_CONDITIONS,
@@ -11,6 +11,11 @@ import {
   type MarketplaceCategory,
   type MarketplaceCondition,
 } from '../../lib/marketplace'
+import {
+  checkIsSubscribed,
+  isPushSupported,
+  subscribeToPush,
+} from '../../lib/pushNotifications'
 
 const MAX_PHOTOS = 4
 const MAX_PHOTO_BYTES = 5 * 1024 * 1024
@@ -35,6 +40,8 @@ export default function MarketplaceFormScreen({
   const [saving, setSaving] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState('')
+  const [pushReminderListingId, setPushReminderListingId] = useState<string | null>(null)
+  const [pushEnabling, setPushEnabling] = useState(false)
 
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
@@ -102,6 +109,35 @@ export default function MarketplaceFormScreen({
     setUploading(false)
   }
 
+  const finishSaved = (id: string) => {
+    setPushReminderListingId(null)
+    onSaved(id)
+  }
+
+  const maybeRemindPushThenFinish = async (id: string, isNewListing: boolean) => {
+    if (!isNewListing || !isPushSupported()) {
+      finishSaved(id)
+      return
+    }
+    const subscribed = await checkIsSubscribed(playerAccountId).catch(() => false)
+    if (subscribed) {
+      finishSaved(id)
+      return
+    }
+    setPushReminderListingId(id)
+  }
+
+  const handleEnablePushFromReminder = async () => {
+    if (!pushReminderListingId) return
+    setPushEnabling(true)
+    try {
+      await subscribeToPush(playerAccountId)
+    } finally {
+      setPushEnabling(false)
+      finishSaved(pushReminderListingId)
+    }
+  }
+
   const handleSave = async () => {
     const trimmed = title.trim()
     const priceNum = Number(String(price).replace(',', '.'))
@@ -157,7 +193,7 @@ export default function MarketplaceFormScreen({
           setError(result.error || 'Erro ao criar anúncio')
           return
         }
-        onSaved(result.id)
+        await maybeRemindPushThenFinish(result.id, true)
       }
     } finally {
       setSaving(false)
@@ -365,6 +401,52 @@ export default function MarketplaceFormScreen({
           <Trash2 className="w-4 h-4" />
           Remover anúncio
         </button>
+      )}
+
+      {pushReminderListingId && (
+        <div
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-[200] p-4"
+          onClick={() => finishSaved(pushReminderListingId)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-xl max-w-sm w-full overflow-hidden animate-fade-in"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-6 space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-full bg-red-50 flex items-center justify-center flex-shrink-0">
+                  <Bell className="w-5 h-5 text-red-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-gray-900">Anúncio publicado!</h3>
+                  <p className="text-xs text-gray-500">Quase a receber ofertas</p>
+                </div>
+              </div>
+              <p className="text-sm text-gray-600 leading-relaxed">
+                Activa as notificações para receberes alertas quando alguém contactar o teu anúncio.
+                Sem notificações, podes perder ofertas de compradores.
+              </p>
+              <div className="space-y-2 pt-1">
+                <button
+                  type="button"
+                  onClick={handleEnablePushFromReminder}
+                  disabled={pushEnabling}
+                  className="w-full py-3 rounded-xl bg-red-600 text-white font-semibold hover:bg-red-700 disabled:opacity-60"
+                >
+                  {pushEnabling ? 'A activar…' : 'Ativar notificações'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => finishSaved(pushReminderListingId)}
+                  disabled={pushEnabling}
+                  className="w-full py-3 rounded-xl border border-gray-200 text-gray-700 font-semibold hover:bg-gray-50 disabled:opacity-60"
+                >
+                  Agora não
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
