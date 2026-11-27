@@ -1938,7 +1938,7 @@ function HomeScreen({
         </div>
       )}
 
-      {/* Quick Actions — Resultado Rápido + Store após Rankings */}
+      {/* Quick Actions — Resultado Rápido + Marketplace após Rankings */}
       <div className="grid grid-cols-6 gap-1 sm:gap-2">
         <ActionButton icon={Trophy} label={t.home.tournaments} color="amber" onClick={onOpenCompete} />
         <ActionButton icon={Gamepad2} label={t.home.findGame} color="purple" emoji="🎾" onClick={onOpenFindGame} />
@@ -1946,12 +1946,28 @@ function HomeScreen({
         <ActionButton icon={Target} label={t.common.quickResult} color="emerald" emoji="✍️" onClick={onOpenGameResults} />
         <ActionButton icon={TrendingUp} label={t.home.rankings} color="rose" onClick={onOpenRankings} />
         <ActionButton
-          label={t.home.store}
+          icon={ShoppingBag}
+          label={t.menu.marketplace}
           color="navy"
-          imageSrc="/se-app-icon.jpg"
-          onClick={() => window.open('https://store.padel1.app/', '_blank', 'noopener,noreferrer')}
+          onClick={onOpenMarketplace}
         />
       </div>
+
+      {/* Marketplace — anúncios jogadores + Store (logo sob as bolinhas) */}
+      <button
+        type="button"
+        onClick={onOpenMarketplace}
+        className="w-full card p-4 flex items-center gap-3 text-left hover:shadow-md transition-shadow"
+      >
+        <div className="w-12 h-12 rounded-xl bg-red-50 flex items-center justify-center flex-shrink-0">
+          <ShoppingBag className="w-6 h-6 text-red-600" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="font-semibold text-gray-900">{t.menu.marketplace}</p>
+          <p className="text-sm text-gray-500">Compra e vende material de padel</p>
+        </div>
+        <ChevronRight className="w-5 h-5 text-gray-400 flex-shrink-0" />
+      </button>
 
       {/* Profile Card - Foto + Nome + Bio */}
       <div className="card p-5">
@@ -2075,22 +2091,6 @@ function HomeScreen({
           </div>
         </div>
       </a>
-
-      {/* Marketplace — anúncios jogadores + Store */}
-      <button
-        type="button"
-        onClick={onOpenMarketplace}
-        className="w-full card p-4 flex items-center gap-3 text-left hover:shadow-md transition-shadow"
-      >
-        <div className="w-12 h-12 rounded-xl bg-red-50 flex items-center justify-center flex-shrink-0">
-          <ShoppingBag className="w-6 h-6 text-red-600" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="font-semibold text-gray-900">{t.menu.marketplace}</p>
-          <p className="text-sm text-gray-500">Compra e vende material de padel</p>
-        </div>
-        <ChevronRight className="w-5 h-5 text-gray-400 flex-shrink-0" />
-      </button>
 
       {/* Próximos Jogos – lista horizontal ao estilo Playtomic */}
       <div>
