@@ -34,6 +34,9 @@ const DirectChatScreen = lazy(() => import('./components/screens/DirectChatScree
 const OtherPlayerProfileScreen = lazy(() => import('./components/screens/OtherPlayerProfileScreen'))
 const ProfileViewScreen = lazy(() => import('./components/screens/ProfileViewScreen'))
 const ProfileEditScreen = lazy(() => import('./components/screens/ProfileEditScreen'))
+const MarketplaceScreen = lazy(() => import('./components/screens/MarketplaceScreen'))
+const MarketplaceDetailScreen = lazy(() => import('./components/screens/MarketplaceDetailScreen'))
+const MarketplaceFormScreen = lazy(() => import('./components/screens/MarketplaceFormScreen'))
 
 // Fallback simples e consistente com o spinner já usado no resto da app,
 // mostrado só por instantes enquanto o chunk do ecrã é descarregado.
@@ -90,6 +93,7 @@ import {
   UserPlus,
   ChevronLeft,
   CheckCircle,
+  ShoppingBag,
   } from 'lucide-react'
 import {
   getFollowingCount,
@@ -141,7 +145,7 @@ import {
   OpenGameCard,
 } from './components/shared/matchUi'
 
-type Screen = 'home' | 'games' | 'profile-view' | 'profile-edit' | 'club' | 'club-detail' | 'clubs-list' | 'compete' | 'my-results' | 'community' | 'player-profile' | 'follows-list' | 'messages' | 'direct-chat' | 'learn' | 'find-game' | 'game-results' | 'rewards' | 'booking' | 'payments' | 'group-detail' | 'rankings'
+type Screen = 'home' | 'games' | 'profile-view' | 'profile-edit' | 'club' | 'club-detail' | 'clubs-list' | 'compete' | 'my-results' | 'community' | 'player-profile' | 'follows-list' | 'messages' | 'direct-chat' | 'learn' | 'find-game' | 'game-results' | 'rewards' | 'booking' | 'payments' | 'group-detail' | 'rankings' | 'marketplace' | 'marketplace-detail' | 'marketplace-form'
 
 function App() {
   const { t, language, setLanguage, languageNames, languageFlags } = useI18n()
@@ -160,6 +164,8 @@ function App() {
   const [dmOtherUserId, setDmOtherUserId] = useState<string | null>(null)
   const [createGameForGroupId, setCreateGameForGroupId] = useState<string | null>(null)
   const [selectedClubId, setSelectedClubId] = useState<string | null>(null)
+  const [selectedListingId, setSelectedListingId] = useState<string | null>(null)
+  const [marketplaceFormListingId, setMarketplaceFormListingId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
   const openPlayerProfile = (uid: string, opts?: { accountId?: string | null; nameHint?: string | null }) => {
@@ -855,6 +861,10 @@ function App() {
                 <CreditCard className="w-5 h-5 text-gray-500" />
                 <span className="font-medium text-gray-900">{t.menu.payments}</span>
               </button>
+              <button onClick={() => { setMenuOpen(false); setCurrentScreen('marketplace') }} className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 text-left">
+                <ShoppingBag className="w-5 h-5 text-gray-500" />
+                <span className="font-medium text-gray-900">{t.menu.marketplace}</span>
+              </button>
               <div className="border-t my-2" />
               <button onClick={() => { handleLogout(); setMenuOpen(false) }} className="w-full flex items-center gap-3 p-3 rounded-lg hover:bg-red-50 text-left text-red-600">
                 <LogOut className="w-5 h-5" />
@@ -916,6 +926,7 @@ function App() {
             onOpenClubDetail={(clubId: string) => { setSelectedClubId(clubId); setCurrentScreen('club-detail') }}
             onOpenRankings={() => setCurrentScreen('rankings')}
             onOpenGameResults={() => setCurrentScreen('game-results')}
+            onOpenMarketplace={() => setCurrentScreen('marketplace')}
             isLiteMode={isLiteMode}
             canBook={canBook}
             canFindGame={canFindGame}
@@ -1141,6 +1152,56 @@ function App() {
               player={player}
               userId={authUserId}
               onBack={() => setCurrentScreen('home')}
+            />
+          </Suspense>
+        )}
+        {currentScreen === 'marketplace' && player?.user_id && (
+          <Suspense fallback={<ScreenLoadingFallback />}>
+            <MarketplaceScreen
+              userId={player.user_id}
+              onBack={() => setCurrentScreen('home')}
+              onOpenListing={(id) => {
+                setSelectedListingId(id)
+                setCurrentScreen('marketplace-detail')
+              }}
+              onCreate={() => {
+                setMarketplaceFormListingId(null)
+                setCurrentScreen('marketplace-form')
+              }}
+            />
+          </Suspense>
+        )}
+        {currentScreen === 'marketplace-detail' && selectedListingId && player?.user_id && (
+          <Suspense fallback={<ScreenLoadingFallback />}>
+            <MarketplaceDetailScreen
+              listingId={selectedListingId}
+              myUserId={player.user_id}
+              myPlayerAccountId={player.id}
+              onBack={() => setCurrentScreen('marketplace')}
+              onOpenChat={(conversationId, otherUserId) => {
+                setDmConversationId(conversationId)
+                setDmOtherUserId(otherUserId)
+                setCurrentScreen('direct-chat')
+              }}
+              onEdit={(id) => {
+                setMarketplaceFormListingId(id)
+                setCurrentScreen('marketplace-form')
+              }}
+            />
+          </Suspense>
+        )}
+        {currentScreen === 'marketplace-form' && player?.user_id && (
+          <Suspense fallback={<ScreenLoadingFallback />}>
+            <MarketplaceFormScreen
+              listingId={marketplaceFormListingId}
+              userId={player.user_id}
+              playerAccountId={player.id}
+              onBack={() => setCurrentScreen('marketplace')}
+              onSaved={(id) => {
+                setSelectedListingId(id)
+                setMarketplaceFormListingId(null)
+                setCurrentScreen('marketplace-detail')
+              }}
             />
           </Suspense>
         )}
@@ -1581,6 +1642,7 @@ function HomeScreen({
   onOpenClubDetail,
   onOpenRankings,
   onOpenGameResults,
+  onOpenMarketplace,
   isLiteMode = false,
   canBook = true,
   canFindGame = true,
@@ -1608,6 +1670,7 @@ function HomeScreen({
   onOpenClubDetail: (clubId: string) => void
   onOpenRankings: () => void
   onOpenGameResults: () => void
+  onOpenMarketplace: () => void
   isLiteMode?: boolean
   canBook?: boolean
   canFindGame?: boolean
@@ -2012,6 +2075,22 @@ function HomeScreen({
           </div>
         </div>
       </a>
+
+      {/* Marketplace — anúncios jogadores + Store */}
+      <button
+        type="button"
+        onClick={onOpenMarketplace}
+        className="w-full card p-4 flex items-center gap-3 text-left hover:shadow-md transition-shadow"
+      >
+        <div className="w-12 h-12 rounded-xl bg-red-50 flex items-center justify-center flex-shrink-0">
+          <ShoppingBag className="w-6 h-6 text-red-600" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="font-semibold text-gray-900">{t.menu.marketplace}</p>
+          <p className="text-sm text-gray-500">Compra e vende material de padel</p>
+        </div>
+        <ChevronRight className="w-5 h-5 text-gray-400 flex-shrink-0" />
+      </button>
 
       {/* Próximos Jogos – lista horizontal ao estilo Playtomic */}
       <div>
